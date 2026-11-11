@@ -1,0 +1,469 @@
+@import '@fontsource/overpass/400.css';
+@import '@fontsource/overpass/500.css';
+@import '@fontsource/overpass/600.css';
+@import '@fontsource/overpass-mono/400.css';
+@import '@fontsource/overpass-mono/500.css';
+
+:root {
+  /* 2.1 Warna dasar (DESIGN.md) */
+  --ink: #0F1A1F;
+  --surface: #14232A;
+  --surface-2: #1A2C34;
+  --surface-3: #223841;
+  --rule: #243B45;
+  --rule-strong: #31505C;
+  --text: #E7E2D6;
+  --text-muted: #A9B4B4;
+  --text-faint: #78898C;
+  --signal: #E9A23B;
+  --data: #63C3D9;
+  --ok: #5DBB8A;
+  --warn: #D98A2B;
+  --danger: #E06A66;
+  --danger-strong: #D9534F;
+
+  /* 2.2 Warna karyawan */
+  --a-raka: #E9A23B;
+  --a-sari: #63C3D9;
+  --a-dimas: #A8C46B;
+  --a-bima: #D9735F;
+  --a-laras: #C58BB0;
+
+  /* 2.4 Tipografi */
+  --font-sans: 'Overpass', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Overpass Mono', ui-monospace, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--ink);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  padding: 6px 12px;
+  min-height: 32px;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out;
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--data);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Layout utama Meja Dispatch (DESIGN.md §3) */
+.dispatch-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--ink);
+}
+
+.status-rail {
+  height: 48px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+  gap: 16px;
+}
+
+.offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--danger);
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+}
+
+.dispatch-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 264px 1fr 320px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.roster-rail {
+  background: var(--surface);
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.center-stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--ink);
+}
+
+.detail-rail {
+  background: var(--surface);
+  border-left: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* RosterRow (§4.2) */
+.roster-row {
+  position: relative;
+  min-height: 68px;
+  padding: 8px 12px 8px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 140ms ease-out;
+}
+
+.roster-row:hover {
+  background: var(--surface-2);
+}
+
+.roster-row.selected {
+  background: var(--surface-2);
+}
+
+.roster-row.offline {
+  opacity: 0.55;
+}
+
+.roster-edge {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+
+/* Tick 20 segmen (§4.3) */
+.tick-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tick-segments {
+  display: inline-flex;
+  gap: 2px;
+  height: 8px;
+}
+
+.tick-seg {
+  width: 4px;
+  height: 8px;
+  background: var(--rule);
+  transition: background-color 140ms ease-out;
+}
+
+/* WorkOrderBoard Kanban (§4.6) */
+.kanban-wrap {
+  height: 256px;
+  min-height: 220px;
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  grid-template-columns: repeat(5, minmax(160px, 1fr));
+  background: var(--ink);
+  overflow-x: auto;
+}
+
+.kanban-tray {
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.kanban-tray:last-child {
+  border-right: none;
+}
+
+.kanban-tray-header {
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 2px solid var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.kanban-tray-list {
+  flex: 1;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.task-card {
+  background: var(--surface-3);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out;
+}
+
+.task-card:hover,
+.task-card.selected {
+  background: var(--surface-2);
+  border-color: var(--rule-strong);
+}
+
+/* DispatchLog (§4.4) */
+.dispatch-log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 64px 168px 1fr;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--rule);
+  align-items: baseline;
+  font-size: 14px;
+}
+
+.log-row.system-row {
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.log-row.approval-row {
+  border-left: 2px solid var(--warn);
+}
+
+/* CommandComposer (§4.5) */
+.composer-bar {
+  background: var(--surface);
+  border-top: 1px solid var(--rule);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.composer-input {
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text);
+  resize: none;
+  min-height: 38px;
+  max-height: 112px;
+  line-height: 1.45;
+}
+
+/* Segmented control */
+.seg-group {
+  display: inline-flex;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.seg-btn {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 4px 10px;
+  min-height: 28px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.seg-btn.active {
+  background: var(--surface-3);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Tag/chip 2px radius */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--surface-3);
+  border: 1px solid var(--rule);
+}
+
+/* Modal Approval (§4.7) */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+
+.modal-panel {
+  width: 100%;
+  max-width: 560px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Toast (§4.8) */
+.toast-box {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  z-index: 60;
+}
+
+@keyframes pulseSlow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.pulse-thinking {
+  animation: pulseSlow 1.6s infinite ease-in-out;
+}
+
+@media (max-width: 1199px) {
+  .dispatch-grid {
+    grid-template-columns: 240px 1fr 280px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .dispatch-grid {
+    grid-template-columns: 1fr;
+  }
+  .roster-rail {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--rule);
+    max-height: 84px;
+  }
+  .roster-row {
+    min-width: 210px;
+    border-right: 1px solid var(--rule);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

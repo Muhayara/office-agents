@@ -1,0 +1,198 @@
+import React, { useEffect, useState } from 'react';
+import { Pause, Play, RefreshCw, ShieldAlert } from 'lucide-react';
+import type { GatewayHealth, Lang, Mode } from '@office/shared';
+
+interface StatusRailProps {
+  officeName: string;
+  gateway: GatewayHealth;
+  mode: Mode;
+  paused: boolean;
+  language: Lang;
+  pendingApprovalCount: number;
+  wsConnected: boolean;
+  onSetMode: (mode: Mode) => void;
+  onTogglePause: () => void;
+  onSetLanguage: (lang: Lang) => void;
+  onCheckGateway: () => void;
+  onOpenApprovals: () => void;
+}
+
+export function StatusRail({
+  officeName,
+  gateway,
+  mode,
+  paused,
+  language,
+  pendingApprovalCount,
+  wsConnected,
+  onSetMode,
+  onTogglePause,
+  onSetLanguage,
+  onCheckGateway,
+  onOpenApprovals,
+}: StatusRailProps) {
+  const [clock, setClock] = useState<string>(() =>
+    new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }),
+  );
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setClock(
+        new Date().toLocaleTimeString('id-ID', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }),
+      );
+    }, 10000);
+    return () => clearInterval(t);
+  }, []);
+
+  const gwColor =
+    !wsConnected || gateway.status === 'offline'
+      ? 'var(--danger)'
+      : gateway.status === 'degraded'
+        ? 'var(--warn)'
+        : 'var(--ok)';
+
+  const gwLabel = !wsConnected
+    ? language === 'id'
+      ? 'Server terputus'
+      : 'Server disconnected'
+    : gateway.status === 'online'
+      ? `Gateway OK${gateway.latencyMs ? ` (${gateway.latencyMs}ms)` : ''}`
+      : gateway.status === 'degraded'
+        ? 'Gateway melambat'
+        : 'Gateway offline';
+
+  return (
+    <header className="status-rail">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{officeName}</span>
+
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 13,
+            color: 'var(--text-muted)',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              width: 8,
+              height: 8,
+              backgroundColor: gwColor,
+              display: 'inline-block',
+            }}
+          />
+          <span>{gwLabel}</span>
+          <button
+            type="button"
+            onClick={onCheckGateway}
+            title={language === 'id' ? 'Periksa ulang gateway' : 'Recheck gateway'}
+            aria-label={language === 'id' ? 'Periksa ulang gateway' : 'Recheck gateway'}
+            style={{ padding: '4px 6px', minHeight: 26 }}
+          >
+            <RefreshCw size={14} strokeWidth={1.5} />
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {pendingApprovalCount > 0 && (
+          <button
+            type="button"
+            onClick={onOpenApprovals}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              backgroundColor: 'var(--surface-3)',
+              borderColor: 'var(--warn)',
+              color: 'var(--warn)',
+              fontSize: 13,
+              fontWeight: 600,
+              padding: '4px 10px',
+            }}
+          >
+            <ShieldAlert size={15} strokeWidth={1.5} />
+            <span>
+              {language === 'id' ? 'Izin menunggu' : 'Pending approval'}:{' '}
+              <span className="mono">{pendingApprovalCount}</span>
+            </span>
+          </button>
+        )}
+
+        <div
+          className="seg-group"
+          role="group"
+          aria-label={language === 'id' ? 'Mode otonomi kantor' : 'Office autonomy mode'}
+        >
+          <button
+            type="button"
+            className={`seg-btn ${mode === 'semi' ? 'active' : ''}`}
+            onClick={() => onSetMode('semi')}
+          >
+            Semi
+          </button>
+          <button
+            type="button"
+            className={`seg-btn ${mode === 'full' ? 'active' : ''}`}
+            onClick={() => onSetMode('full')}
+          >
+            {language === 'id' ? 'Penuh' : 'Full'}
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={onTogglePause}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            borderColor: paused ? 'var(--signal)' : 'var(--rule-strong)',
+            color: paused ? 'var(--signal)' : 'var(--text)',
+            fontSize: 13,
+            padding: '4px 10px',
+          }}
+        >
+          {paused ? <Play size={14} strokeWidth={1.5} /> : <Pause size={14} strokeWidth={1.5} />}
+          <span>
+            {paused
+              ? language === 'id'
+                ? 'Lanjutkan'
+                : 'Resume'
+              : language === 'id'
+                ? 'Jeda semua'
+                : 'Pause all'}
+          </span>
+        </button>
+
+        <div className="seg-group" role="group" aria-label="Bahasa / Language">
+          <button
+            type="button"
+            className={`seg-btn ${language === 'id' ? 'active' : ''}`}
+            onClick={() => onSetLanguage('id')}
+          >
+            ID
+          </button>
+          <button
+            type="button"
+            className={`seg-btn ${language === 'en' ? 'active' : ''}`}
+            onClick={() => onSetLanguage('en')}
+          >
+            EN
+          </button>
+        </div>
+
+        <span className="mono" style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+          {clock}
+        </span>
+      </div>
+    </header>
+  );
+}
