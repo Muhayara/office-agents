@@ -1,0 +1,143 @@
+/* Hallmark · shape: app screen (Split Workbench) · genre: modern-minimal · v2.0.0 */
+@import '@fontsource/overpass/400.css';
+@import '@fontsource/overpass/500.css';
+@import '@fontsource/overpass/600.css';
+@import '@fontsource/overpass-mono/400.css';
+@import '@fontsource/overpass-mono/500.css';
+
+:root {
+  /* Surface Ladder (Dark Mode Parity — tidak memakai #000000 murni) */
+  --color-paper: #0F1A1F;
+  --color-paper-2: #15242B;
+  --color-paper-3: #1C2F38;
+  --color-rule: #253D48;
+  --color-rule-strong: #325260;
+
+  /* Ink & Typography */
+  --color-ink: #EDE8DD;
+  --color-ink-2: #A9B5B6;
+  --color-muted: #78898C;
+
+  /* Accent & Status Signals */
+  --color-accent: #E9A23B;
+  --color-accent-ink: #0F1A1F;
+  --color-focus: #63C3D9;
+  --color-ok: #5DBB8A;
+  --color-warn: #D98A2B;
+  --color-danger: #E06A66;
+
+  /* 10 Kursi Agen */
+  --a-raka: #E9A23B;
+  --a-sari: #63C3D9;
+  --a-dimas: #A8C46B;
+  --a-bima: #D9735F;
+  --a-gita: #4DA8DA;
+  --a-tari: #E8998D;
+  --a-wulan: #9B7EDE;
+  --a-laras: #C58BB0;
+  --a-fajar: #5CC8A1;
+  --a-satria: #E06A66;
+
+  /* Spacing Scale */
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 40px;
+
+  /* Fonts */
+  --font-sans: 'Overpass', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Overpass Mono', ui-monospace, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow-x: clip;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--color-ink);
+  background: var(--color-paper-2);
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 6px;
+  padding: 6px 12px;
+  min-height: 34px;
+  transition: transform 120ms ease-out, opacity 120ms ease-out, background-color 140ms ease-out;
+}
+
+button:hover:not(:disabled) {
+  background: var(--color-paper-3);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.workbench-shell {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 960px) {
+  .workbench-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(380px, 1fr) auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

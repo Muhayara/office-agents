@@ -10,8 +10,9 @@
   "scripts": {
     "dev:server": "npm --workspace @office/server run dev",
     "dev:web": "npm --workspace @office/web run dev",
+    "dev:next": "npx vite workspace/office-next --port 5174",
     "build": "npm --workspace @office/server run build && npm --workspace @office/web run build",
-    "typecheck": "npm --workspace @office/shared run typecheck && npm --workspace @office/server run typecheck && npm --workspace @office/web run typecheck",
+    "typecheck": "npm --workspace @office/shared run typecheck && npm --workspace @office/server run typecheck && npm --workspace @office/web run typecheck && tsc -p workspace/office-next/tsconfig.json",
     "test": "npm --workspace @office/server run test"
   },
   "devDependencies": {
