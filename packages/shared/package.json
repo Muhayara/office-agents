@@ -1,0 +1,29 @@
+{
+  "name": "@office/shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kontrak data Office Agents: skema Zod, tipe event/command, konfigurasi kursi, tool kantor, dan envelope JSON.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.6"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  }
+}
