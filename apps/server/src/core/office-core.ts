@@ -83,9 +83,13 @@ export class OfficeCore {
     this.config = options.config;
     this.db = options.db;
     this.workspaceDir = path.resolve(options.workspaceDir);
+    const parentDir = path.resolve(this.workspaceDir, '..');
     this.repoRoot = options.repoRoot
       ? path.resolve(options.repoRoot)
-      : path.resolve(this.workspaceDir, '..');
+      : fs.existsSync(path.join(parentDir, '.gitignore')) ||
+          fs.existsSync(path.join(parentDir, 'office.config.json'))
+        ? parentDir
+        : this.workspaceDir;
     fs.mkdirSync(this.workspaceDir, { recursive: true });
 
     this.gitService = new GitService({

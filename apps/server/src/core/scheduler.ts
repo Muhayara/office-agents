@@ -3,6 +3,7 @@ import type { OfficeCore } from './office-core';
 import type { AgentDriver } from '../drivers/types';
 
 export class OfficeScheduler {
+  public readonly maxParallelSeats: number;
   private readonly core: OfficeCore;
   private readonly driver: AgentDriver;
   private readonly runningAgents = new Map<string, AbortController>();
@@ -10,9 +11,14 @@ export class OfficeScheduler {
   private healthTimer?: NodeJS.Timeout;
   private isTicking = false;
 
-  constructor(core: OfficeCore, driver: AgentDriver, options?: { autoWake?: boolean }) {
+  constructor(
+    core: OfficeCore,
+    driver: AgentDriver,
+    options?: { autoWake?: boolean; maxParallelSeats?: number },
+  ) {
     this.core = core;
     this.driver = driver;
+    this.maxParallelSeats = options?.maxParallelSeats ?? 3;
     if (options?.autoWake ?? true) {
       this.core.onWake(() => {
         void this.tick();
@@ -64,7 +70,7 @@ export class OfficeScheduler {
           baseUrl: this.core.config.gateway.baseUrl,
           checkedAt: new Date().toISOString(),
           latencyMs,
-          detail: 'Gateway 9router aktif',
+          detail: 'Gateway aktif',
         });
       } else {
         this.core.setGatewayHealth({
@@ -92,6 +98,7 @@ export class OfficeScheduler {
       const seats = activeSeats(this.core.config);
       for (const agent of seats) {
         if (this.core.isPaused()) break;
+        if (this.runningAgents.size >= this.maxParallelSeats) break;
         if (this.runningAgents.has(agent.id)) continue;
 
         const quota = this.core.getQuota(agent.id);
@@ -111,7 +118,13 @@ export class OfficeScheduler {
   }
 
   public async runAgentTurn(agent: AgentConfig): Promise<void> {
-    if (this.runningAgents.has(agent.id) || this.core.isPaused()) return;
+    if (
+      this.runningAgents.has(agent.id) ||
+      this.runningAgents.size >= this.maxParallelSeats ||
+      this.core.isPaused()
+    ) {
+      return;
+    }
 
     const unreadMessages = this.core.readInbox(agent.id, 20, true);
     const activeTasks =
@@ -177,7 +190,7 @@ export class OfficeScheduler {
     try {
       const maxSteps =
         this.core.getMode() === 'full'
-          ? Math.min(this.core.config.limits.maxStepsPerTurn + 4, 20)
+          ? Math.min(this.core.config.limits.maxStepsPerTurn + 4, 30)
           : this.core.config.limits.maxStepsPerTurn;
 
       const result = await this.driver.runTurn({
