@@ -133,14 +133,33 @@ export const OfficeBlockSchema = z.object({
 });
 export type OfficeBlock = z.infer<typeof OfficeBlockSchema>;
 
+export const GitConfigSchema = z.object({
+  remote: z.string().min(1).max(120).default('origin'),
+  branch: z.string().min(1).max(120).default('main'),
+  autoPush: z.boolean().default(true),
+  authorName: z.string().min(1).max(120).default('Muhayara'),
+  authorEmail: z.string().min(3).max(180).default('hafizhajah777@gmail.com'),
+  scope: z.string().min(1).max(240).default('workspace/office-next'),
+  blockedFiles: z
+    .array(z.string().min(1).max(120))
+    .max(50)
+    .default(['package.json', 'package-lock.json']),
+});
+export type GitConfig = z.infer<typeof GitConfigSchema>;
+
+export function createDefaultGitConfig(): GitConfig {
+  return GitConfigSchema.parse({});
+}
+
 export const OfficeConfigSchema = z
   .object({
     version: z.literal(1).default(1),
     office: OfficeBlockSchema,
     gateway: GatewayConfigSchema,
     limits: LimitsSchema.default(() => createDefaultLimits()),
+    git: GitConfigSchema.default(() => createDefaultGitConfig()),
     projects: z.array(ProjectSeedSchema).max(20).default([]),
-    agents: z.array(AgentConfigSchema).min(1).max(12),
+    agents: z.array(AgentConfigSchema).min(1).max(16),
   })
   .superRefine((config, ctx) => {
     const ids = new Set<string>();
@@ -301,6 +320,11 @@ export function rosterLine(config: OfficeConfig, lang: 'id' | 'en' = 'id'): stri
     writer: lang === 'id' ? 'Penulis' : 'Writer',
     coder: lang === 'id' ? 'Programmer' : 'Programmer',
     reviewer: lang === 'id' ? 'Reviewer' : 'Reviewer',
+    gamedev: lang === 'id' ? 'Game Dev 2.5D' : '2.5D Game Dev',
+    artist: lang === 'id' ? 'Artis Visual' : 'Technical Artist',
+    visual_qa: lang === 'id' ? 'Penguji Visual' : 'Visual QA',
+    security: lang === 'id' ? 'Keamanan' : 'Security',
+    designer: lang === 'id' ? 'Desainer UI/UX' : 'UI/UX Designer',
   };
   return config.agents
     .map((agent) => `${agent.id}—${roleLabel[agent.role] ?? agent.role}`)

@@ -13,7 +13,7 @@ Keputusan yang sudah Anda ambil dalam sesi tanya-jawab:
 | Topik | Keputusan |
 |---|---|
 | Struktur repo | Satu repo dari root. `workspace/office-next/` ikut dilacak, sisa `workspace/` tetap diabaikan |
-| Identitas commit | Murni atas nama Anda (`Muhayara <hafizhajah777@gmail.com>`) tanpa trailer `Co-authored-by` agar di GitHub tampil bersih `Muhayara committed` |
+| Identitas commit | Git Author tetap murni `Muhayara <hafizhajah777@gmail.com>` (tanpa trailer `Co-authored-by`), dan di judul commit disertakan nama agen secara profesional: `<type>(<scope>): <ringkasan> [by <Nama> — <Peran>]` (misal: `feat(2.5d): tambah komponen grid isometrik [by Gita — Game Dev 2.5D]`) |
 | Commit dan push | Otomatis oleh server (bukan tool agen). Satu commit per tugas yang di-ACC Laras dan per revisi. Push setelah pemindaian keamanan lolos |
 | Visibilitas | Private dulu, public setelah audit penuh Satria |
 | Agen baru | Gita, Wulan, Fajar, Satria, Tari (total 10) |
@@ -149,8 +149,8 @@ async function commitAndPush(task: Task, authors: AgentConfig[]) {
   const scan = await scanner.run({ staged });        // pemindai deterministik
   if (scan.hard.length) return block(task, scan);    // KERAS = berhenti, push diblokir
   await git.commit({
-    message: conventionalMessage(task),              // feat(2.5d): ...
-    author: 'Muhayara <hafizhajah777@gmail.com>',    // murni atas nama Muhayara tanpa trailer Co-authored-by
+    message: conventionalMessage(task, authors),     // feat(2.5d): <judul> [by Bima — Programmer]
+    author: 'Muhayara <hafizhajah777@gmail.com>',    // Git Author tetap Muhayara agar avatar & grafik kontribusi murni milik Anda
   });
   const pre = await scanner.run({ range: 'origin/main..HEAD' });
   if (pre.hard.length) return block(task, pre);

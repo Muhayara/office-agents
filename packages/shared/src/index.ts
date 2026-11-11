@@ -16,7 +16,7 @@ import type { AgentRole, Lang, TaskStatus } from './events';
 import { TASK_STATUSES } from './events';
 
 /** Versi kontrak wire. Breaking change = minor, penambahan field opsional = patch. */
-export const SCHEMA_VERSION = '1.0.0';
+export const SCHEMA_VERSION = '1.1.0';
 
 /** Nama paket; dipakai di log bootstrap. */
 export const SHARED_PACKAGE_NAME = '@office/shared';
@@ -48,6 +48,11 @@ export const ROLE_LABELS: Record<Lang, Record<AgentRole, string>> = {
     writer: 'Penulis',
     coder: 'Programmer',
     reviewer: 'Reviewer',
+    gamedev: 'Game Dev 2.5D',
+    artist: 'Artis Visual',
+    visual_qa: 'Penguji Visual',
+    security: 'Keamanan',
+    designer: 'Desainer UI/UX',
   },
   en: {
     manager: 'Manager',
@@ -55,6 +60,11 @@ export const ROLE_LABELS: Record<Lang, Record<AgentRole, string>> = {
     writer: 'Writer',
     coder: 'Programmer',
     reviewer: 'Reviewer',
+    gamedev: '2.5D Game Dev',
+    artist: 'Technical Artist',
+    visual_qa: 'Visual QA',
+    security: 'Security',
+    designer: 'UI/UX Designer',
   },
 };
 
@@ -62,8 +72,29 @@ export function roleLabel(role: AgentRole, lang: Lang): string {
   return ROLE_LABELS[lang][role];
 }
 
-/** Apakah peran ini boleh menulis file (dipakai guard tool di server). */
-export const FILE_WRITING_ROLES: readonly AgentRole[] = ['writer', 'coder'];
+/** Peran yang diizinkan menulis/mengedit file di workspace (dipakai guard tool di server). */
+export const FILE_WRITING_ROLES: readonly AgentRole[] = [
+  'writer',
+  'coder',
+  'gamedev',
+  'artist',
+  'designer',
+];
+
+/** Peran yang diizinkan memanggil `run_command` di workspace. */
+export const COMMAND_ROLES: readonly AgentRole[] = [
+  'coder',
+  'gamedev',
+  'artist',
+  'designer',
+  'visual_qa',
+];
+
+/** Peran yang diizinkan memanggil `security_scan` dan memveto push. */
+export const SECURITY_SCAN_ROLES: readonly AgentRole[] = ['security'];
+
+/** Peran yang diizinkan menjalankan pemeriksaan visual Playwright ter-allowlist tanpa spam approval manual. */
+export const PLAYWRIGHT_AUTO_APPROVE_ROLES: readonly AgentRole[] = ['visual_qa'];
 
 /** Peran yang wajib ada di setiap kantor. */
 export const REQUIRED_ROLES: readonly AgentRole[] = ['manager', 'reviewer'];

@@ -153,6 +153,12 @@ export const RunCommandInput = z.object({
 });
 export type RunCommandInput = z.infer<typeof RunCommandInput>;
 
+export const SecurityScanInput = z.object({
+  scope: z.enum(['staged', 'workspace', 'all']).default('all'),
+  path: WorkspacePathSchema.optional(),
+});
+export type SecurityScanInput = z.infer<typeof SecurityScanInput>;
+
 export const FinishInput = z.object({
   summary: z.string().max(1000).optional(),
 });
@@ -181,11 +187,19 @@ export const TOOL_NAMES = [
   'search_files',
   'git_diff',
   'run_command',
+  'security_scan',
   'finish',
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
-export const TOOL_CATEGORIES = ['bus', 'task', 'file', 'shell', 'control'] as const;
+export const TOOL_CATEGORIES = [
+  'bus',
+  'task',
+  'file',
+  'shell',
+  'control',
+  'security',
+] as const;
 export type ToolCategory = (typeof TOOL_CATEGORIES)[number];
 
 export const TOOL_NAME_SET: ReadonlySet<string> = new Set(TOOL_NAMES);
@@ -500,6 +514,20 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       },
       ['command'],
     ),
+  },
+  {
+    name: 'security_scan',
+    description:
+      'Run the deterministic security scanner (secrets, .env, .gitignore, role permissions, prompt injection) and return redacted findings.',
+    category: 'security',
+    requiresApproval: false,
+    input: SecurityScanInput,
+    jsonSchema: obj({
+      scope: str('Scan scope: "staged", "workspace", or "all".', {
+        enum: ['staged', 'workspace', 'all'],
+      }),
+      path: str('Optional relative workspace path to restrict scan.'),
+    }),
   },
   {
     name: 'finish',

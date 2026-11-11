@@ -20,6 +20,11 @@ export const AGENT_ROLES = [
   'writer',
   'coder',
   'reviewer',
+  'gamedev',
+  'artist',
+  'visual_qa',
+  'security',
+  'designer',
 ] as const;
 export const AgentRoleSchema = z.enum(AGENT_ROLES);
 export type AgentRole = z.infer<typeof AgentRoleSchema>;
@@ -90,6 +95,7 @@ export const APPROVAL_KINDS = [
   'run_command',
   'write_outside_workspace',
   'escalation',
+  'security_block',
   'other',
 ] as const;
 export const ApprovalKindSchema = z.enum(APPROVAL_KINDS);
@@ -281,6 +287,31 @@ export const OfficeMetaSchema = z.object({
 });
 export type OfficeMeta = z.infer<typeof OfficeMetaSchema>;
 
+export const SecuritySeveritySchema = z.enum(['hard', 'medium']);
+export type SecuritySeverity = z.infer<typeof SecuritySeveritySchema>;
+
+/** Temuan pemindai deterministik yang sudah disamarkan (tanpa nilai rahasia). */
+export const SecurityFindingSchema = z.object({
+  rule: z.string().min(1).max(120),
+  severity: SecuritySeveritySchema,
+  path: z.string().min(1).max(512),
+  line: z.number().int().min(0).optional(),
+  detail: z.string().max(300).optional(),
+});
+export type SecurityFinding = z.infer<typeof SecurityFindingSchema>;
+
+export const GitStatusSnapshotSchema = z.object({
+  branch: z.string().min(1).max(120).default('main'),
+  remote: z.string().max(120).optional(),
+  lastCommitSha: z.string().max(64).optional(),
+  lastCommitTitle: z.string().max(200).optional(),
+  lastPushAt: IsoTimestampSchema.optional(),
+  aheadCount: z.number().int().min(0).default(0),
+  pushBlocked: z.boolean().default(false),
+  blockedReason: z.string().max(500).optional(),
+});
+export type GitStatusSnapshot = z.infer<typeof GitStatusSnapshotSchema>;
+
 /* ------------------------------------------------------------------ */
 /* Snapshot                                                            */
 /* ------------------------------------------------------------------ */
@@ -293,6 +324,8 @@ export const StateSnapshotSchema = z.object({
   approvals: z.array(ApprovalSchema).max(200),
   messages: z.array(MessageSchema).max(200).default([]),
   usage: z.array(UsageSchema).max(200).default([]),
+  git: GitStatusSnapshotSchema.optional(),
+  securityFindings: z.array(SecurityFindingSchema).max(200).optional(),
 });
 export type StateSnapshot = z.infer<typeof StateSnapshotSchema>;
 
@@ -351,6 +384,16 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
     at: IsoTimestampSchema,
   }),
   z.object({
+    type: z.literal('git.updated'),
+    git: GitStatusSnapshotSchema,
+    at: IsoTimestampSchema,
+  }),
+  z.object({
+    type: z.literal('security.findings'),
+    findings: z.array(SecurityFindingSchema).max(200),
+    at: IsoTimestampSchema,
+  }),
+  z.object({
     type: z.literal('error'),
     code: z.string().max(60).optional(),
     message: z.string().min(1).max(500),
@@ -375,6 +418,8 @@ export const SERVER_EVENT_TYPES = [
   'office.language',
   'run.started',
   'run.finished',
+  'git.updated',
+  'security.findings',
   'error',
 ] as const;
 
