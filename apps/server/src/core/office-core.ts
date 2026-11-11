@@ -23,6 +23,7 @@ import {
   type Project,
   SCHEMA_VERSION,
   SECURITY_SCAN_ROLES,
+  type SecurityFinding,
   type ServerEvent,
   type StateSnapshot,
   type Task,
@@ -31,10 +32,12 @@ import {
   type ToolName,
   type Usage,
   canTransitionTask,
+  formatPublicModelName,
   managerOf,
   validateToolInput,
 } from '@office/shared';
 import { OfficeDb } from '../db';
+import { runSecurityScan } from '../security/scanner';
 
 const execFileAsync = promisify(execFile);
 
@@ -59,11 +62,13 @@ export class OfficeCore {
   public readonly config: OfficeConfig;
   public readonly db: OfficeDb;
   public readonly workspaceDir: string;
+  public readonly repoRoot: string;
 
   private listeners = new Set<EventListener>();
   private pendingApprovals = new Map<string, PendingApprovalResolver>();
   private seqCounter = 0;
   private gatewayHealth: GatewayHealth;
+  private securityFindings: SecurityFinding[] = [];
   private stopAgentHandlers = new Map<string, () => void>();
   private wakeCallback?: () => void;
 
@@ -71,10 +76,14 @@ export class OfficeCore {
     config: OfficeConfig;
     db: OfficeDb;
     workspaceDir: string;
+    repoRoot?: string;
   }) {
     this.config = options.config;
     this.db = options.db;
     this.workspaceDir = path.resolve(options.workspaceDir);
+    this.repoRoot = options.repoRoot
+      ? path.resolve(options.repoRoot)
+      : path.resolve(this.workspaceDir, '..');
     fs.mkdirSync(this.workspaceDir, { recursive: true });
 
     const now = new Date().toISOString();
@@ -393,7 +402,7 @@ export class OfficeCore {
       color: r.color,
       status: r.status,
       driver: r.driver,
-      model: r.model,
+      model: formatPublicModelName(r.model),
       desk: { x: r.desk_x, y: r.desk_y },
       currentTaskId: r.current_task_id ?? undefined,
       currentTaskTitle: r.current_task_title ?? undefined,
@@ -1402,16 +1411,26 @@ export class OfficeCore {
         }
 
         case 'security_scan': {
-          const scope = String(input.scope ?? 'all');
+          const scope = (input.scope as 'staged' | 'workspace' | 'all' | undefined) ?? 'all';
           const relPath = input.path ? String(input.path) : undefined;
+          const result = runSecurityScan({
+            repoRoot: this.repoRoot,
+            scope,
+            targetPath: relPath,
+          });
+          this.securityFindings = result.all;
+          this.emit({
+            type: 'security.findings',
+            findings: result.all,
+            at: result.scannedAt,
+          });
           return {
             ok: true,
             output: JSON.stringify({
-              scope,
-              path: relPath ?? '.',
-              hard: [],
-              medium: [],
-              note: 'Pemindai deterministik siap (detail penuh diaktifkan pada Komponen C).',
+              passed: result.passed,
+              scannedFiles: result.scannedFiles,
+              hard: result.hard,
+              medium: result.medium,
             }),
           };
         }
@@ -1535,6 +1554,7 @@ export class OfficeCore {
         tokensOut: u.tokens_out,
         cap: u.cap,
       })),
+      securityFindings: this.securityFindings,
     };
   }
 }
