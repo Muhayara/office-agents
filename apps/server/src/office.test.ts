@@ -21,11 +21,23 @@ function createTestOffice() {
 }
 
 describe('OfficeCore + MockDriver Suite', () => {
-  it('validates office.config.json and initializes 5 seats', () => {
+  it('validates office.config.json and initializes all 10 seats with public model names', () => {
     const { core, db } = createTestOffice();
     const snap = core.getSnapshot();
-    expect(snap.agents).toHaveLength(5);
-    expect(snap.agents.map((a) => a.id)).toEqual(['raka', 'sari', 'dimas', 'bima', 'laras']);
+    expect(snap.agents).toHaveLength(10);
+    expect(snap.agents.map((a) => a.id)).toEqual([
+      'raka',
+      'sari',
+      'dimas',
+      'bima',
+      'gita',
+      'tari',
+      'wulan',
+      'laras',
+      'fajar',
+      'satria',
+    ]);
+    expect(snap.agents.every((a) => !a.model.startsWith('ag/'))).toBe(true);
     db.close();
   });
 

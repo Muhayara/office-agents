@@ -12,14 +12,26 @@
     "timeoutMs": 120000
   },
   "limits": {
-    "maxStepsPerTurn": 8,
-    "maxTurnsPerTask": 20,
+    "maxStepsPerTurn": 16,
+    "maxTurnsPerTask": 40,
     "revisionCycleLimit": 3,
     "pingPongLimit": 6,
     "turnTimeoutMs": 180000,
     "approvalTimeoutMs": 600000,
-    "globalReqPerMin": 30,
-    "globalReqPerDay": 400
+    "globalReqPerMin": 60,
+    "globalReqPerDay": 3000
+  },
+  "git": {
+    "remote": "origin",
+    "branch": "main",
+    "autoPush": true,
+    "authorName": "Muhayara",
+    "authorEmail": "hafizhajah777@gmail.com",
+    "scope": "workspace/office-next",
+    "blockedFiles": [
+      "package.json",
+      "package-lock.json"
+    ]
   },
   "projects": [
     {
@@ -34,17 +46,17 @@
       "name": "Raka",
       "role": "manager",
       "title": "Manajer Proyek",
-      "persona": "Memecah perintah CEO menjadi 1-4 tugas terarah, menugaskan ke staf, dan merangkum laporan akhir.",
+      "persona": "Memecah perintah CEO menjadi 1-4 tugas terarah, menugaskan ke staf yang tepat, dan merangkum laporan akhir.",
       "color": "#E9A23B",
       "desk": { "x": 6, "y": 3 },
       "driver": "api",
-      "model": "ag/gemini-4-argon-high",
+      "model": "ag/gemini-3.8-flash-high",
       "fallbacks": [
-        "ag/claude-sonnet-5-5-high",
-        "ag/gemini-3.8-flash-high"
+        "ag/gemini-4-argon-high",
+        "ag/claude-sonnet-5-5-high"
       ],
       "toolMode": "tools",
-      "dailyCap": 80,
+      "dailyCap": 350,
       "escalationCap": 5,
       "enabled": true
     },
@@ -63,7 +75,7 @@
         "ag/claude-sonnet-5-5-high"
       ],
       "toolMode": "tools",
-      "dailyCap": 80,
+      "dailyCap": 300,
       "escalationCap": 0,
       "enabled": true
     },
@@ -82,7 +94,7 @@
         "ag/gemini-4-argon-high"
       ],
       "toolMode": "tools",
-      "dailyCap": 120,
+      "dailyCap": 300,
       "escalationCap": 0,
       "enabled": true
     },
@@ -90,7 +102,7 @@
       "id": "bima",
       "name": "Bima",
       "role": "coder",
-      "title": "Programmer",
+      "title": "Programmer Utama",
       "persona": "Membaca, menulis, dan mengedit kode di workspace serta memeriksa git diff sebelum meminta review.",
       "color": "#D9735F",
       "desk": { "x": 6, "y": 7 },
@@ -102,8 +114,67 @@
         "ag/gemini-3.8-flash-high"
       ],
       "toolMode": "tools",
-      "dailyCap": 80,
+      "dailyCap": 250,
       "escalationCap": 5,
+      "enabled": true
+    },
+    {
+      "id": "gita",
+      "name": "Gita",
+      "role": "gamedev",
+      "title": "Game Dev 2.5D",
+      "persona": "Membangun engine kanvas isometrik 2.5D, state animasi karakter, kontrol kamera, dan interaksi meja kerja.",
+      "color": "#5B9BD5",
+      "desk": { "x": 6, "y": 11 },
+      "driver": "api",
+      "model": "ag/claude-opus-5-5-high",
+      "fallbacks": [
+        "ag/claude-sonnet-5-5-high",
+        "ag/gemini-4-argon-high",
+        "ag/gemini-3.8-flash-high"
+      ],
+      "toolMode": "tools",
+      "dailyCap": 250,
+      "escalationCap": 5,
+      "enabled": true
+    },
+    {
+      "id": "tari",
+      "name": "Tari",
+      "role": "designer",
+      "title": "Desainer UI/UX & Ruang",
+      "persona": "Merancang tata letak arsitektur kantor 2.5D, tipografi, dan sistem antarmuka bebas klise template AI.",
+      "color": "#9B7EDE",
+      "desk": { "x": 14, "y": 5 },
+      "driver": "api",
+      "model": "ag/claude-sonnet-5-5-high",
+      "fallbacks": [
+        "ag/gemini-4-argon-high",
+        "ag/claude-opus-5-5-high",
+        "ag/gemini-3.8-flash-high"
+      ],
+      "toolMode": "tools",
+      "dailyCap": 250,
+      "escalationCap": 3,
+      "enabled": true
+    },
+    {
+      "id": "wulan",
+      "name": "Wulan",
+      "role": "artist",
+      "title": "Artis Visual & Teknis",
+      "persona": "Membuat aset SVG isometrik, sprite karakter agen, furnitur meja kerja, dan pencahayaan ruangan.",
+      "color": "#F29F67",
+      "desk": { "x": 14, "y": 9 },
+      "driver": "api",
+      "model": "ag/gemini-4-argon-high",
+      "fallbacks": [
+        "ag/claude-sonnet-5-5-high",
+        "ag/gemini-3.8-flash-high"
+      ],
+      "toolMode": "tools",
+      "dailyCap": 250,
+      "escalationCap": 3,
       "enabled": true
     },
     {
@@ -121,8 +192,46 @@
         "ag/gemini-3.8-flash-high"
       ],
       "toolMode": "tools",
-      "dailyCap": 80,
-      "escalationCap": 3,
+      "dailyCap": 300,
+      "escalationCap": 5,
+      "enabled": true
+    },
+    {
+      "id": "fajar",
+      "name": "Fajar",
+      "role": "visual_qa",
+      "title": "Penguji Visual (Visual QA)",
+      "persona": "Memverifikasi tata letak, kontras, proporsi ruangan 2.5D, dan menjalankan pengecekan visual ter-allowlist.",
+      "color": "#4ECDC4",
+      "desk": { "x": 3, "y": 9 },
+      "driver": "api",
+      "model": "ag/gemini-3.8-flash-high",
+      "fallbacks": [
+        "ag/gemini-4-argon-high",
+        "ag/claude-sonnet-5-5-high"
+      ],
+      "toolMode": "tools",
+      "dailyCap": 300,
+      "escalationCap": 0,
+      "enabled": true
+    },
+    {
+      "id": "satria",
+      "name": "Satria",
+      "role": "security",
+      "title": "Auditor Keamanan",
+      "persona": "Memeriksa keamanan kode, konfigurasi .env/.gitignore, izin agen, dan memveto push bila ada temuan KERAS.",
+      "color": "#E05A47",
+      "desk": { "x": 3, "y": 13 },
+      "driver": "api",
+      "model": "ag/claude-sonnet-5-5-high",
+      "fallbacks": [
+        "ag/gemini-4-argon-high",
+        "ag/gemini-3.8-flash-high"
+      ],
+      "toolMode": "tools",
+      "dailyCap": 250,
+      "escalationCap": 5,
       "enabled": true
     }
   ]
