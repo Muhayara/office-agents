@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "office": {
+    "name": "Office Agents",
+    "language": "id",
+    "mode": "semi",
+    "timezone": "Asia/Jakarta"
+  },
+  "gateway": {
+    "baseUrl": "http://127.0.0.1:20128/v1",
+    "apiKeyEnv": "NINEROUTER_KEY",
+    "timeoutMs": 120000
+  },
+  "limits": {
+    "maxStepsPerTurn": 8,
+    "maxTurnsPerTask": 20,
+    "revisionCycleLimit": 3,
+    "pingPongLimit": 6,
+    "turnTimeoutMs": 180000,
+    "approvalTimeoutMs": 600000,
+    "globalReqPerMin": 30,
+    "globalReqPerDay": 400
+  },
+  "projects": [
+    {
+      "id": "default",
+      "name": "Proyek Utama Kantor",
+      "description": "Ruang kerja kolaborasi tim AI Office Agents"
+    }
+  ],
+  "agents": [
+    {
+      "id": "raka",
+      "name": "Raka",
+      "role": "manager",
+      "title": "Manajer Proyek",
+      "persona": "Memecah perintah CEO menjadi 1-4 tugas terarah, menugaskan ke staf, dan merangkum laporan akhir.",
+      "color": "#E9A23B",
+      "desk": { "x": 6, "y": 3 },
+      "driver": "api",
+      "model": "ag/gemini-4-argon-high",
+      "fallbacks": [
+        "ag/claude-sonnet-5-5-high",
+        "ag/gemini-3.8-flash-high"
+      ],
+      "toolMode": "tools",
+      "dailyCap": 80,
+      "escalationCap": 5,
+      "enabled": true
+    },
+    {
+      "id": "sari",
+      "name": "Sari",
+      "role": "researcher",
+      "title": "Peneliti & Analis",
+      "persona": "Mengumpulkan fakta dan konteks teknis maksimal 6 poin jujur tanpa mengarang URL.",
+      "color": "#63C3D9",
+      "desk": { "x": 10, "y": 3 },
+      "driver": "api",
+      "model": "ag/gemini-3.8-flash-high",
+      "fallbacks": [
+        "ag/gemini-4-argon-high",
+        "ag/claude-sonnet-5-5-high"
+      ],
+      "toolMode": "tools",
+      "dailyCap": 80,
+      "escalationCap": 0,
+      "enabled": true
+    },
+    {
+      "id": "dimas",
+      "name": "Dimas",
+      "role": "writer",
+      "title": "Penulis Dokumen & Copy",
+      "persona": "Menyusun dokumen, spesifikasi, dan copy yang bersih di workspace sesuai brief.",
+      "color": "#A8C46B",
+      "desk": { "x": 10, "y": 7 },
+      "driver": "api",
+      "model": "ag/gemini-3.8-flash-high",
+      "fallbacks": [
+        "ag/claude-sonnet-5-5-high",
+        "ag/gemini-4-argon-high"
+      ],
+      "toolMode": "tools",
+      "dailyCap": 120,
+      "escalationCap": 0,
+      "enabled": true
+    },
+    {
+      "id": "bima",
+      "name": "Bima",
+      "role": "coder",
+      "title": "Programmer",
+      "persona": "Membaca, menulis, dan mengedit kode di workspace serta memeriksa git diff sebelum meminta review.",
+      "color": "#D9735F",
+      "desk": { "x": 6, "y": 7 },
+      "driver": "api",
+      "model": "ag/claude-opus-5-5-high",
+      "fallbacks": [
+        "ag/claude-sonnet-5-5-high",
+        "ag/gemini-4-argon-high",
+        "ag/gemini-3.8-flash-high"
+      ],
+      "toolMode": "tools",
+      "dailyCap": 80,
+      "escalationCap": 5,
+      "enabled": true
+    },
+    {
+      "id": "laras",
+      "name": "Laras",
+      "role": "reviewer",
+      "title": "Reviewer & QA",
+      "persona": "Memeriksa laporan dan git diff secara kritis lalu memutuskan ACC atau REJECT dengan catatan konkret.",
+      "color": "#C58BB0",
+      "desk": { "x": 3, "y": 5 },
+      "driver": "api",
+      "model": "ag/gemini-4-argon-high",
+      "fallbacks": [
+        "ag/claude-sonnet-5-5-high",
+        "ag/gemini-3.8-flash-high"
+      ],
+      "toolMode": "tools",
+      "dailyCap": 80,
+      "escalationCap": 3,
+      "enabled": true
+    }
+  ]
+}
