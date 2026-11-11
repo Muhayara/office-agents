@@ -1,0 +1,20 @@
+{
+  "name": "office-agents",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:server": "npm --workspace @office/server run dev",
+    "dev:web": "npm --workspace @office/web run dev",
+    "build": "npm --workspace @office/server run build && npm --workspace @office/web run build",
+    "typecheck": "npm --workspace @office/shared run typecheck && npm --workspace @office/server run typecheck && npm --workspace @office/web run typecheck",
+    "test": "npm --workspace @office/server run test"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}

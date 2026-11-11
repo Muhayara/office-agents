@@ -1,0 +1,17 @@
+node_modules/
+.npm-cache/
+dist/
+data/
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.key
+*.sqlite
+*.db
+
+# workspace: abaikan semuanya kecuali proyek yang dibangun agen
+workspace/*
+!workspace/office-next/
+!workspace/README.md
