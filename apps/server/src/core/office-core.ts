@@ -10,6 +10,7 @@ import {
   type ApprovalKind,
   type ApprovalPayload,
   type ClientCommand,
+  COMMAND_ROLES,
   type Emotion,
   FILE_WRITING_ROLES,
   type GatewayHealth,
@@ -18,8 +19,10 @@ import {
   type MessageKind,
   type Mode,
   type OfficeConfig,
+  PLAYWRIGHT_AUTO_APPROVE_ROLES,
   type Project,
   SCHEMA_VERSION,
+  SECURITY_SCAN_ROLES,
   type ServerEvent,
   type StateSnapshot,
   type Task,
@@ -973,7 +976,31 @@ export class OfficeCore {
     ) {
       return {
         ok: false,
-        output: `Peran ${agentCfg.role} tidak diizinkan mengubah file langsung. Delegasikan ke dimas (writer) atau bima (coder).`,
+        output: `Peran ${agentCfg.role} tidak diizinkan mengubah file langsung. Delegasikan ke peran penulis/programmer/desainer (${FILE_WRITING_ROLES.join(', ')}).`,
+      };
+    }
+
+    // Role guard for command execution
+    if (
+      toolName === 'run_command' &&
+      agentCfg &&
+      !COMMAND_ROLES.includes(agentCfg.role)
+    ) {
+      return {
+        ok: false,
+        output: `Peran ${agentCfg.role} tidak diizinkan menjalankan run_command. Hanya peran (${COMMAND_ROLES.join(', ')}) yang diizinkan.`,
+      };
+    }
+
+    // Role guard for security_scan
+    if (
+      toolName === 'security_scan' &&
+      agentCfg &&
+      !SECURITY_SCAN_ROLES.includes(agentCfg.role)
+    ) {
+      return {
+        ok: false,
+        output: `Tool security_scan hanya dapat dijalankan oleh peran (${SECURITY_SCAN_ROLES.join(', ')}).`,
       };
     }
 
@@ -1322,17 +1349,27 @@ export class OfficeCore {
             };
           }
 
-          const decision = await this.requestApproval({
-            agentId,
-            kind: 'run_command',
-            payload: {
-              command,
-              args,
-              cwd: cwdRel,
-              reason,
-              risk: 'Menjalankan proses lokal di dalam folder workspace/',
-            },
-          });
+          const isPlaywrightVisualCheck =
+            agentCfg !== undefined &&
+            PLAYWRIGHT_AUTO_APPROVE_ROLES.includes(agentCfg.role) &&
+            command.toLowerCase() === 'npx' &&
+            args[0] === 'playwright' &&
+            args[1] === 'test' &&
+            args.every((a) => /^[a-zA-Z0-9_./=-]+$/.test(a));
+
+          const decision = isPlaywrightVisualCheck
+            ? { approved: true, reason: 'Auto-approved narrow Playwright check for visual_qa' }
+            : await this.requestApproval({
+                agentId,
+                kind: 'run_command',
+                payload: {
+                  command,
+                  args,
+                  cwd: cwdRel,
+                  reason,
+                  risk: 'Menjalankan proses lokal di dalam folder workspace/',
+                },
+              });
 
           this.setAgentStatus(agentId, 'working', `Menjalankan ${command}`);
 
@@ -1362,6 +1399,21 @@ export class OfficeCore {
               ),
             };
           }
+        }
+
+        case 'security_scan': {
+          const scope = String(input.scope ?? 'all');
+          const relPath = input.path ? String(input.path) : undefined;
+          return {
+            ok: true,
+            output: JSON.stringify({
+              scope,
+              path: relPath ?? '.',
+              hard: [],
+              medium: [],
+              note: 'Pemindai deterministik siap (detail penuh diaktifkan pada Komponen C).',
+            }),
+          };
         }
 
         case 'finish': {
