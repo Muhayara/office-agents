@@ -1,55 +1,43 @@
-# Matriks Kursi Karyawan AI Final (`docs/seat-matrix.md`)
+# Matriks Kursi Karyawan AI Berdasarkan Beban Kerja (`docs/seat-matrix.md`)
 
-Matriks kursi ini telah diseimbangkan ulang agar **tidak bergantung penuh pada satu provider (`ag/*` Antigravity)**, melainkan membagi beban secara merata ke **3 provider independen yang aktif** di `9router`:
-1. **Google AI Studio Direct (`gemini/*`)** — menggunakan 2 API Key independen (`kai` & `bau`) dengan *round-robin*.
-2. **Groq Cloud (`groq/*`)** — menggunakan akun API `mnr333` berlatensi sangat rendah (420–715 ms).
-3. **Antigravity OAuth (`ag/*`)** — dikhususkan untuk model penulisan kode utama (`ag/claude-sonnet-4-6`) dan *fallback* cadangan.
+Matriks kursi ini membagi 10 karyawan AI ke dalam **3 Tier berdasarkan tingkat kompleksitas pekerjaan** agar pemanfaatan model penalaran tingkat tinggi dan model berkecepatan tinggi berjalan teratur:
+
+1. **Tier 1 — Pekerjaan Berat (Ngoding Core, Engine 2.5D, Desain UI/UX, Aset Visual):** Menggunakan model penalaran & generasi kode tertinggi (`claude-opus-5-5-high`, `claude-sonnet-5-5-high`, `gemini-4-argon-high`).
+2. **Tier 2 — Pemeriksaan Kualitas & Keamanan (Gatekeepers):** Menggunakan model peninjau kritis (`gemini-4-argon-high`, `claude-sonnet-5-5-high`).
+3. **Tier 3 — Pekerjaan Ringan / Frekuensi Tinggi (Orkestrasi, Riset, Dokumen, Cek Visual):** Menggunakan model respons cepat (`gemini-3.8-flash-high`) agar pengiriman tugas dan koordinasi tidak memakan kuota pekerjaan berat.
 
 ---
 
-## 1. Alokasi 5 Kursi Karyawan AI (Seimbang Lintas Provider)
+## 1. Alokasi 10 Kursi Karyawan AI (3-Tier)
 
-| ID Kursi | Nama & Peran | Ember Kuota Utama | Model Utama (`primary`) | Rantai Fallback (`fallbacks`) | Mode Tool | Kuota / Hari |
+| ID Kursi | Nama & Peran | Tier Beban Kerja | Model Utama (`primary`) | Rantai Fallback (`fallbacks`) | Mode Tool | Kuota / Hari |
 |---|---|---|---|---|---|---:|
-| **`raka`** | **Raka** — Manajer Proyek (`manager`) | Antigravity Argon (`ag/*`) | `ag/gemini-4-argon-high` | `["ag/claude-sonnet-5-5-high", "ag/gemini-3.8-flash-high"]` | `tools` | 80 req |
-| **`sari`** | **Sari** — Analis & Riset (`researcher`) | Antigravity Flash (`ag/*`) | `ag/gemini-3.8-flash-high` | `["ag/gemini-4-argon-high", "ag/claude-sonnet-5-5-high"]` | `tools` | 80 req |
-| **`dimas`** | **Dimas** — Penulis Dokumen (`writer`) | Antigravity Flash (`ag/*`) | `ag/gemini-3.8-flash-high` | `["ag/claude-sonnet-5-5-high", "ag/gemini-4-argon-high"]` | `tools` | 120 req |
-| **`bima`** | **Bima** — Programmer (`coder`) | Antigravity Claude (`ag/*`) | `ag/claude-opus-5-5-high` | `["ag/claude-sonnet-5-5-high", "ag/gemini-4-argon-high", "ag/gemini-3.8-flash-high"]` | `tools` | 80 req |
-| **`laras`** | **Laras** — Reviewer & QA (`reviewer`) | Antigravity Argon (`ag/*`) | `ag/gemini-4-argon-high` | `["ag/claude-sonnet-5-5-high", "ag/gemini-3.8-flash-high"]` | `tools` | 80 req |
+| **`bima`** | **Bima** — Programmer (`coder`) | **Berat** (Ngoding Core) | `claude-opus-5-5-high` | `["claude-sonnet-5-5-high", "gemini-4-argon-high", "gemini-3.8-flash-high"]` | `tools` | 250 req |
+| **`gita`** | **Gita** — Game Dev 2.5D (`gamedev`) | **Berat** (Engine 2.5D) | `claude-opus-5-5-high` | `["claude-sonnet-5-5-high", "gemini-4-argon-high", "gemini-3.8-flash-high"]` | `tools` | 250 req |
+| **`tari`** | **Tari** — Desainer UI/UX (`designer`) | **Berat** (UI/UX & Ruang) | `claude-sonnet-5-5-high` | `["gemini-4-argon-high", "claude-opus-5-5-high", "gemini-3.8-flash-high"]` | `tools` | 250 req |
+| **`wulan`** | **Wulan** — Artis Visual (`artist`) | **Berat** (Sprite & SVG) | `gemini-4-argon-high` | `["claude-sonnet-5-5-high", "gemini-3.8-flash-high"]` | `tools` | 250 req |
+| **`laras`** | **Laras** — Reviewer & QA (`reviewer`) | **Kritis** (Review & QA) | `gemini-4-argon-high` | `["claude-sonnet-5-5-high", "gemini-3.8-flash-high"]` | `tools` | 300 req |
+| **`satria`** | **Satria** — Auditor Keamanan (`security`) | **Kritis** (Audit Keamanan) | `claude-sonnet-5-5-high` | `["gemini-4-argon-high", "gemini-3.8-flash-high"]` | `tools` | 250 req |
+| **`raka`** | **Raka** — Manajer Proyek (`manager`) | **Ringan/Sering** (Dispatch) | `gemini-3.8-flash-high` | `["gemini-4-argon-high", "claude-sonnet-5-5-high"]` | `tools` | 350 req |
+| **`sari`** | **Sari** — Analis & Riset (`researcher`) | **Ringan/Sering** (Riset) | `gemini-3.8-flash-high` | `["gemini-4-argon-high", "claude-sonnet-5-5-high"]` | `tools` | 300 req |
+| **`dimas`** | **Dimas** — Penulis Dokumen (`writer`) | **Ringan/Sering** (Dokumen) | `gemini-3.8-flash-high` | `["claude-sonnet-5-5-high", "gemini-4-argon-high"]` | `tools` | 300 req |
+| **`fajar`** | **Fajar** — Penguji Visual (`visual_qa`) | **Ringan/Sering** (Cek Visual) | `gemini-3.8-flash-high` | `["gemini-4-argon-high", "claude-sonnet-5-5-high"]` | `tools` | 300 req |
 
 ---
 
-## 2. Katalog Lengkap Model Non-Antigravity yang Siap Dipakai
+## 2. Model Alternatif Tambahan yang Didukung Gateway
 
-Berikut adalah seluruh model **di luar `ag/*`** yang telah diuji dan dapat langsung dipasang ke kursi mana pun di `office.config.json`:
-
-### A. Provider Groq Cloud (`groq/*` — AktifSekarang)
-- `groq/openai/gpt-oss-120b` — OpenAI GPT-OSS 120B (715 ms, mendukung native `tool_calls`).
-- `groq/openai/gpt-oss-20b` — OpenAI GPT-OSS 20B (424 ms, sangat cepat, mendukung native `tool_calls`).
-- `groq/qwen/qwen3.8-27b` — Alibaba Qwen 3.8 27B (461 ms, gunakan dengan `"toolMode": "json"`).
-
-### B. Provider Google AI Studio Direct (`gemini/*` — 2 API Key `kai` & `bau` Aktif Sekarang)
-- `gemini/gemini-3.6-flash` — Gemini 3.6 Flash via Google AI Studio API Key (2.4 s, mendukung native `tool_calls`).
-- `gemini/gemini-3.5-flash-lite` — Gemini 3.5 Flash Lite via Google AI Studio API Key (1.5 s, hemat kuota & cepat).
-- `gemini/gemma-4-26b-a4b-it` — Google Gemma 4 26B MoE Open-Weight (5.3 s, mendukung native `tool_calls`).
-- `gemini/gemini-3.5-flash` — Gemini 3.5 Flash (6.6 s, mendukung native `tool_calls`).
-
-### C. Provider Kiro (`kr/*` — 25 Model Siap Aktif Setelah Re-Login Dashboard)
-Akun Kiro (`Account 1` & `Account 2`) sudah terdaftar di `9router`, namun token OAuth-nya kedaluwarsa pada `8 Nov 2026`. Cukup buka `http://127.0.0.1:20128/dashboard` -> tab **Providers** -> klik **Reconnect/Refresh** pada **Kiro**, maka model-model berikut langsung dapat dipakai:
-- `kr/deepseek-3.2` & `kr/deepseek-3.2-thinking-agentic` (DeepSeek v3.2)
-- `kr/qwen3-coder-next` & `kr/qwen3-coder-next-thinking-agentic` (Qwen 3 Coder Next)
-- `kr/glm-5` & `kr/glm-5-thinking-agentic` (Zhipu GLM-5)
-- `kr/claude-sonnet-4.5` & `kr/claude-haiku-4.5`
-- `kr/gpt-5.6-terra` & `kr/gpt-5.6-luna`
-
-### D. Provider OpenCode Zen (`oc/*` — Reset Kuota Harian Otomatis)
-- `oc/deepseek-v4.1-flash-free` (DeepSeek V4.1 Flash)
-- `oc/glm-5.3-flash-free` (GLM 5.3 Flash)
+Selain model utama di atas, gateway juga mendukung keluarga model berikut bila diperlukan untuk eksperimen atau cadangan tambahan:
+- `openai/gpt-oss-120b` & `openai/gpt-oss-20b`
+- `qwen/qwen3.8-27b` & `qwen3-coder-next`
+- `gemini-3.6-flash`, `gemini-3.5-flash-lite`, & `gemma-4-26b-a4b-it`
+- `deepseek-3.2` & `deepseek-v4.1-flash`
+- `glm-5` & `glm-5.3-flash`
 
 ---
 
 ## 3. Cara Mengganti Model Kursi Kapan Saja
 
 1. Buka file [office.config.json](file:///P:/gemini-lab/office/office.config.json).
-2. Ubah field `"model"` atau `"fallbacks"` pada objek agen yang diinginkan (`raka`, `sari`, `dimas`, `bima`, atau `laras`).
-3. Restart `@office/server` (`npm --workspace @office/server run start`) — saat boot, `OfficeCore.bootstrapState()` otomatis menyinkronkan model baru ke database SQLite (`office.db`) dan menyiarkannya ke UI Meja Dispatch.
+2. Ubah field `"model"` atau `"fallbacks"` pada objek agen yang diinginkan.
+3. Restart `@office/server` (`npm --workspace @office/server run start`) — saat boot, `OfficeCore.bootstrapState()` otomatis menyinkronkan model ke database SQLite dan menyiarkannya ke UI Meja Dispatch (dengan nama publik yang sudah dibersihkan dari prefix rute internal).

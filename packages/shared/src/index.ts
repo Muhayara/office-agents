@@ -72,6 +72,16 @@ export function roleLabel(role: AgentRole, lang: Lang): string {
   return ROLE_LABELS[lang][role];
 }
 
+/**
+ * Menghilangkan prefix rute gateway pertama pada ID model untuk tampilan publik/UI:
+ * - "ag/gemini-3.8-flash-high" -> "gemini-3.8-flash-high"
+ * - "groq/openai/gpt-oss-120b" -> "openai/gpt-oss-120b"
+ */
+export function formatPublicModelName(model: string): string {
+  const slashIdx = model.indexOf('/');
+  return slashIdx > 0 ? model.slice(slashIdx + 1) : model;
+}
+
 /** Peran yang diizinkan menulis/mengedit file di workspace (dipakai guard tool di server). */
 export const FILE_WRITING_ROLES: readonly AgentRole[] = [
   'writer',
