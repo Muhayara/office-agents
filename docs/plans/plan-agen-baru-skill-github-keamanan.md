@@ -13,7 +13,7 @@ Keputusan yang sudah Anda ambil dalam sesi tanya-jawab:
 | Topik | Keputusan |
 |---|---|
 | Struktur repo | Satu repo dari root. `workspace/office-next/` ikut dilacak, sisa `workspace/` tetap diabaikan |
-| Identitas commit | Atas nama Anda (`Muhayara <hafizhajah777@gmail.com>`) + trailer `Co-authored-by: <Agen>` |
+| Identitas commit | Murni atas nama Anda (`Muhayara <hafizhajah777@gmail.com>`) tanpa trailer `Co-authored-by` agar di GitHub tampil bersih `Muhayara committed` |
 | Commit dan push | Otomatis oleh server (bukan tool agen). Satu commit per tugas yang di-ACC Laras dan per revisi. Push setelah pemindaian keamanan lolos |
 | Visibilitas | Private dulu, public setelah audit penuh Satria |
 | Agen baru | Gita, Wulan, Fajar, Satria, Tari (total 10) |
@@ -149,9 +149,8 @@ async function commitAndPush(task: Task, authors: AgentConfig[]) {
   const scan = await scanner.run({ staged });        // pemindai deterministik
   if (scan.hard.length) return block(task, scan);    // KERAS = berhenti, push diblokir
   await git.commit({
-    message: conventionalMessage(task),              // feat(2.5d): ... (#t_xxx)
-    author: 'Muhayara <hafizhajah777@gmail.com>',
-    trailers: authors.map(a => `Co-authored-by: ${a.name} <${a.id}@office.local>`),
+    message: conventionalMessage(task),              // feat(2.5d): ...
+    author: 'Muhayara <hafizhajah777@gmail.com>',    // murni atas nama Muhayara tanpa trailer Co-authored-by
   });
   const pre = await scanner.run({ range: 'origin/main..HEAD' });
   if (pre.hard.length) return block(task, pre);
