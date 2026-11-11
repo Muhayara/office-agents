@@ -69,4 +69,35 @@ describe('Skill Injector & Scheduler Parallel Cap (Bagian C3)', () => {
     expect(scheduler.maxParallelSeats).toBe(3);
     db.close();
   });
+
+  it('loads real vendored anti-slop@41b85ed and hallmark@7e213cb digests and ensures no executable scripts in skills/vendor', () => {
+    const repoRoot = path.resolve(__dirname, '../../..');
+    const antiSlopDigest = loadSkillDigest('anti-slop', repoRoot);
+    const hallmarkDigest = loadSkillDigest('hallmark', repoRoot);
+
+    expect(antiSlopDigest).toContain('anti-slop@41b85ed');
+    expect(antiSlopDigest.split('\n').length).toBeLessThanOrEqual(MAX_DIGEST_LINES);
+    expect(antiSlopDigest.length).toBeLessThanOrEqual(MAX_DIGEST_CHARS);
+
+    expect(hallmarkDigest).toContain('hallmark@7e213cb');
+    expect(hallmarkDigest.split('\n').length).toBeLessThanOrEqual(MAX_DIGEST_LINES);
+    expect(hallmarkDigest.length).toBeLessThanOrEqual(MAX_DIGEST_CHARS);
+
+    const vendorRoot = path.join(repoRoot, 'skills', 'vendor');
+    const walkFiles = (dir: string): string[] => {
+      const out: string[] = [];
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          out.push(...walkFiles(full));
+        } else {
+          out.push(full);
+        }
+      }
+      return out;
+    };
+    const allVendorFiles = walkFiles(vendorRoot);
+    const forbiddenScripts = allVendorFiles.filter((f) => /\.(mjs|cjs|js|py|sh|ps1|bat|cmd)$/i.test(f));
+    expect(forbiddenScripts).toEqual([]);
+  });
 });
