@@ -37,6 +37,7 @@ import {
   validateToolInput,
 } from '@office/shared';
 import { OfficeDb } from '../db';
+import { GitService } from '../git/git-service';
 import { runSecurityScan } from '../security/scanner';
 
 const execFileAsync = promisify(execFile);
@@ -63,6 +64,7 @@ export class OfficeCore {
   public readonly db: OfficeDb;
   public readonly workspaceDir: string;
   public readonly repoRoot: string;
+  public readonly gitService: GitService;
 
   private listeners = new Set<EventListener>();
   private pendingApprovals = new Map<string, PendingApprovalResolver>();
@@ -85,6 +87,20 @@ export class OfficeCore {
       ? path.resolve(options.repoRoot)
       : path.resolve(this.workspaceDir, '..');
     fs.mkdirSync(this.workspaceDir, { recursive: true });
+
+    this.gitService = new GitService({
+      repoRoot: this.repoRoot,
+      workspaceDir: this.workspaceDir,
+      gitConfig: this.config.git,
+      onStatusChange: (gitStatus, findings) => {
+        const now = new Date().toISOString();
+        this.emit({ type: 'git.updated', git: gitStatus, at: now });
+        if (findings) {
+          this.securityFindings = findings;
+          this.emit({ type: 'security.findings', findings, at: now });
+        }
+      },
+    });
 
     const now = new Date().toISOString();
     this.gatewayHealth = {
@@ -1103,6 +1119,16 @@ export class OfficeCore {
               body: `Tugas #${taskId} -> ${status}: ${note}`,
             });
           }
+
+          if (
+            agentCfg?.role === 'reviewer' &&
+            (status === 'done' ||
+              (existing?.status === 'review' &&
+                (status === 'in_progress' || status === 'blocked')))
+          ) {
+            await this.handleTaskGitCommit(updated, status !== 'done');
+          }
+
           return {
             ok: true,
             output: `Tugas #${updated.id} diperbarui menjadi ${updated.status}.`,
@@ -1325,13 +1351,18 @@ export class OfficeCore {
         }
 
         case 'git_diff': {
+          const targetRel = input.path ? String(input.path) : '.';
           const args = ['diff'];
           if (input.staged) args.push('--staged');
-          if (input.path) args.push('--', String(input.path));
+          args.push('--', targetRel);
           try {
-            const { stdout: statusOut } = await execFileAsync('git', ['status', '--short'], {
-              cwd: this.workspaceDir,
-            });
+            const { stdout: statusOut } = await execFileAsync(
+              'git',
+              ['status', '--short', '--', targetRel],
+              {
+                cwd: this.workspaceDir,
+              },
+            );
             const { stdout: diffOut } = await execFileAsync('git', args, {
               cwd: this.workspaceDir,
             });
@@ -1554,7 +1585,70 @@ export class OfficeCore {
         tokensOut: u.tokens_out,
         cap: u.cap,
       })),
+      git: this.gitService.getStatus(),
       securityFindings: this.securityFindings,
     };
+  }
+
+  private async handleTaskGitCommit(task: Task, isRevision: boolean): Promise<void> {
+    const assigneeCfg = this.getAgentConfig(task.assignee);
+    const result = await this.gitService.commitAndPush({
+      task,
+      assignee: assigneeCfg,
+      isRevision,
+    });
+
+    if (result.blocked) {
+      const securityAgent =
+        this.config.agents.find((a) => a.role === 'security')?.id ??
+        managerOf(this.config).id;
+      const managerId = managerOf(this.config).id;
+      const hardSummary = result.findings
+        .filter((f) => f.severity === 'hard')
+        .map((f) => `${f.rule} di ${f.path}${f.line ? `:${f.line}` : ''}`)
+        .join('; ');
+
+      const alertBody = `[BLOKIR KEAMANAN PUSH] Tugas #${task.id} ("${task.title}") diblokir oleh pemindai deterministik: ${hardSummary || result.error}`;
+
+      this.sendMessage({
+        sender: securityAgent,
+        to: managerId,
+        kind: 'system',
+        body: alertBody,
+      });
+      this.sendMessage({
+        sender: securityAgent,
+        to: 'ceo',
+        kind: 'system',
+        body: alertBody,
+      });
+
+      const approvalId = this.nextId('apr');
+      const now = new Date().toISOString();
+      const payload: ApprovalPayload = {
+        taskId: task.id,
+        reason: alertBody.slice(0, 500),
+        risk: 'Temuan keamanan KERAS memblokir auto-commit/push ke GitHub.',
+      };
+      this.db.db
+        .prepare(
+          `INSERT INTO approvals (id, agent_id, kind, payload_json, status, created_at)
+           VALUES (?, ?, 'security_block', ?, 'pending', ?)`,
+        )
+        .run(approvalId, securityAgent, JSON.stringify(payload), now);
+
+      this.emit({
+        type: 'approval.requested',
+        approval: {
+          id: approvalId,
+          agentId: securityAgent,
+          kind: 'security_block',
+          payload,
+          status: 'pending',
+          createdAt: now,
+        },
+        at: now,
+      });
+    }
   }
 }
