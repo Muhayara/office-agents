@@ -4,10 +4,11 @@ import {
   type Message,
   type OfficeConfig,
   type Task,
-   type ToolMode,
+  type ToolMode,
   envelopeInstruction,
   rosterLine,
 } from '@office/shared';
+import { buildSkillsPromptBlock } from './skills';
 
 const RULES: Record<Lang, string> = {
   id: `Kamu karyawan di kantor AI {office_name}. CEO mengirim perintah lewat pesan.
@@ -170,16 +171,18 @@ export function buildSystemPrompt(params: {
   config: OfficeConfig;
   maxSteps: number;
   toolMode: ToolMode;
+  repoRoot?: string;
 }): string {
-  const { role, lang, config, maxSteps, toolMode } = params;
+  const { role, lang, config, maxSteps, toolMode, repoRoot } = params;
   const roster = rosterLine(config, lang);
   const roleBlock = ROLE_PROMPTS[role][lang].replace('{roster}', roster);
   const rulesBlock = RULES[lang]
     .replace('{office_name}', config.office.name)
     .replace('{maxSteps}', String(maxSteps));
+  const skillsBlock = buildSkillsPromptBlock({ role, lang, repoRoot });
   const toolsBlock = TOOLS_BLOCK[lang];
 
-  const parts = [roleBlock, rulesBlock, toolsBlock];
+  const parts = [roleBlock, rulesBlock, skillsBlock, toolsBlock];
   if (toolMode === 'json') {
     parts.push(envelopeInstruction(lang));
   }
