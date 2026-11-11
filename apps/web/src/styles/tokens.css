@@ -22,12 +22,17 @@
   --danger: #E06A66;
   --danger-strong: #D9534F;
 
-  /* 2.2 Warna karyawan */
+  /* 2.2 Warna karyawan (10 kursi) */
   --a-raka: #E9A23B;
   --a-sari: #63C3D9;
   --a-dimas: #A8C46B;
   --a-bima: #D9735F;
+  --a-gita: #4DA8DA;
+  --a-tari: #E8998D;
+  --a-wulan: #9B7EDE;
   --a-laras: #C58BB0;
+  --a-fajar: #5CC8A1;
+  --a-satria: #E06A66;
 
   /* 2.4 Tipografi */
   --font-sans: 'Overpass', system-ui, -apple-system, sans-serif;
@@ -174,12 +179,20 @@ select:focus-visible,
   font-size: 13px;
   font-weight: 600;
   color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.roster-rail > .section-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 /* RosterRow (§4.2) */
 .roster-row {
   position: relative;
   min-height: 68px;
+  flex-shrink: 0;
   padding: 8px 12px 8px 14px;
   border-bottom: 1px solid var(--rule);
   background: var(--surface);

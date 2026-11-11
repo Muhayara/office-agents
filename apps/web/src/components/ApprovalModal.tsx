@@ -68,7 +68,13 @@ export function ApprovalModal({
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <ShieldAlert size={20} strokeWidth={1.5} color="var(--warn)" />
             <h2 id="approval-title" style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
-              {language === 'id' ? 'Persetujuan perintah' : 'Command approval'}
+              {approval.kind === 'security_block'
+                ? language === 'id'
+                  ? 'Blokir keamanan Git push'
+                  : 'Git push security block'
+                : language === 'id'
+                  ? 'Persetujuan perintah'
+                  : 'Command approval'}
             </h2>
           </div>
 
@@ -91,9 +97,13 @@ export function ApprovalModal({
           <strong style={{ color: agent?.color ?? 'var(--text)' }}>
             {agent?.name ?? approval.agentId}
           </strong>{' '}
-          {language === 'id'
-            ? 'meminta izin menjalankan perintah terminal berikut:'
-            : 'requests permission to execute the following command:'}
+          {approval.kind === 'security_block'
+            ? language === 'id'
+              ? 'menahan commit/push otomatis karena temuan keamanan berikut:'
+              : 'blocked automatic commit/push due to the following security findings:'
+            : language === 'id'
+              ? 'meminta izin menjalankan perintah terminal berikut:'
+              : 'requests permission to execute the following command:'}
         </div>
 
         <pre
@@ -109,7 +119,7 @@ export function ApprovalModal({
             color: 'var(--text)',
           }}
         >
-          {cmdString || approval.kind}
+          {cmdString || approval.payload.reason || approval.kind}
         </pre>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>

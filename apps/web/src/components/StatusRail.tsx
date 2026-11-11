@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Pause, Play, RefreshCw, ShieldAlert } from 'lucide-react';
-import type { GatewayHealth, Lang, Mode } from '@office/shared';
+import { GitBranch, Pause, Play, RefreshCw, ShieldAlert } from 'lucide-react';
+import type { GatewayHealth, GitStatusSnapshot, Lang, Mode } from '@office/shared';
+import { formatTimeShort } from '../lib/i18n';
 
 interface StatusRailProps {
   officeName: string;
   gateway: GatewayHealth;
+  gitStatus?: GitStatusSnapshot;
   mode: Mode;
   paused: boolean;
   language: Lang;
@@ -20,6 +22,7 @@ interface StatusRailProps {
 export function StatusRail({
   officeName,
   gateway,
+  gitStatus,
   mode,
   paused,
   language,
@@ -99,6 +102,69 @@ export function StatusRail({
             <RefreshCw size={14} strokeWidth={1.5} />
           </button>
         </div>
+
+        {gitStatus && (
+          <div
+            className="chip mono"
+            title={
+              gitStatus.pushBlocked || gitStatus.blockedReason
+                ? `${language === 'id' ? 'Push tertahan' : 'Push blocked'}: ${gitStatus.blockedReason ?? 'Security block'}`
+                : gitStatus.lastCommitTitle
+                  ? `${gitStatus.lastCommitSha ?? ''} — ${gitStatus.lastCommitTitle}`
+                  : gitStatus.lastPushAt
+                    ? `${language === 'id' ? 'Push terakhir' : 'Last push'}: ${gitStatus.lastPushAt}`
+                    : language === 'id'
+                      ? 'Sinkronisasi Git aktif'
+                      : 'Git sync active'
+            }
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '3px 8px',
+              fontSize: 12,
+              backgroundColor: 'var(--surface-2)',
+              borderColor:
+                gitStatus.pushBlocked || gitStatus.blockedReason
+                  ? 'var(--danger)'
+                  : gitStatus.aheadCount > 0
+                    ? 'var(--warn)'
+                    : 'var(--rule-strong)',
+              color:
+                gitStatus.pushBlocked || gitStatus.blockedReason
+                  ? 'var(--danger)'
+                  : 'var(--text-muted)',
+            }}
+          >
+            <GitBranch
+              size={13}
+              strokeWidth={1.6}
+              color={
+                gitStatus.pushBlocked || gitStatus.blockedReason
+                  ? 'var(--danger)'
+                  : gitStatus.aheadCount > 0
+                    ? 'var(--warn)'
+                    : 'var(--ok)'
+              }
+            />
+            <span style={{ color: 'var(--text)', fontWeight: 600 }}>{gitStatus.branch}</span>
+            {gitStatus.lastCommitSha && (
+              <span style={{ color: 'var(--data)' }}>{gitStatus.lastCommitSha.slice(0, 7)}</span>
+            )}
+            {gitStatus.aheadCount > 0 && (
+              <span style={{ color: 'var(--warn)' }}>↑{gitStatus.aheadCount}</span>
+            )}
+            {gitStatus.pushBlocked || gitStatus.blockedReason ? (
+              <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
+                {language === 'id' ? 'Tertahan' : 'Blocked'}
+              </span>
+            ) : gitStatus.lastPushAt ? (
+              <span style={{ color: 'var(--text-faint)' }}>
+                {formatTimeShort(gitStatus.lastPushAt)}
+              </span>
+            ) : null}
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

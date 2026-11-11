@@ -1,5 +1,5 @@
 import React from 'react';
-import type { AgentView, GatewayStatus, Lang } from '@office/shared';
+import { type AgentView, type GatewayStatus, type Lang, roleLabel } from '@office/shared';
 
 interface CommandComposerProps {
   agents: AgentView[];
@@ -41,13 +41,17 @@ export const CommandComposer: React.FC<CommandComposerProps> = ({
         value={target}
         onChange={(e) => onChangeTarget(e.target.value)}
       >
-        <option value="manager">→ Raka (Manajer)</option>
-        <option value="all">→ Semua (Siaran)</option>
+        <option value="manager">
+          → Raka ({language === 'id' ? 'Manajer' : 'Manager'})
+        </option>
+        <option value="all">
+          → {language === 'id' ? 'Semua (Siaran)' : 'All (Broadcast)'}
+        </option>
         {agents
           .filter((a) => a.id !== 'raka')
           .map((a) => (
             <option key={a.id} value={a.id}>
-              → {a.name.split(' ')[0] ?? a.name} ({a.role.split(' ')[0] ?? a.role})
+              → {a.name.split(' ')[0] ?? a.name} ({roleLabel(a.role, language)})
             </option>
           ))}
       </select>

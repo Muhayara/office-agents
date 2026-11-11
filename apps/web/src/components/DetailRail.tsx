@@ -1,12 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { Check, FileText, FolderOpen, RefreshCw, X } from 'lucide-react';
-import { type AgentView, type Approval, type Lang, type Task, roleLabel } from '@office/shared';
+import { Check, FileText, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert, X } from 'lucide-react';
+import {
+  type AgentView,
+  type Approval,
+  type Lang,
+  type SecurityFinding,
+  type Task,
+  formatPublicModelName,
+  roleLabel,
+} from '@office/shared';
 import { STATUS_LABELS, TASK_STATUS_LABELS } from '../lib/i18n';
 import { Tick } from './Tick';
 
 interface DetailRailProps {
   approvals: Approval[];
   agents: AgentView[];
+  securityFindings?: SecurityFinding[];
   selectedAgent?: AgentView;
   selectedTask?: Task;
   language: Lang;
@@ -18,6 +27,7 @@ interface DetailRailProps {
 export function DetailRail({
   approvals,
   agents,
+  securityFindings = [],
   selectedAgent,
   selectedTask,
   language,
@@ -136,7 +146,7 @@ export function DetailRail({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {cmd || apr.kind}
+                  {cmd || apr.payload.reason || apr.kind}
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
@@ -179,6 +189,93 @@ export function DetailRail({
                     <X size={13} strokeWidth={1.8} />
                     <span>{language === 'id' ? 'Tolak' : 'Deny'}</span>
                   </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Ringkasan Audit Keamanan Satria (ter-redaksi: hanya rule, path, line, severity) */}
+      <div className="section-header">
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {securityFindings.some((f) => f.severity === 'hard') ? (
+            <ShieldAlert size={14} strokeWidth={1.6} color="var(--danger)" />
+          ) : securityFindings.length > 0 ? (
+            <ShieldAlert size={14} strokeWidth={1.6} color="var(--warn)" />
+          ) : (
+            <ShieldCheck size={14} strokeWidth={1.6} color="var(--ok)" />
+          )}
+          <span>
+            {language === 'id' ? 'Audit Keamanan' : 'Security Audit'} ({securityFindings.length})
+          </span>
+        </span>
+        <span className="mono" style={{ fontSize: 11, color: 'var(--a-satria)' }}>
+          Satria
+        </span>
+      </div>
+
+      <div
+        style={{
+          padding: 12,
+          borderBottom: '1px solid var(--rule)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          maxHeight: 164,
+          overflowY: 'auto',
+        }}
+      >
+        {securityFindings.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>
+              {language === 'id'
+                ? 'Bersih — 0 temuan rahasia/kredensial aktif.'
+                : 'Clean — 0 active secret/credential findings.'}
+            </span>
+          </div>
+        ) : (
+          securityFindings.map((finding, idx) => {
+            const isHard = finding.severity === 'hard';
+            return (
+              <div
+                key={`${finding.rule}_${finding.path}_${finding.line ?? 0}_${idx}`}
+                style={{
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--rule)',
+                  borderLeft: `2px solid ${isHard ? 'var(--danger)' : 'var(--warn)'}`,
+                  borderRadius: 4,
+                  padding: '6px 8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                  <span
+                    className="mono"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: isHard ? 'var(--danger)' : 'var(--warn)',
+                    }}
+                  >
+                    [{finding.severity.toUpperCase()}] {finding.rule}
+                  </span>
+                </div>
+                <div
+                  className="mono"
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--text-muted)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={`${finding.path}${finding.line ? `:${finding.line}` : ''}`}
+                >
+                  {finding.path}
+                  {finding.line ? `:${finding.line}` : ''}
                 </div>
               </div>
             );
@@ -287,7 +384,7 @@ export function DetailRail({
 
               <div style={{ fontSize: 12 }}>
                 <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>
-                  Model: <span className="mono">{selectedAgent.model}</span>
+                  Model: <span className="mono">{formatPublicModelName(selectedAgent.model)}</span>
                 </div>
                 <Tick used={selectedAgent.quota.used} cap={selectedAgent.quota.cap} />
               </div>

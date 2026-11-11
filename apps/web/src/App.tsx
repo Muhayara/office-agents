@@ -260,6 +260,34 @@ export function App() {
           break;
         }
 
+        case 'git.updated': {
+          setSnapshot((prev) => (prev ? { ...prev, git: event.git } : prev));
+          if (event.git.pushBlocked || event.git.blockedReason) {
+            showToast(
+              `Git push tertahan: ${event.git.blockedReason ?? 'Temuan keamanan'}`,
+              'var(--danger)',
+            );
+          } else if (event.git.lastCommitSha) {
+            showToast(
+              `Git sync (${event.git.branch}): ${event.git.lastCommitSha.slice(0, 7)}`,
+              'var(--ok)',
+            );
+          }
+          break;
+        }
+
+        case 'security.findings': {
+          setSnapshot((prev) => (prev ? { ...prev, securityFindings: event.findings } : prev));
+          const hardCount = event.findings.filter((f) => f.severity === 'hard').length;
+          if (hardCount > 0) {
+            showToast(
+              `Audit Keamanan Satria: ${hardCount} temuan HARD terdeteksi`,
+              'var(--danger)',
+            );
+          }
+          break;
+        }
+
         case 'error': {
           showToast(event.message, 'var(--danger)');
           break;
@@ -371,6 +399,7 @@ export function App() {
       <StatusRail
         officeName={office.name}
         gateway={office.gateway}
+        gitStatus={snapshot.git}
         mode={office.mode}
         paused={office.paused}
         language={lang}
@@ -394,8 +423,8 @@ export function App() {
         <div className="offline-banner" role="alert">
           <span>
             {lang === 'id'
-              ? 'Gateway 9router offline (http://127.0.0.1:20128). Jalankan "9router -n -l" lalu klik Coba lagi.'
-              : 'Gateway 9router is offline (http://127.0.0.1:20128). Start "9router -n -l" and click Retry.'}
+              ? 'Gateway model lokal offline. Pastikan layanan model aktif lalu klik Coba lagi.'
+              : 'Local model gateway is offline. Ensure the model service is running and click Retry.'}
           </span>
           <button type="button" onClick={() => void handleCheckGateway()}>
             {lang === 'id' ? 'Coba lagi' : 'Retry'}
@@ -407,7 +436,11 @@ export function App() {
         {/* Roster Kiri 264px */}
         <section className="roster-rail" aria-label="Roster Karyawan AI">
           <div className="section-header">
-            <span>{lang === 'id' ? 'Kursi Karyawan (5)' : 'Employee Seats (5)'}</span>
+            <span>
+              {lang === 'id'
+                ? `Kursi Karyawan (${agents.length})`
+                : `Employee Seats (${agents.length})`}
+            </span>
             <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
               kuota/hari
             </span>
@@ -468,10 +501,11 @@ export function App() {
           />
         </div>
 
-        {/* Rail Kanan: Approval + Detail + Workspace Files */}
+        {/* Rail Kanan: Approval + Audit Keamanan Satria + Detail + Workspace Files */}
         <DetailRail
           approvals={approvals}
           agents={agents}
+          securityFindings={snapshot.securityFindings ?? []}
           selectedAgent={selectedAgent}
           selectedTask={selectedTask}
           language={lang}

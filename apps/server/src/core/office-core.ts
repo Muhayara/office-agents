@@ -114,6 +114,7 @@ export class OfficeCore {
     };
 
     this.bootstrapState();
+    void this.gitService.refreshStatus();
   }
 
   public onWake(cb: () => void): void {

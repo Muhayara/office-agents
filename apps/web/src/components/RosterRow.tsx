@@ -9,7 +9,13 @@ import {
   Users,
   XCircle,
 } from 'lucide-react';
-import { type AgentStatus, type AgentView, type Lang, roleLabel } from '@office/shared';
+import {
+  type AgentStatus,
+  type AgentView,
+  type Lang,
+  formatPublicModelName,
+  roleLabel,
+} from '@office/shared';
 import { STATUS_LABELS, statusColorVar } from '../lib/i18n';
 import { Tick } from './Tick';
 
@@ -149,7 +155,7 @@ export function RosterRow({
             maxWidth: 96,
           }}
         >
-          {agent.model.replace(/^(ag|groq\/openai|gemini|oc|kr)\//, '')}
+          {formatPublicModelName(agent.model)}
         </span>
         <Tick used={agent.quota.used} cap={agent.quota.cap} />
       </div>
