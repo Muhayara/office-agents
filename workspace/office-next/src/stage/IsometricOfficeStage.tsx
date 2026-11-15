@@ -108,10 +108,19 @@ export function IsometricOfficeStage({
     fillLight.position.set(-14, 12, -10);
     scene.add(fillLight);
 
-    // 6. Memuat 3D Diorama Shell (office_room_shell.glb) & Modular Desk (desk.glb)
+    // 6. Memuat 3D Models Modular (Room Shell, Desk, Chair, Server Rack, Plants)
     const loader = new GLTFLoader();
     let deskTemplate: THREE.Group | null = null;
+    let chairTemplate: THREE.Group | null = null;
+    let serverRackTemplate: THREE.Group | null = null;
+    let monsteraTemplate: THREE.Group | null = null;
+    let snakePlantTemplate: THREE.Group | null = null;
 
+    const decorGroup = new THREE.Group();
+    decorGroup.name = 'OfficeDecor3D';
+    scene.add(decorGroup);
+
+    // 6.1 Memuat 3D Diorama Shell (office_room_shell.glb)
     loader.load(
       '/models/office_room_shell.glb',
       (gltf) => {
@@ -131,7 +140,7 @@ export function IsometricOfficeStage({
       },
     );
 
-    // Otomatis muat desk.glb jika file sudah ada (Plug-and-Play)
+    // 6.2 Memuat Meja Kerja Modular (desk.glb)
     loader.load(
       '/models/desk.glb',
       (gltf) => {
@@ -145,10 +154,131 @@ export function IsometricOfficeStage({
         updateAgents();
       },
       undefined,
-      () => {
-        // desk.glb belum ada atau sedang dibuat di background; gunakan fallback sementara
-      },
+      () => {},
     );
+
+    // 6.3 Memuat Kursi Kantor Ergonomis Mesh (Office_Ergonomic_Chair.glb)
+    loader.load(
+      '/models/Office_Ergonomic_Chair.glb',
+      (gltf) => {
+        chairTemplate = gltf.scene;
+        chairTemplate.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        updateAgents();
+      },
+      undefined,
+      () => {},
+    );
+
+    // 6.4 Memuat Rak Server 42U Data Center (Server_Rack_42U.glb)
+    loader.load(
+      '/models/Server_Rack_42U.glb',
+      (gltf) => {
+        serverRackTemplate = gltf.scene;
+        serverRackTemplate.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        updateDecor();
+      },
+      undefined,
+      () => {},
+    );
+
+    // 6.5 Memuat Tanaman Hias Indoor Monstera (Office_Indoor_Plant.glb)
+    loader.load(
+      '/models/Office_Indoor_Plant.glb',
+      (gltf) => {
+        monsteraTemplate = gltf.scene;
+        monsteraTemplate.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        updateDecor();
+      },
+      undefined,
+      () => {},
+    );
+
+    // 6.6 Memuat Tanaman Hias Lidah Mertua (Office_Indoor_Plant_SnakePlant.glb)
+    loader.load(
+      '/models/Office_Indoor_Plant_SnakePlant.glb',
+      (gltf) => {
+        snakePlantTemplate = gltf.scene;
+        snakePlantTemplate.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        updateDecor();
+      },
+      undefined,
+      () => {},
+    );
+
+    // Fungsi Render Dekorasi Tetap (Rak Server & Tanaman)
+    const updateDecor = () => {
+      while (decorGroup.children.length > 0) {
+        decorGroup.remove(decorGroup.children[0]!);
+      }
+
+      // 1. Rak Server 42U di Ruang Server / Vault Belakang (Dekat Satria & Bima)
+      if (serverRackTemplate) {
+        const rackPositions = [
+          { x: 0.3, z: 3.8, rotY: 0 },
+          { x: 5.6, z: 3.8, rotY: 0 },
+        ];
+        rackPositions.forEach((pos, idx) => {
+          const rack = serverRackTemplate!.clone(true);
+          rack.position.set(pos.x, 0, pos.z);
+          rack.rotation.y = pos.rotY;
+          rack.name = `ServerRack_42U_${idx + 1}`;
+          decorGroup.add(rack);
+        });
+      }
+
+      // 2. Tanaman Hias Monstera di Sudut-Sudut Estetik
+      if (monsteraTemplate) {
+        const plantPositions = [
+          { x: -6.0, z: 3.8, scale: 0.95 },  // Lobi / Rehat
+          { x: -6.0, z: -4.0, scale: 0.90 }, // Sudut Manager Raka
+          { x: -6.0, z: 0.0, scale: 0.85 },  // Studio Desain Tari & Wulan
+        ];
+        plantPositions.forEach((pos, idx) => {
+          const plant = monsteraTemplate!.clone(true);
+          plant.position.set(pos.x, 0, pos.z);
+          plant.scale.setScalar(pos.scale);
+          plant.name = `Monstera_Plant_${idx + 1}`;
+          decorGroup.add(plant);
+        });
+      }
+
+      // 3. Tanaman Hias Snake Plant (Lidah Mertua) di Partisi & Koridor
+      if (snakePlantTemplate) {
+        const snakePositions = [
+          { x: 0.0, z: -4.0, scale: 0.90 }, // Pembatas Koridor Utama
+          { x: 5.8, z: -4.0, scale: 0.90 }, // Sudut Game Lab Gita
+          { x: 0.0, z: 1.8, scale: 0.85 },  // Pintu Masuk Vault Keamanan
+        ];
+        snakePositions.forEach((pos, idx) => {
+          const plant = snakePlantTemplate!.clone(true);
+          plant.position.set(pos.x, 0, pos.z);
+          plant.scale.setScalar(pos.scale);
+          plant.name = `Snake_Plant_${idx + 1}`;
+          decorGroup.add(plant);
+        });
+      }
+    };
+    updateDecor();
 
     // 7. Raycasting untuk Klik Agen di 3D
     const raycaster = new THREE.Raycaster();
@@ -197,11 +327,15 @@ export function IsometricOfficeStage({
       time += 0.03;
 
       // Update avatar markers (efek bobbing halus)
-      agentMeshGroup.children.forEach((child) => {
-        if (child.userData?.isBeacon) {
-          child.position.y = 1.1 + Math.sin(time + (child.userData.offset || 0)) * 0.05;
-          child.rotation.y += 0.02;
-        }
+      agentMeshGroup.children.forEach((agentGrp) => {
+        agentGrp.children.forEach((child) => {
+          if (child.userData?.isBeacon) {
+            child.position.y =
+              (child.userData.baseY || 1.28) +
+              Math.sin(time + (child.userData.offset || 0)) * 0.04;
+            child.rotation.y += 0.02;
+          }
+        });
       });
 
       controls.update();
@@ -245,6 +379,65 @@ export function IsometricOfficeStage({
           group.add(deskMesh);
         }
 
+        // Kursi Kerja: Gunakan model modular Office_Ergonomic_Chair.glb jika sudah diunduh
+        if (chairTemplate) {
+          const clonedChair = chairTemplate.clone(true);
+          clonedChair.position.set(0, 0, 0.55);
+          clonedChair.rotation.y = Math.PI; // Menghadap ke arah meja (-Z)
+          group.add(clonedChair);
+        } else {
+          const chairGeo = new THREE.BoxGeometry(0.5, 0.45, 0.5);
+          const chairMat = new THREE.MeshStandardMaterial({
+            color: 0x111c22,
+            roughness: 0.8,
+          });
+          const chairMesh = new THREE.Mesh(chairGeo, chairMat);
+          chairMesh.position.set(0, 0.45 / 2, 0.55);
+          chairMesh.castShadow = true;
+          chairMesh.receiveShadow = true;
+          group.add(chairMesh);
+        }
+
+        // Karakter Mini Agen Duduk di Kursi
+        const avatarGroup = new THREE.Group();
+        avatarGroup.name = `Avatar_${ag.id}`;
+        avatarGroup.position.set(0, 0.45, 0.50);
+
+        // Badan / Kemeja sesuai warna khas agen
+        const bodyGeo = new THREE.CylinderGeometry(0.13, 0.15, 0.35, 12);
+        const bodyMat = new THREE.MeshStandardMaterial({
+          color: color,
+          roughness: 0.6,
+          metalness: 0.1,
+        });
+        const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+        bodyMesh.position.y = 0.35 / 2;
+        bodyMesh.castShadow = true;
+        avatarGroup.add(bodyMesh);
+
+        // Kepala
+        const headGeo = new THREE.SphereGeometry(0.12, 16, 16);
+        const headMat = new THREE.MeshStandardMaterial({
+          color: 0xffd9b3,
+          roughness: 0.6,
+        });
+        const headMesh = new THREE.Mesh(headGeo, headMat);
+        headMesh.position.y = 0.35 + 0.11;
+        headMesh.castShadow = true;
+        avatarGroup.add(headMesh);
+
+        // Rambut Stylized
+        const hairGeo = new THREE.SphereGeometry(0.124, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+        const hairMat = new THREE.MeshStandardMaterial({
+          color: 0x172227,
+          roughness: 0.9,
+        });
+        const hairMesh = new THREE.Mesh(hairGeo, hairMat);
+        hairMesh.position.y = 0.35 + 0.12;
+        avatarGroup.add(hairMesh);
+
+        group.add(avatarGroup);
+
         // Monitor kerja
         const monGeo = new THREE.BoxGeometry(0.6, 0.35, 0.05);
         const monMat = new THREE.MeshStandardMaterial({
@@ -258,18 +451,18 @@ export function IsometricOfficeStage({
         monMesh.castShadow = true;
         group.add(monMesh);
 
-        // Kristal/Beacon indikator status melayang di atas meja
-        const beaconGeo = new THREE.OctahedronGeometry(0.18, 0);
+        // Kristal/Beacon indikator status melayang di atas kepala agen
+        const beaconGeo = new THREE.OctahedronGeometry(0.14, 0);
         const beaconMat = new THREE.MeshStandardMaterial({
           color: color,
           emissive: color,
-          emissiveIntensity: isSelected ? 1.6 : 0.8,
-          roughness: 0.2,
-          metalness: 0.8,
+          emissiveIntensity: isSelected ? 1.8 : 0.9,
+          roughness: 0.15,
+          metalness: 0.85,
         });
         const beacon = new THREE.Mesh(beaconGeo, beaconMat);
-        beacon.position.y = 1.15;
-        beacon.userData = { isBeacon: true, offset: idx * 0.7 };
+        beacon.position.set(0, 1.28, 0.48);
+        beacon.userData = { isBeacon: true, offset: idx * 0.7, baseY: 1.28 };
         group.add(beacon);
 
         // Cincin seleksi di lantai jika terpilih

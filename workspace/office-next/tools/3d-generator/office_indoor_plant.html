@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Office_Indoor_Plant — GLB generator</title>
+<style>
+  html,body{margin:0;height:100%;background:#e8ecee;font:14px/1.45 system-ui,sans-serif;color:#182329;overflow:hidden}
+  #v{position:fixed;inset:0}
+  #ui{position:fixed;left:12px;top:12px;width:250px;padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.88);box-shadow:0 2px 14px rgba(0,0,0,.18)}
+  h1{font-size:15px;margin:0 0 6px}
+  #dims{font:12px ui-monospace,Menlo,monospace;margin:0 0 10px;white-space:pre;color:#34454d}
+  button{font:inherit;padding:8px 12px;border:0;border-radius:8px;background:#182329;color:#fff;cursor:pointer;margin:0 6px 6px 0}
+  button.alt{background:#c9d3d8;color:#182329}
+  #st{font-size:12px;color:#4a5a62;min-height:18px}
+</style>
+</head>
+<body>
+<div id="v"></div>
+<div id="ui">
+  <h1>Office_Indoor_Plant</h1>
+  <div id="dims"></div>
+  <button id="exp">Export GLB</button><button id="rot" class="alt">Auto-rotate</button>
+  <div id="st">Drag to orbit · scroll to zoom</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+<script>
+/* Metres, Y-up, origin = floor centre under the pot. Target: 1.35 m tall, 0.65 m across. */
+const V3 = THREE.Vector3, SOIL_Y = 0.41;
+
+/* ---------- Materials (hex = sRGB, converted to linear for GLB) ---------- */
+const mk = (name, hex, metal, rough, extra = {}) => {
+  const m = new THREE.MeshStandardMaterial(Object.assign({ metalness: metal, roughness: rough }, extra));
+  m.color = new THREE.Color(hex).convertSRGBToLinear(); m.name = name; return m;
+};
+const M = {
+  pot   : mk('Ceramic_Matte_Slate', 0xcdd6d8, 0.0, 0.85),
+  soil  : mk('Potting_Soil', 0x2b211a, 0.0, 1.0),
+  leafA : mk('Leaf_Green_Deep', 0x2a784c, 0.0, 0.65, { side: THREE.DoubleSide }),
+  leafB : mk('Leaf_Green_Fresh', 0x389e63, 0.0, 0.65, { side: THREE.DoubleSide }),
+  stem  : mk('Stem_Green', 0x2d6a43, 0.0, 0.7)
+};
+const flat = g => { const n = g.index ? g.toNonIndexed() : g; n.computeVertexNormals(); return n; };   // faceted look
+const grp = n => { const g = new THREE.Group(); g.name = n; return g; };
+const part = (g, m, name) => { const o = new THREE.Mesh(g, m); o.name = name; return o; };
+
+/* Exact bounding box from vertices (Box3.setFromObject in r128 inflates rotated meshes) */
+function exactBox(obj) {
+  obj.updateMatrixWorld(true);
+  const b = new THREE.Box3(), v = new V3();
+  obj.traverse(o => { if (o.isMesh) { const p = o.geometry.attributes.position;
+    for (let i = 0; i < p.count; i++) b.expandByPoint(v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld)); } });
+  return b;
+}
+
+const plant = grp('Office_Indoor_Plant');
+
+/* ---------- Pot: 8-sided hollow tapered planter, 0.35 m across the rim, 0.45 m tall ---------- */
+const potPts = [[0, 0], [0.13, 0], [0.175, 0.45], [0.158, 0.45], [0.12, 0.03], [0, 0.03]].map(p => new THREE.Vector2(...p));
+const pot = grp('Planter');
+pot.add(part(flat(new THREE.LatheGeometry(potPts, 8)), M.pot, 'Pot_Body'));
+const soilG = new THREE.CylinderGeometry(0.152, 0.152, 0.06, 8);
+{ const p = soilG.attributes.position; for (let i = 0; i < p.count; i++) if (p.getY(i) > 0 && !p.getX(i) && !p.getZ(i)) p.setY(i, p.getY(i) + 0.012); }
+const soil = part(flat(soilG), M.soil, 'Soil'); soil.position.y = 0.38; pot.add(soil);
+plant.add(pot);
+
+/* ---------- Monstera leaf: heart-shaped, split edges + holes, folded along the midrib ---------- */
+function leafGeo(L, W) {
+  const pts = [[0,.02],[.28,-.1],[.62,-.12],[.9,-.02],[.95,.1],[1,.22],[.36,.28],[.97,.34],[.9,.46],[.34,.52],[.78,.58],
+               [.62,.7],[.3,.76],[.42,.82],[.2,.92],[0,1],[0,.75],[0,.5],[0,.25]];
+  const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x * W, y * L)));
+  [[.55,.40,.07,.040],[.50,.64,.07,.035],[.50,.14,.06,.035]].forEach(([cx, cy, rx, ry]) => {   // perforations (hexagons)
+    const h = new THREE.Path();
+    for (let k = 0; k < 6; k++) { const a = -k * Math.PI / 3, x = (cx + rx * Math.cos(a)) * W, y = (cy + ry * Math.sin(a)) * L; k ? h.lineTo(x, y) : h.moveTo(x, y); }
+    h.closePath(); shape.holes.push(h); });
+  const src = new THREE.ShapeGeometry(shape).toNonIndexed().attributes.position, out = [];
+  [1, -1].forEach(side => {                                   // right half, then mirrored left half
+    for (let t = 0; t < src.count; t += 3) (side > 0 ? [0, 1, 2] : [0, 2, 1]).forEach(k => {
+      const x = src.getX(t + k) * side, y = src.getY(t + k);
+      out.push(x, y, 0.32 * Math.abs(x) - 0.28 * y * y / L);   // V-fold along midrib + tip droop
+    });
+  });
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+  g.computeVertexNormals(); return g;
+}
+
+/* ---------- Foliage: 8 leaves on arching stems, fanned outward (group origin = soil level) ---------- */
+const fol = grp('Foliage'); fol.position.y = SOIL_Y;
+const defs = [  // az(deg), stem height, stem radial reach, leaf elevation(deg), leaf length, roll(deg)
+  [  0, .38, .06, 26, .29,  6], [ 47, .55, .08, 42, .30, -5], [ 92, .34, .06, 24, .30,  8], [138, .62, .07, 46, .29, -7],
+  [185, .42, .06, 30, .29,  5], [228, .74, .05, 60, .28,  0], [275, .36, .06, 25, .30, -6], [318, .58, .08, 44, .30,  7]];
+defs.forEach(([azD, h, r, elD, L, roll], i) => {
+  const az = azD * Math.PI / 180, el = elD * Math.PI / 180, sa = Math.sin(az), ca = Math.cos(az), n = i + 1;
+  const E = new V3(r * sa, h, r * ca);
+  const curve = new THREE.CatmullRomCurve3([new V3(0.02 * sa, -0.02, 0.02 * ca), new V3(0.25 * r * sa, 0.45 * h, 0.25 * r * ca),
+                                            new V3(0.7 * r * sa, 0.88 * h, 0.7 * r * ca), E]);
+  fol.add(part(flat(new THREE.TubeGeometry(curve, 10, 0.0075, 5, false)), M.stem, 'Stem_' + n));
+  const dir = new V3(Math.cos(el) * sa, Math.sin(el), Math.cos(el) * ca);
+  const zax = new V3(0, 1, 0).sub(dir.clone().multiplyScalar(dir.y)).normalize();
+  const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new V3().crossVectors(dir, zax), dir, zax));
+  q.premultiply(new THREE.Quaternion().setFromAxisAngle(dir, roll * Math.PI / 180));
+  const leaf = part(leafGeo(L, L * 0.45), i % 2 ? M.leafB : M.leafA, 'Leaf_' + n);
+  leaf.position.copy(E); leaf.quaternion.copy(q); fol.add(leaf);
+});
+plant.add(fol);
+
+/* ---------- Fit foliage to the spec (0.65 m across, 1.35 m tall) and bake the scale into the meshes ---------- */
+let fb = exactBox(fol);
+const ext = Math.max(-fb.min.x, fb.max.x, -fb.min.z, fb.max.z), sx = 0.325 / ext;
+fol.scale.set(sx, 1, sx); fb = exactBox(fol);
+const sy = (1.35 - SOIL_Y) / (fb.max.y - SOIL_Y);
+fol.scale.set(1, 1, 1);
+const S = new THREE.Matrix4().makeScale(sx, sy, sx);
+fol.children.forEach(o => { o.updateMatrix(); o.geometry.applyMatrix4(S.clone().multiply(o.matrix)); o.geometry.computeVertexNormals();
+  o.position.set(0, 0, 0); o.quaternion.identity(); o.scale.set(1, 1, 1); });
+
+const bb = exactBox(plant), sz = bb.getSize(new V3());
+document.getElementById('dims').textContent =
+  `W ${sz.x.toFixed(3)} m · D ${sz.z.toFixed(3)} m  (0.65)\nH ${sz.y.toFixed(3)} m  (1.35)\nPot Ø0.350 × 0.450 m · ${defs.length} leaves\nmin Y ${bb.min.y.toFixed(3)} · origin floor`;
+
+/* ============ Preview ============ */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.outputEncoding = THREE.sRGBEncoding; renderer.shadowMap.enabled = true;
+document.getElementById('v').appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xe8ecee);
+const cam = new THREE.PerspectiveCamera(38, 1, 0.05, 50); cam.position.set(1.7, 1.2, 2.3);
+const ctl = new THREE.OrbitControls(cam, renderer.domElement);
+ctl.target.set(0, 0.68, 0); ctl.enableDamping = true; ctl.maxPolarAngle = Math.PI * 0.495; ctl.autoRotateSpeed = 1.5;
+
+const es = new THREE.Scene(); es.background = new THREE.Color(0x6a7a82);
+[[0,3,0,4,.1,4],[3,1,0,.1,2,3],[-3,1,1,.1,2,3],[0,1,3,3,2,.1]].forEach(([x,y,z,w,h,d]) => {
+  const p = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshBasicMaterial({ color: 0xffffff })); p.position.set(x,y,z); es.add(p); });
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(es, 0.03).texture;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x556068, 0.5));
+const sun = new THREE.DirectionalLight(0xffffff, 1.0); sun.position.set(2, 4, 2.5); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -1, right: 1, top: 1.6, bottom: -0.5, near: 0.5, far: 9 });
+scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.ShadowMaterial({ opacity: 0.22 }));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+scene.add(new THREE.GridHelper(4, 40, 0xb7c1c7, 0xd0d7db));
+plant.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+scene.add(plant);
+
+function resize() { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+(function loop() { requestAnimationFrame(loop); ctl.update(); renderer.render(scene, cam); })();
+
+/* ============ UI ============ */
+const st = document.getElementById('st');
+document.getElementById('rot').onclick = () => { ctl.autoRotate = !ctl.autoRotate; };
+document.getElementById('exp').onclick = () => {
+  st.textContent = 'Exporting…'; plant.updateMatrixWorld(true);
+  try {
+    new THREE.GLTFExporter().parse(plant, buf => {
+      const blob = new Blob([buf], { type: 'model/gltf-binary' }), a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'Office_Indoor_Plant.glb';
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+      st.textContent = `Exported Office_Indoor_Plant.glb (${(blob.size / 1024).toFixed(0)} KB)`;
+    }, { binary: true, onlyVisible: true, truncateDrawRange: true });
+  } catch (e) { st.textContent = 'Export failed: ' + e.message; }
+};
+</script>
+</body>
+</html>

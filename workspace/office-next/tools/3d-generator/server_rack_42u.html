@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Server_Rack_42U — GLB generator</title>
+<style>
+  html,body{margin:0;height:100%;background:#dfe4e8;font:14px/1.45 system-ui,sans-serif;color:#182329;overflow:hidden}
+  #v{position:fixed;inset:0}
+  #ui{position:fixed;left:12px;top:12px;width:250px;padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.88);box-shadow:0 2px 14px rgba(0,0,0,.18)}
+  h1{font-size:15px;margin:0 0 6px}
+  #dims{font:12px ui-monospace,Menlo,monospace;margin:0 0 10px;white-space:pre;color:#34454d}
+  button{font:inherit;padding:8px 12px;border:0;border-radius:8px;background:#182329;color:#fff;cursor:pointer;margin:0 6px 6px 0}
+  button.alt{background:#c9d3d8;color:#182329}
+  #st{font-size:12px;color:#4a5a62;min-height:18px}
+</style>
+</head>
+<body>
+<div id="v"></div>
+<div id="ui">
+  <h1>Server_Rack_42U</h1>
+  <div id="dims"></div>
+  <button id="exp">Export GLB</button><button id="rot" class="alt">Auto-rotate</button>
+  <div id="st">Drag to orbit · scroll to zoom</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+<script>
+/* Metres, Y-up. Front of the rack faces +Z. Origin = floor level, centred on the footprint. */
+const UH = 0.04445, Y0 = 0.10, FZ = 0.36;          // 1U height, bottom of U1, faceplate front plane
+const W = 0.75, D_FRONT = 0.44, D_REAR = -0.475;   // outer width, shell front/rear (door adds 0.035 -> 0.95 deep)
+
+/* ---------- Materials (hex = sRGB, converted to linear for GLB) ---------- */
+const mk = (name, hex, metal, rough, extra = {}) => {
+  const m = new THREE.MeshStandardMaterial(Object.assign({ metalness: metal, roughness: rough }, extra));
+  m.color = new THREE.Color(hex).convertSRGBToLinear(); m.name = name; return m;
+};
+const led = (name, hex) => { const m = mk(name, hex, 0, 0.4); m.emissive = new THREE.Color(hex).convertSRGBToLinear(); return m; };
+const holes = document.createElement('canvas'); holes.width = holes.height = 32;
+{ const c = holes.getContext('2d'); c.fillStyle = '#11181d'; c.fillRect(0, 0, 32, 32);
+  c.globalCompositeOperation = 'destination-out';
+  [[8, 8], [24, 24]].forEach(([x, y]) => { c.beginPath(); c.arc(x, y, 6.5, 0, 6.2832); c.fill(); }); }
+const holeTex = new THREE.CanvasTexture(holes);
+holeTex.wrapS = holeTex.wrapT = THREE.RepeatWrapping; holeTex.encoding = THREE.sRGBEncoding;
+
+const M = {
+  steel : mk('Cabinet_Steel', 0x0d1317, 0.75, 0.4),
+  frame : mk('Door_Frame_Metal', 0x3a4650, 0.9, 0.35),
+  rail  : mk('Rack_Rail', 0x46535b, 0.85, 0.4),
+  face  : mk('Faceplate', 0x141b20, 0.6, 0.5),
+  chassis: mk('Chassis', 0x222d33, 0.7, 0.45),
+  bay   : mk('Drive_Bay', 0x0a0e11, 0.3, 0.6),
+  latch : mk('Bay_Latch', 0x4d5b63, 0.8, 0.35),
+  port  : mk('Port', 0x050708, 0, 0.8),
+  rim   : mk('Port_Rim', 0x39454c, 0.8, 0.4),
+  btn   : mk('Power_Button', 0x8a979e, 0.9, 0.3),
+  clip  : mk('Cable_Clip', 0x2a353c, 0, 0.6),
+  pdu   : mk('PDU_Body', 0x161d22, 0.4, 0.5),
+  handle: mk('Door_Handle', 0x9aa7ad, 0.9, 0.25),
+  teal  : mk('Cable_Teal', 0x1fb5ad, 0, 0.5),
+  yellow: mk('Cable_Yellow', 0xe8c93a, 0, 0.5),
+  blue  : mk('Cable_Blue', 0x3a7bd5, 0, 0.5),
+  green : led('LED_Green', 0x5dbb8a),
+  ledblue: led('LED_Blue', 0x4da8da),
+  amber : led('LED_Amber', 0xe9a23b),
+  ledOff: mk('LED_Off', 0x1a2227, 0, 0.5),
+  doormesh: mk('Door_Perforated_Mesh', 0xffffff, 0.6, 0.5, { map: holeTex, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide })
+};
+const LEDCOL = { green: 0x5dbb8a, ledblue: 0x4da8da, amber: 0xe9a23b };
+
+/* ---------- helpers ---------- */
+const BGU = THREE.BufferGeometryUtils;
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const mesh = (g, m, x, y, z, name) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.name = name; return o; };
+const grp = n => { const g = new THREE.Group(); g.name = n; return g; };
+const flush = (P, g, prefix) => { for (const k in P) { const o = new THREE.Mesh(BGU.mergeBufferGeometries(P[k]), M[k]); o.name = prefix + '_' + k; g.add(o); } };
+const builder = P => (m, w, h, d, x, y, z) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); (P[m] = P[m] || []).push(g); };
+
+const rack = grp('Server_Rack_42U');
+const leds = [];   // world positions for preview glow
+
+/* ---------- Enclosure: beveled posts, beveled top/bottom panels, side + rear panels, feet ---------- */
+const enc = grp('Enclosure');
+const postS = new THREE.Shape(), pw = 0.02, pc = 0.012;
+[[-pw + pc, -pw], [pw - pc, -pw], [pw, -pw + pc], [pw, pw - pc], [pw - pc, pw], [-pw + pc, pw], [-pw, pw - pc], [-pw, -pw + pc]]
+  .forEach(([x, y], i) => i ? postS.lineTo(x, y) : postS.moveTo(x, y));
+const postG = new THREE.ExtrudeGeometry(postS, { depth: 1.97, bevelEnabled: false }); postG.rotateX(-Math.PI / 2); postG.translate(0, 0.06, 0);
+[[-1, 0.42, 'Front_L'], [1, 0.42, 'Front_R'], [-1, -0.455, 'Rear_L'], [1, -0.455, 'Rear_R']]
+  .forEach(([sx, z, n]) => enc.add(mesh(postG, M.steel, sx * 0.355, 0, z, 'Corner_Post_' + n)));
+
+function plate(yTop, name) {                      // 0.02 thick plate with cut corners + bevelled edges
+  const xh = 0.371, za = D_REAR + 0.004, zb = D_FRONT - 0.004, c = 0.035, s = new THREE.Shape();
+  s.moveTo(-xh + c, za); s.lineTo(xh - c, za); s.lineTo(xh, za + c); s.lineTo(xh, zb - c);
+  s.lineTo(xh - c, zb); s.lineTo(-xh + c, zb); s.lineTo(-xh, zb - c); s.lineTo(-xh, za + c);
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.012, bevelEnabled: true, bevelSize: 0.004, bevelThickness: 0.004, bevelSegments: 1 });
+  g.rotateX(Math.PI / 2); g.translate(0, yTop - 0.004, 0); return mesh(g, M.steel, 0, 0, 0, name);
+}
+enc.add(plate(2.05, 'Top_Panel'), plate(0.06, 'Bottom_Panel'));
+const zc = (D_FRONT + D_REAR) / 2;
+enc.add(mesh(new THREE.BoxGeometry(0.012, 1.97, 0.915), M.steel, -0.369, 1.045, zc, 'Side_Panel_L'),
+        mesh(new THREE.BoxGeometry(0.012, 1.97, 0.915), M.steel,  0.369, 1.045, zc, 'Side_Panel_R'),
+        mesh(new THREE.BoxGeometry(0.72, 1.97, 0.012), M.steel, 0, 1.045, -0.469, 'Rear_Panel'));
+const footG = new THREE.CylinderGeometry(0.03, 0.03, 0.04, 10);
+[[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz], i) => enc.add(mesh(footG, M.frame, sx * 0.32, 0.02, sz * 0.38, 'Foot_' + (i + 1))));
+rack.add(enc);
+
+/* ---------- 19" mounting rails ---------- */
+const rails = grp('Rack_Rails'), railG = new THREE.BoxGeometry(0.03, 42 * UH, 0.01);
+[[-1, FZ - 0.025, 'Front_L'], [1, FZ - 0.025, 'Front_R'], [-1, -0.30, 'Rear_L'], [1, -0.30, 'Rear_R']]
+  .forEach(([sx, z, n]) => rails.add(mesh(railG, M.rail, sx * 0.2413, Y0 + 21 * UH, z, 'Rail_' + n)));
+rack.add(rails);
+
+/* ---------- Rackmount devices ---------- */
+const LEDG = new THREE.CylinderGeometry(0.0025, 0.0025, 0.002, 8); LEDG.rotateX(Math.PI / 2);
+const unitY = (U, h) => Y0 + (U - 1) * UH + (h * UH - 0.002) / 2 + 0.001;
+const patchX = i => -0.2 + i * 0.0165 + (i >= 12 ? 0.012 : 0), switchX = i => -0.215 + i * 0.0095;
+
+function device(U, h, type) {
+  const H = h * UH - 0.002, yc = unitY(U, h), g = grp(`U${String(U).padStart(2, '0')}_${type}_${h}U`);
+  g.position.set(0, yc, FZ);
+  const P = {}, bx = builder(P);
+  const dot = (c, x, y, on = true) => { const o = LEDG.clone(); o.translate(x, y, 0.001); const k = on ? c : 'ledOff';
+    (P[k] = P[k] || []).push(o); if (on) leds.push({ x, y: yc + y, z: FZ + 0.003, c }); };
+  bx('face', 0.4826, H, 0.02, 0, 0, -0.01);
+  if (type === 'server') {
+    const dep = h === 4 ? 0.62 : 0.55, rows = h === 1 ? 1 : h === 2 ? 2 : 3, bh = (H - 0.012) / rows - 0.004;
+    bx('chassis', 0.445, H - 0.006, dep, 0, 0, -0.02 - dep / 2);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < 4; c++) {
+      const x = -0.18 + c * 0.066, y = ((rows - 1) / 2 - r) * (bh + 0.004);
+      bx('bay', 0.06, bh, 0.004, x, y, 0); bx('latch', 0.012, 0.004, 0.003, x + 0.018, y - bh * 0.25, 0.002);
+    }
+    const ly = h > 1 ? H * 0.3 : 0;
+    dot('green', 0.125, ly, rnd() > 0.1); dot('ledblue', 0.145, ly, rnd() > 0.4); dot('amber', 0.165, ly, rnd() > 0.85);
+    bx('btn', 0.01, 0.01, 0.004, 0.2, ly, 0.0);
+  } else if (type === 'switch') {
+    bx('chassis', 0.445, H - 0.006, 0.30, 0, 0, -0.17);
+    for (let i = 0; i < 24; i++) { bx('rim', 0.0088, 0.0105, 0.002, switchX(i), -0.005, 0); bx('port', 0.0075, 0.009, 0.004, switchX(i), -0.005, 0.0005);
+      dot('green', switchX(i), 0.0105, rnd() > 0.15); if (rnd() > 0.9) dot('amber', switchX(i) + 0.0035, 0.0105); }
+    for (let j = 0; j < 4; j++) { bx('port', 0.014, 0.008, 0.004, 0.09 + j * 0.02, -0.004, 0.0005); dot('ledblue', 0.09 + j * 0.02, 0.0105, j < 3); }
+    dot('green', 0.205, 0);
+  } else if (type === 'patch') {
+    bx('chassis', 0.445, H - 0.006, 0.08, 0, 0, -0.06);
+    for (let i = 0; i < 24; i++) { bx('rim', 0.0145, 0.0125, 0.003, patchX(i), -0.003, 0); bx('port', 0.010, 0.008, 0.004, patchX(i), -0.003, 0.0005); }
+  } else {   // blanking panel
+    for (let i = 0; i < h * 2; i++) bx('bay', 0.38, 0.004, 0.002, 0, -H / 2 + (i + 0.5) * H / (h * 2), 0);
+  }
+  flush(P, g, g.name); return g;
+}
+const layout = [[1,4,'server'],[5,2,'server'],[7,2,'server'],[9,1,'server'],[10,1,'server'],[11,1,'blank'],[12,1,'patch'],[13,1,'switch'],
+  [14,1,'patch'],[15,1,'switch'],[16,1,'blank'],[17,2,'server'],[19,4,'server'],[23,1,'blank'],[24,2,'server'],[26,1,'server'],[27,1,'server'],
+  [28,1,'blank'],[29,1,'patch'],[30,1,'switch'],[31,4,'blank'],[35,2,'server'],[37,1,'switch'],[38,1,'patch'],[39,4,'blank']];
+const devs = grp('Rack_Devices'); layout.forEach(([U, h, t]) => devs.add(device(U, h, t))); rack.add(devs);
+
+/* ---------- Cable management (side clips + patch cables) ---------- */
+const cm = grp('Cable_Management'), CP = {}, cb = builder(CP);
+[-1, 1].forEach(sx => { cb('rail', 0.004, 1.8, 0.06, sx * 0.325, 1.04, 0.31);
+  for (let y = 0.16; y < 1.95; y += 0.1) cb('clip', 0.05, 0.008, 0.006, sx * 0.30, y, 0.342); });
+flush(CP, cm, 'Side_Clips');
+
+const portPos = ([U, h, t, i]) => ({ x: t === 'patch' ? patchX(i) : switchX(i), y: unitY(U, h) + (t === 'patch' ? -0.003 : -0.005) });
+const plugG = new THREE.BoxGeometry(0.011, 0.009, 0.016);
+function cable(name, m, a, b, side, off) {
+  const A = portPos(a), B = portPos(b), dy = B.y - A.y, cx = side * (0.28 + off), zo = 0.388 + off * 0.5;
+  const pts = [[A.x, A.y, 0.362], [A.x, A.y, zo], [side * 0.22, A.y, zo + 0.004], [side * 0.275, A.y + dy * 0.1, 0.33], [cx, A.y + dy * 0.5, 0.305],
+    [side * 0.275, A.y + dy * 0.9, 0.33], [side * 0.22, B.y, zo + 0.004], [B.x, B.y, zo], [B.x, B.y, 0.362]].map(p => new THREE.Vector3(...p));
+  const g = grp(name);
+  g.add(mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, false, 'centripetal'), 64, 0.0035, 5, false), M[m], 0, 0, 0, name + '_Tube'),
+        mesh(plugG, M[m], A.x, A.y, FZ + 0.008, name + '_Plug_A'), mesh(plugG, M[m], B.x, B.y, FZ + 0.008, name + '_Plug_B'));
+  cm.add(g);
+}
+cable('Patch_Cable_Teal_1', 'teal',   [12,1,'patch',3],  [13,1,'switch',3],  -1, 0);
+cable('Patch_Cable_Yellow_1', 'yellow', [12,1,'patch',8],  [15,1,'switch',8],  -1, 0.008);
+cable('Patch_Cable_Blue_1', 'blue',   [14,1,'patch',14], [15,1,'switch',14], -1, 0.016);
+cable('Patch_Cable_Teal_2', 'teal',   [14,1,'patch',2],  [30,1,'switch',2],   1, 0);
+cable('Patch_Cable_Yellow_2', 'yellow', [29,1,'patch',5],  [30,1,'switch',6],   1, 0.008);
+cable('Patch_Cable_Blue_2', 'blue',   [29,1,'patch',18], [37,1,'switch',12],  1, 0.016);
+cable('Patch_Cable_Teal_3', 'teal',   [38,1,'patch',4],  [37,1,'switch',4],   1, 0.024);
+cable('Patch_Cable_Yellow_3', 'yellow', [12,1,'patch',20], [30,1,'switch',20], -1, 0.024);
+rack.add(cm);
+
+/* ---------- Rear PDUs ---------- */
+const pdu = grp('Rear_PDUs');
+[-1, 1].forEach(sx => { const P = {}, bx = builder(P);
+  bx('pdu', 0.05, 1.4, 0.05, sx * 0.3, 1.0, -0.40);
+  for (let y = 0.45; y < 1.66; y += 0.06) bx('port', 0.03, 0.025, 0.003, sx * 0.3, y, -0.373);
+  flush(P, pdu, sx < 0 ? 'PDU_L' : 'PDU_R'); });
+rack.add(pdu);
+
+/* ---------- Front door: metallic frame, perforated mesh, vertical handle, hinges ---------- */
+const door = grp('Front_Door'), DP = {}, db = builder(DP), dz = 0.458, DH = 1.95, DY = 1.055;
+db('frame', 0.04, DH, 0.034, -0.345, DY, dz); db('frame', 0.04, DH, 0.034, 0.345, DY, dz);
+db('frame', 0.65, 0.04, 0.034, 0, DY + DH / 2 - 0.02, dz); db('frame', 0.65, 0.04, 0.034, 0, DY - DH / 2 + 0.02, dz);
+[0.3, 1.05, 1.8].forEach(y => db('frame', 0.012, 0.08, 0.02, -0.368, y, dz));                       // hinges
+db('handle', 0.02, 0.32, 0.016, 0.31, 1.1, 0.467); db('handle', 0.008, 0.012, 0.02, 0.31, 0.97, 0.452); db('handle', 0.008, 0.012, 0.02, 0.31, 1.23, 0.452);
+db('frame', 0.024, 0.024, 0.006, 0.31, 0.84, 0.471);                                                  // lock
+flush(DP, door, 'Door');
+const pg = new THREE.PlaneGeometry(0.65, DH - 0.08), puv = pg.attributes.uv;
+for (let i = 0; i < puv.count; i++) puv.setXY(i, puv.getX(i) * 0.65 / 0.02, puv.getY(i) * (DH - 0.08) / 0.02);
+door.add(mesh(pg, M.doormesh, 0, DY, dz, 'Door_Mesh_Panel'));
+rack.add(door);
+
+/* ---------- Report dimensions ---------- */
+rack.updateMatrixWorld(true);
+const bb = new THREE.Box3().setFromObject(rack), sz = bb.getSize(new THREE.Vector3());
+document.getElementById('dims').textContent =
+  `W ${sz.x.toFixed(3)} m  (0.75)\nD ${sz.z.toFixed(3)} m  (0.95)\nH ${sz.y.toFixed(3)} m  (2.05)\n42U = ${(42 * UH).toFixed(3)} m rack space\nmin Y ${bb.min.y.toFixed(3)} · origin floor`;
+
+/* ============ Preview ============ */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.outputEncoding = THREE.sRGBEncoding; renderer.shadowMap.enabled = true;
+document.getElementById('v').appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xdfe4e8);
+const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 60); cam.position.set(1.9, 1.5, 3.1);
+const ctl = new THREE.OrbitControls(cam, renderer.domElement);
+ctl.target.set(0, 1.0, 0); ctl.enableDamping = true; ctl.maxPolarAngle = Math.PI * 0.495; ctl.autoRotateSpeed = 1.5;
+
+const es = new THREE.Scene(); es.background = new THREE.Color(0x56646c);
+[[0,3,0,4,.1,4],[3,1,0,.1,2,3],[-3,1,1,.1,2,3],[0,1,3,3,2,.1]].forEach(([x,y,z,w,h,d]) => {
+  const p = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshBasicMaterial({ color: 0xffffff })); p.position.set(x,y,z); es.add(p); });
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(es, 0.03).texture;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445056, 0.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.0); sun.position.set(2.5, 4, 3.5); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -2, right: 2, top: 2.5, bottom: -1, near: 0.5, far: 12 });
+scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.ShadowMaterial({ opacity: 0.22 }));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+scene.add(new THREE.GridHelper(6, 60, 0xb2bcc2, 0xcbd2d6));
+rack.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+scene.add(rack);
+
+/* Subtle LED glow — preview only (sprites are not part of the exported rack) */
+const gc = document.createElement('canvas'); gc.width = gc.height = 64;
+{ const c = gc.getContext('2d'), gr = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.3, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = gr; c.fillRect(0, 0, 64, 64); }
+const glowTex = new THREE.CanvasTexture(gc), glowMats = {}, glow = new THREE.Group(); glow.name = 'Preview_LED_Glow';
+leds.forEach(l => { const m = glowMats[l.c] = glowMats[l.c] || new THREE.SpriteMaterial({ map: glowTex, color: LEDCOL[l.c], blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.45 });
+  const s = new THREE.Sprite(m); s.position.set(l.x, l.y, l.z); s.scale.setScalar(0.022); glow.add(s); });
+scene.add(glow);
+
+function resize() { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+(function loop() { requestAnimationFrame(loop); ctl.update(); renderer.render(scene, cam); })();
+
+/* ============ UI ============ */
+const st = document.getElementById('st');
+document.getElementById('rot').onclick = () => { ctl.autoRotate = !ctl.autoRotate; };
+document.getElementById('exp').onclick = () => {
+  st.textContent = 'Exporting…'; rack.updateMatrixWorld(true);
+  try {
+    new THREE.GLTFExporter().parse(rack, buf => {
+      const blob = new Blob([buf], { type: 'model/gltf-binary' }), a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'Server_Rack_42U.glb';
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+      st.textContent = `Exported Server_Rack_42U.glb (${(blob.size / 1024).toFixed(0)} KB)`;
+    }, { binary: true, onlyVisible: true, truncateDrawRange: true });
+  } catch (e) { st.textContent = 'Export failed: ' + e.message; }
+};
+</script>
+</body>
+</html>

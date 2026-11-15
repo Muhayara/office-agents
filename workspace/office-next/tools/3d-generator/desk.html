@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Isometric Modular Office Desk — Three.js GLB</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      --accent: #62e3ed;
+      --panel: rgba(8, 19, 24, 0.76);
+      --border: rgba(151, 211, 220, 0.18);
+      --text: #ecf8f9;
+      --muted: #8ca8af;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 52% 38%, #17343d 0%, #0b1c23 36%, #060e12 78%),
+        #060e12;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+    }
+
+    #viewport {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    .ui {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .topbar {
+      position: absolute;
+      top: 24px;
+      left: 26px;
+      right: 26px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .identity {
+      max-width: 430px;
+    }
+
+    .eyebrow {
+      margin-bottom: 9px;
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(25px, 3vw, 42px);
+      line-height: 0.98;
+      letter-spacing: -0.045em;
+      font-weight: 650;
+    }
+
+    .subtitle {
+      margin-top: 11px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: rgba(10, 25, 31, 0.78);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+      backdrop-filter: blur(14px);
+      cursor: pointer;
+      font: inherit;
+      transition:
+        border-color 160ms ease,
+        background 160ms ease,
+        transform 160ms ease,
+        opacity 160ms ease;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: rgba(98, 227, 237, 0.5);
+      background: rgba(19, 48, 56, 0.9);
+      transform: translateY(-1px);
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.58;
+    }
+
+    .button-icon {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+    }
+
+    #export-button {
+      min-width: 142px;
+      height: 40px;
+      padding: 0 16px;
+      border-color: rgba(98, 227, 237, 0.46);
+      color: #061317;
+      background: var(--accent);
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #export-button:hover:not(:disabled) {
+      border-color: #a5f7ff;
+      background: #8af0f4;
+    }
+
+    .spec-card {
+      position: absolute;
+      left: 26px;
+      bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 19px;
+      padding: 13px 16px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: var(--panel);
+      backdrop-filter: blur(14px);
+    }
+
+    .spec-card strong {
+      display: block;
+      font-size: 12px;
+      letter-spacing: 0.015em;
+    }
+
+    .spec-card span {
+      color: var(--muted);
+      font-size: 9px;
+      white-space: nowrap;
+    }
+
+    .spec-card .divider {
+      width: 1px;
+      height: 30px;
+      background: var(--border);
+    }
+
+    .hint {
+      position: absolute;
+      right: 27px;
+      bottom: 28px;
+      color: rgba(194, 218, 222, 0.56);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    #status {
+      position: absolute;
+      right: 26px;
+      top: 83px;
+      max-width: 340px;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: rgba(7, 17, 22, 0.86);
+      color: #b9d0d5;
+      font-size: 11px;
+      line-height: 1.45;
+      text-align: right;
+      opacity: 0;
+      transform: translateY(-4px);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    #status.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    #loading {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      display: grid;
+      place-items: center;
+      background: #071217;
+      transition: opacity 420ms ease;
+    }
+
+    #loading.hidden {
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    .loader {
+      width: 36px;
+      height: 36px;
+      margin: 0 auto 15px;
+      border: 2px solid rgba(98, 227, 237, 0.16);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 900ms linear infinite;
+    }
+
+    #loading-status {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (max-width: 720px) {
+      .topbar {
+        top: 18px;
+        left: 18px;
+        right: 18px;
+      }
+
+      .subtitle,
+      .hint {
+        display: none;
+      }
+
+      .actions {
+        padding: 7px;
+      }
+
+      button {
+        min-height: 40px;
+        padding: 0 12px;
+      }
+
+      #reset-button {
+        width: 38px;
+        padding: 0;
+      }
+
+      .spec-card {
+        left: 18px;
+        bottom: 18px;
+        right: 18px;
+        gap: 12px;
+        overflow: hidden;
+      }
+
+      .spec-card .divider,
+      .spec-card span:last-child {
+        display: none;
+      }
+
+      #status {
+        top: 74px;
+        right: 18px;
+      }
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+
+<body>
+  <canvas id="viewport" aria-label="Interactive isometric desk diorama"></canvas>
+
+  <div class="ui">
+    <header class="topbar">
+      <div class="identity">
+        <div class="eyebrow">Procedural Environment / GLB</div>
+        <h1>Isometric Office Desk</h1>
+        <div class="subtitle">
+          Modular low-poly workstation with industrial steel O-frame, chamfered dark walnut
+          work surface, recessed grommet, and cable tray.
+        </div>
+      </div>
+
+      <nav class="actions" aria-label="Asset controls">
+        <button id="reset-button" type="button" title="Reset camera" aria-label="Reset camera">
+          <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+            <path d="M3 3v5h5" />
+          </svg>
+        </button>
+
+        <button id="export-button" class="primary" type="button">
+          <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+          <span>Export GLB</span>
+        </button>
+      </nav>
+    </header>
+
+    <section class="spec-card">
+      <div>
+        <strong>Modular Desk / 01</strong>
+        <span>Static low-poly asset · meters</span>
+      </div>
+      <div class="divider"></div>
+      <div>
+        <strong>1.40 × 0.70 × 0.75 m</strong>
+        <span>Tabletop · structural frame</span>
+      </div>
+      <div class="divider"></div>
+      <div>
+        <strong>GLB / Binary</strong>
+        <span>Desk geometry only · centered origin</span>
+      </div>
+    </section>
+
+    <div class="hint">Drag to orbit · Scroll to zoom · Right-drag to pan</div>
+    <div id="status" role="status" aria-live="polite"></div>
+  </div>
+
+  <div id="loading">
+    <div>
+      <div class="loader"></div>
+      <span id="loading-status">Building procedural desk geometry…</span>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+    import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+    import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+
+    const canvas = document.querySelector("#viewport");
+    const exportButton = document.querySelector("#export-button");
+    const resetButton = document.querySelector("#reset-button");
+    const statusElement = document.querySelector("#status");
+    const loadingElement = document.querySelector("#loading");
+    const loadingStatus = document.querySelector("#loading-status");
+
+    // -------------------------------------------------------------------------
+    // Renderer and presentation scene
+    // -------------------------------------------------------------------------
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: true,
+      powerPreference: "high-performance"
+    });
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.setClearColor(0x071217, 0);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x09141a, 25, 58);
+
+    const camera = new THREE.OrthographicCamera(-2.5, 2.5, 1.8, -1.8, 0.1, 100);
+    camera.position.set(3, 2.5, 3.5);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.38, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.075;
+    controls.minZoom = 0.5;
+    controls.maxZoom = 4;
+    controls.update();
+
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const roomEnvironment = new RoomEnvironment();
+    scene.environment = pmremGenerator.fromScene(roomEnvironment, 0.04).texture;
+    pmremGenerator.dispose();
+
+    scene.add(new THREE.HemisphereLight(0xc9efff, 0x17232a, 1.65));
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 3.8);
+    keyLight.position.set(6, 10, 8);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    keyLight.shadow.bias = -0.00025;
+    keyLight.shadow.normalBias = 0.018;
+    scene.add(keyLight);
+
+    const fillLight = new THREE.DirectionalLight(0x9ddfff, 1.35);
+    fillLight.position.set(-7, 5, -4);
+    scene.add(fillLight);
+
+    // Preview-only shadow receiver and grid (not exported)
+    const previewFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(10, 10),
+      new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.35 })
+    );
+    previewFloor.rotation.x = -Math.PI / 2;
+    previewFloor.position.y = -0.002;
+    previewFloor.receiveShadow = true;
+    scene.add(previewFloor);
+
+    const previewGrid = new THREE.GridHelper(8, 16, 0x54747c, 0x294149);
+    previewGrid.position.y = -0.001;
+    previewGrid.material.transparent = true;
+    previewGrid.material.opacity = 0.2;
+    scene.add(previewGrid);
+
+    // -------------------------------------------------------------------------
+    // Desk asset root and materials
+    // -------------------------------------------------------------------------
+
+    const desk = new THREE.Group();
+    desk.name = "Office_Modular_Desk";
+    scene.add(desk);
+
+    function makeMaterial(color, roughness, metalness, flatShading = false) {
+      return new THREE.MeshStandardMaterial({
+        color,
+        roughness,
+        metalness,
+        flatShading
+      });
+    }
+
+    const materials = {
+      tabletop: makeMaterial(0x1c282e, 0.65, 0.05, false),
+      steel: makeMaterial(0x11181c, 0.35, 0.82, false),
+      trayMetal: makeMaterial(0x2a3d45, 0.45, 0.75, true),
+      rubber: makeMaterial(0x0a1012, 0.92, 0.0, false),
+      grommet: makeMaterial(0x0d1517, 0.46, 0.55, false)
+    };
+
+    function addMesh(parent, geometry, material, name, position = [0, 0, 0]) {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = name;
+      mesh.position.set(...position);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    }
+
+    function addRounded(parent, size, position, material, name, radius = 0.01, segments = 2) {
+      const safeRadius = Math.min(radius, size[0] * 0.45, size[1] * 0.45, size[2] * 0.45);
+      return addMesh(
+        parent,
+        new RoundedBoxGeometry(size[0], size[1], size[2], segments, safeRadius),
+        material,
+        name,
+        position
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 1. Tabletop
+    // -------------------------------------------------------------------------
+    const DESK_LENGTH = 1.40;
+    const DESK_DEPTH = 0.70;
+    const TABLE_HEIGHT = 0.75;
+    const TABLE_THICKNESS = 0.035;
+
+    // Daun Meja Utama (Beveled dark walnut)
+    addRounded(
+      desk,
+      [DESK_LENGTH, TABLE_THICKNESS, DESK_DEPTH],
+      [0, TABLE_HEIGHT - TABLE_THICKNESS / 2, 0],
+      materials.tabletop,
+      "Tabletop_Dark_Walnut",
+      0.012,
+      2
+    );
+
+    // -------------------------------------------------------------------------
+    // 2. Recessed Cable Grommet
+    // -------------------------------------------------------------------------
+    const grommetPosition = [0, TABLE_HEIGHT, -0.25];
+
+    const grommetRing = addMesh(
+      desk,
+      new THREE.CylinderGeometry(0.032, 0.032, 0.004, 32),
+      materials.steel,
+      "Cable_Grommet_Ring",
+      [grommetPosition[0], grommetPosition[1] + 0.001, grommetPosition[2]]
+    );
+
+    const grommetCore = addMesh(
+      desk,
+      new THREE.CylinderGeometry(0.024, 0.024, 0.005, 24),
+      materials.rubber,
+      "Cable_Grommet_Core",
+      [grommetPosition[0], grommetPosition[1] + 0.002, grommetPosition[2]]
+    );
+    grommetCore.castShadow = false;
+
+    // -------------------------------------------------------------------------
+    // 3. Frame & Legs (O-Frame / Square-Loop Industrial Steel)
+    // -------------------------------------------------------------------------
+    function createSquareLoopLeg(x, sideName) {
+      const legThickness = 0.045;
+      const legHeight = TABLE_HEIGHT - TABLE_THICKNESS;
+      const legDepth = 0.64;
+      const frontZ = -(legDepth / 2 - legThickness / 2);
+      const rearZ = (legDepth / 2 - legThickness / 2);
+
+      // Kaki Vertikal Depan & Belakang
+      [frontZ, rearZ].forEach((z, index) => {
+        addRounded(
+          desk,
+          [legThickness, legHeight, legThickness],
+          [x, legHeight / 2, z],
+          materials.steel,
+          `${sideName}_Leg_Upright_${index === 0 ? "Front" : "Rear"}`,
+          0.006,
+          1
+        );
+
+        // Kaki Karet (Leveling Feet)
+        addRounded(
+          desk,
+          [legThickness * 1.25, 0.015, legThickness * 1.25],
+          [x, 0.0075, z],
+          materials.rubber,
+          `${sideName}_Leveling_Foot_${index === 0 ? "Front" : "Rear"}`,
+          0.004,
+          1
+        );
+      });
+
+      // Balok Horisontal Bawah (Alas Loop)
+      addRounded(
+        desk,
+        [legThickness, 0.035, legDepth],
+        [x, 0.025, 0],
+        materials.steel,
+        `${sideName}_Leg_Bottom_Bar`,
+        0.006,
+        1
+      );
+
+      // Balok Horisontal Atas (Penyangga Daun Meja)
+      addRounded(
+        desk,
+        [legThickness, 0.035, legDepth],
+        [x, legHeight - 0.0175, 0],
+        materials.steel,
+        `${sideName}_Leg_Top_Bar`,
+        0.006,
+        1
+      );
+    }
+
+    createSquareLoopLeg(-0.63, "Left");
+    createSquareLoopLeg(0.63, "Right");
+
+    // Balok Penguat Tengah (Cross Beam)
+    addRounded(
+      desk,
+      [1.20, 0.035, 0.035],
+      [0, TABLE_HEIGHT - TABLE_THICKNESS - 0.03, -0.12],
+      materials.steel,
+      "Center_Structural_Beam",
+      0.006,
+      1
+    );
+
+    // Baki Manajemen Kabel (Wire Tray) di Bagian Belakang Bawah
+    addRounded(
+      desk,
+      [0.90, 0.06, 0.14],
+      [0, TABLE_HEIGHT - TABLE_THICKNESS - 0.10, -0.22],
+      materials.trayMetal,
+      "Wire_Management_Tray",
+      0.008,
+      1
+    );
+
+    // -------------------------------------------------------------------------
+    // Selesai memuat
+    // -------------------------------------------------------------------------
+    loadingElement.classList.add("hidden");
+
+    // -------------------------------------------------------------------------
+    // Export GLB Button Handler
+    // -------------------------------------------------------------------------
+    const exporter = new GLTFExporter();
+
+    exportButton.addEventListener("click", () => {
+      exportButton.disabled = true;
+      statusElement.textContent = "Mengonversi ke binary GLB…";
+      statusElement.classList.add("visible");
+
+      exporter.parse(
+        desk,
+        (gltf) => {
+          const blob = new Blob([gltf], { type: "application/octet-stream" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "desk.glb";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          statusElement.textContent = "✅ desk.glb berhasil diekspor!";
+          exportButton.disabled = false;
+          setTimeout(() => {
+            statusElement.classList.remove("visible");
+          }, 4500);
+        },
+        (error) => {
+          console.error("Gagal export GLB:", error);
+          statusElement.textContent = "❌ Gagal export GLB. Buka console browser.";
+          exportButton.disabled = false;
+        },
+        { binary: true }
+      );
+    });
+
+    // Reset Camera
+    resetButton.addEventListener("click", () => {
+      camera.position.set(3, 2.5, 3.5);
+      controls.target.set(0, 0.38, 0);
+      controls.update();
+    });
+
+    // Window Resize
+    window.addEventListener("resize", () => {
+      const aspect = window.innerWidth / window.innerHeight;
+      const d = 2.2;
+      camera.left = -d * aspect;
+      camera.right = d * aspect;
+      camera.top = d;
+      camera.bottom = -d;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Render Loop
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

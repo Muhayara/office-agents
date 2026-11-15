@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Office_Ergonomic_Chair — GLB generator</title>
+<style>
+  html,body{margin:0;height:100%;background:#e6eaed;font:14px/1.45 system-ui,sans-serif;color:#182329;overflow:hidden}
+  #v{position:fixed;inset:0}
+  #ui{position:fixed;left:12px;top:12px;width:250px;padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.88);box-shadow:0 2px 14px rgba(0,0,0,.18)}
+  h1{font-size:15px;margin:0 0 6px}
+  #dims{font:12px ui-monospace,Menlo,monospace;margin:0 0 10px;white-space:pre;color:#34454d}
+  button{font:inherit;padding:8px 12px;border:0;border-radius:8px;background:#182329;color:#fff;cursor:pointer;margin:0 6px 6px 0}
+  button.alt{background:#c9d3d8;color:#182329}
+  #st{font-size:12px;color:#4a5a62;min-height:18px}
+</style>
+</head>
+<body>
+<div id="v"></div>
+<div id="ui">
+  <h1>Office_Ergonomic_Chair</h1>
+  <div id="dims"></div>
+  <button id="exp">Export GLB</button><button id="rot" class="alt">Auto-rotate</button>
+  <div id="st">Drag to orbit · scroll to zoom</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+<script>
+/* ============ Chair spec (metres, Y-up, faces +Z, origin = floor under column) ============ */
+const R = 0.295;            // castor-centre radius of the 5-star base (~0.3 m)
+const WR = 0.025;           // castor wheel radius
+
+/* ---- Materials (hex given as sRGB, converted to linear so GLB viewers match) ---- */
+const mat = (name, hex, metalness, roughness, extra = {}) => {
+  const m = new THREE.MeshStandardMaterial(Object.assign({ metalness, roughness }, extra));
+  m.color = new THREE.Color(hex).convertSRGBToLinear();
+  m.name = name; return m;
+};
+const cv = document.createElement('canvas'); cv.width = cv.height = 32;
+const cx = cv.getContext('2d');
+cx.fillStyle = '#17232a'; cx.fillRect(0, 0, 32, 32);
+cx.strokeStyle = '#2b3d46'; cx.lineWidth = 2;
+cx.beginPath(); cx.moveTo(0, 16); cx.lineTo(16, 0); cx.lineTo(32, 16); cx.lineTo(16, 32); cx.closePath(); cx.stroke();
+const meshTex = new THREE.CanvasTexture(cv);
+meshTex.wrapS = meshTex.wrapT = THREE.RepeatWrapping; meshTex.encoding = THREE.sRGBEncoding;
+
+const M = {
+  chrome : mat('Chrome_Dark', 0x25333a, 0.85, 0.25),
+  fabric : mat('Seat_Fabric_Graphite', 0x182329, 0.0, 0.9),
+  frame  : mat('Plastic_Frame_Black', 0x0d1418, 0.0, 0.55),
+  pad    : mat('Armpad_Soft_Black', 0x0a0f12, 0.0, 0.85),
+  wheel  : mat('Castor_Wheel', 0x111a1e, 0.0, 0.6),
+  mesh   : mat('Backrest_Mesh', 0xffffff, 0.0, 0.85, { map: meshTex, side: THREE.DoubleSide })
+};
+
+/* ---- Shared geometries (reused across legs / castors / armrests for instancing) ---- */
+const mesh = (g, m, x, y, z, name) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.name = name; return o; };
+const B = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+
+const legG = B(0.04, 0.028, R - 0.015); legG.translate(0, 0, 0.015 + (R - 0.015) / 2);
+{ const p = legG.attributes.position;           // taper the spider arm toward the tip
+  for (let i = 0; i < p.count; i++) { const t = p.getZ(i) / R; p.setX(i, p.getX(i) * (1 - 0.4 * t)); p.setY(i, p.getY(i) * (1 - 0.2 * t)); } }
+const stemG  = new THREE.CylinderGeometry(0.009, 0.009, 0.02, 8);
+const forkG  = B(0.005, 0.054, 0.03);
+const wheelG = new THREE.CylinderGeometry(WR, WR, 0.022, 12); wheelG.rotateZ(Math.PI / 2);
+const postG  = B(0.025, 0.28, 0.025);
+const bracketG = B(0.11, 0.02, 0.1);
+const padG   = B(0.05, 0.03, 0.26);
+
+/* ---- Root ---- */
+const chair = new THREE.Group(); chair.name = 'Office_Ergonomic_Chair';
+
+/* Base: 5-star spider + castors (one leg points to -Z so the footprint stays inside 0.60 m depth) */
+const base = new THREE.Group(); base.name = 'Base_5Star';
+base.add(mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.04, 10), M.frame, 0, 0.088, 0, 'Hub'));
+for (let k = 0; k < 5; k++) {
+  const leg = new THREE.Group(); leg.name = 'Leg_' + (k + 1);
+  leg.rotation.y = Math.PI - k * Math.PI * 2 / 5;
+  leg.add(mesh(legG, M.frame, 0, 0.088, 0, 'Leg_Arm'));
+  const c = new THREE.Group(); c.name = 'Castor_' + (k + 1); c.position.set(0, 0, R);
+  c.add(mesh(stemG, M.chrome, 0, 0.07, 0, 'Stem'),
+        mesh(forkG, M.frame, -0.0145, 0.047, 0, 'Fork_L'),
+        mesh(forkG, M.frame,  0.0145, 0.047, 0, 'Fork_R'),
+        mesh(wheelG, M.wheel, 0, WR, 0, 'Wheel'));
+  leg.add(c); base.add(leg);
+}
+chair.add(base);
+
+/* Column: dark-chrome hydraulic cylinder + boot + tilt mechanism */
+const col = new THREE.Group(); col.name = 'Column_Hydraulic';
+col.add(mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.26, 12), M.chrome, 0, 0.22, 0, 'Gas_Cylinder'),
+        mesh(new THREE.CylinderGeometry(0.034, 0.044, 0.12, 10), M.frame, 0, 0.17, 0, 'Column_Boot'),
+        mesh(B(0.16, 0.04, 0.22), M.frame, 0, 0.35, 0.02, 'Tilt_Mechanism'));
+chair.add(col);
+
+/* Seat: padded cushion 0.48 x 0.45 x 0.06, top surface at y = 0.45 */
+const sw = 0.456, z0 = -0.158, z1 = 0.268, rf = 0.07, rb = 0.045;   // shape inset by 0.012 bevel
+const s = new THREE.Shape();
+s.moveTo(-sw/2 + rb, z0); s.lineTo(sw/2 - rb, z0); s.quadraticCurveTo(sw/2, z0, sw/2, z0 + rb);
+s.lineTo(sw/2, z1 - rf); s.quadraticCurveTo(sw/2, z1, sw/2 - rf, z1);
+s.lineTo(-sw/2 + rf, z1); s.quadraticCurveTo(-sw/2, z1, -sw/2, z1 - rf);
+s.lineTo(-sw/2, z0 + rb); s.quadraticCurveTo(-sw/2, z0, -sw/2 + rb, z0);
+const seatG = new THREE.ExtrudeGeometry(s, { depth: 0.044, bevelEnabled: true, bevelSize: 0.012, bevelThickness: 0.008, bevelSegments: 2, curveSegments: 3 });
+seatG.rotateX(Math.PI / 2); seatG.translate(0, 0.45 - 0.008, 0);
+const seat = new THREE.Group(); seat.name = 'Seat';
+seat.add(mesh(seatG, M.fabric, 0, 0, 0, 'Seat_Cushion'),
+         mesh(B(0.38, 0.02, 0.40), M.frame, 0, 0.38, 0.05, 'Seat_Plate'));
+chair.add(seat);
+
+/* Backrest: curved mesh panel in a plastic frame, 0.44 x 0.55, slight recline */
+const back = new THREE.Group(); back.name = 'Backrest'; back.position.set(0, 0.5, -0.215); back.rotation.x = -0.0873;
+back.add(mesh(B(0.025, 0.55, 0.03), M.frame, -0.2075, 0.275, 0, 'Frame_Left'),
+         mesh(B(0.025, 0.55, 0.03), M.frame,  0.2075, 0.275, 0, 'Frame_Right'),
+         mesh(B(0.44, 0.03, 0.03), M.frame, 0, 0.535, 0, 'Frame_Top'),
+         mesh(B(0.44, 0.03, 0.03), M.frame, 0, 0.015, 0, 'Frame_Bottom'));
+const mg = new THREE.PlaneGeometry(0.39, 0.49, 8, 10);
+{ const p = mg.attributes.position, uv = mg.attributes.uv;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i);
+    p.setZ(i, 0.022 * (x / 0.195) ** 2 + 0.028 * Math.exp(-(((y + 0.07) / 0.13) ** 2)));   // side wrap + lumbar bulge
+    uv.setXY(i, uv.getX(i) * 26, uv.getY(i) * 33);                                       // bake tiling into UVs
+  }
+  mg.computeVertexNormals(); }
+back.add(mesh(mg, M.mesh, 0, 0.275, 0, 'Mesh_Panel'));
+const supp = new THREE.Group(); supp.name = 'Back_Support';
+supp.add(mesh(B(0.05, 0.022, 0.12), M.frame, 0, 0.378, -0.14, 'Support_Arm'));
+const sv = mesh(B(0.05, 0.16, 0.03), M.frame, 0, 0.45, -0.2, 'Support_Upright'); sv.rotation.x = -0.0873; supp.add(sv);
+chair.add(back, supp);
+
+/* Two T-armrests, pads at y = 0.68 */
+['L', 'R'].forEach((side, i) => {
+  const sx = i ? 1 : -1, a = new THREE.Group(); a.name = 'Armrest_' + side;
+  a.add(mesh(bracketG, M.frame, sx * 0.245, 0.38, 0, 'Bracket'),
+        mesh(postG, M.chrome, sx * 0.285, 0.52, 0, 'Post'),
+        mesh(padG, M.pad, sx * 0.285, 0.68, 0.03, 'Pad'));
+  chair.add(a);
+});
+
+/* Snap total height to exactly 1.05 m by nudging the backrest, then report dimensions */
+chair.updateMatrixWorld(true);
+let bb = new THREE.Box3().setFromObject(chair);
+back.position.y += 1.05 - bb.max.y; chair.updateMatrixWorld(true);
+bb = new THREE.Box3().setFromObject(chair);
+const sz = bb.getSize(new THREE.Vector3());
+document.getElementById('dims').textContent =
+  `W ${sz.x.toFixed(3)} m  (0.62)\nD ${sz.z.toFixed(3)} m  (0.60)\nH ${sz.y.toFixed(3)} m  (1.05)\nSeat top 0.450 m · origin floor`;
+
+/* ============ Preview ============ */
+const host = document.getElementById('v');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.shadowMap.enabled = true;
+host.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xe6eaed);
+const cam = new THREE.PerspectiveCamera(40, 1, 0.05, 50); cam.position.set(1.5, 1.2, 1.9);
+const ctl = new THREE.OrbitControls(cam, renderer.domElement);
+ctl.target.set(0, 0.5, 0); ctl.enableDamping = true; ctl.maxPolarAngle = Math.PI * 0.495; ctl.autoRotateSpeed = 1.5;
+
+const es = new THREE.Scene(); es.background = new THREE.Color(0x56646c);   // simple studio environment for the chrome
+[[0,3,0,4,.1,4],[3,1,0,.1,2,3],[-3,1,1,.1,2,3],[0,1,-3,3,2,.1]].forEach(([x,y,z,w,h,d]) => {
+  const p = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshBasicMaterial({ color: 0xffffff })); p.position.set(x,y,z); es.add(p); });
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(es, 0.03).texture;
+
+const sun = new THREE.DirectionalLight(0xffffff, 1.1); sun.position.set(2, 3.5, 2.5); sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -1, right: 1, top: 1, bottom: -1, near: 0.5, far: 8 });
+scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.ShadowMaterial({ opacity: 0.22 }));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+scene.add(new THREE.GridHelper(4, 40, 0xb7c1c7, 0xd0d7db));
+chair.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+scene.add(chair);
+
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+(function loop() { requestAnimationFrame(loop); ctl.update(); renderer.render(scene, cam); })();
+
+/* ============ UI ============ */
+const st = document.getElementById('st');
+document.getElementById('rot').onclick = () => { ctl.autoRotate = !ctl.autoRotate; };
+document.getElementById('exp').onclick = () => {
+  st.textContent = 'Exporting…';
+  chair.updateMatrixWorld(true);
+  try {
+    new THREE.GLTFExporter().parse(chair, buf => {
+      const blob = new Blob([buf], { type: 'model/gltf-binary' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'Office_Ergonomic_Chair.glb';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+      st.textContent = `Exported Office_Ergonomic_Chair.glb (${(blob.size / 1024).toFixed(0)} KB)`;
+    }, { binary: true, onlyVisible: true, truncateDrawRange: true });
+  } catch (e) { st.textContent = 'Export failed: ' + e.message; }
+};
+</script>
+</body>
+</html>
