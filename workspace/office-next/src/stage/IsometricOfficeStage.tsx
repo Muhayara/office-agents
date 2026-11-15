@@ -12,18 +12,19 @@ interface IsometricOfficeStageProps {
   onSelectAgent: (agentId: string) => void;
 }
 
-// Koordinat pemetaan (X, Z) dari room-spec.md ke ruang 3D Three.js (pusat 0,0)
-const AGENT_3D_POSITIONS: Record<string, { x: number; z: number }> = {
-  raka: { x: -4.0, z: -3.5 },
-  sari: { x: -5.5, z: -1.5 },
-  dimas: { x: -2.5, z: -1.5 },
-  tari: { x: -5.5, z: 1.5 },
-  wulan: { x: -2.5, z: 1.5 },
-  bima: { x: 1.5, z: -3.0 },
-  gita: { x: 4.5, z: -3.0 },
-  satria: { x: 1.5, z: 2.5 },
-  laras: { x: 4.5, z: 2.5 },
-  fajar: { x: 3.0, z: 1.0 },
+// Koordinat pemetaan (X, Z) dan rotasi hadap dari room-spec.md ke ruang 3D Three.js
+// rotationY: 0 = hadap Selatan (+Z), Math.PI = hadap Utara (-Z), Math.PI/2 = hadap Barat (-X), -Math.PI/2 = hadap Timur (+X)
+const AGENT_3D_POSITIONS: Record<string, { x: number; z: number; rotY: number }> = {
+  raka: { x: -4.0, z: -3.5, rotY: 0 },
+  sari: { x: -5.5, z: -1.5, rotY: -Math.PI / 2 },
+  dimas: { x: -2.5, z: -1.5, rotY: Math.PI / 2 },
+  tari: { x: -5.5, z: 1.5, rotY: -Math.PI / 2 },
+  wulan: { x: -2.5, z: 1.5, rotY: Math.PI / 2 },
+  bima: { x: 1.5, z: -3.0, rotY: 0 },
+  gita: { x: 4.5, z: -3.0, rotY: 0 },
+  satria: { x: 1.5, z: 2.5, rotY: Math.PI },
+  laras: { x: 4.5, z: 2.5, rotY: Math.PI },
+  fajar: { x: 3.0, z: 1.0, rotY: 0 },
 };
 
 export function IsometricOfficeStage({
@@ -107,8 +108,10 @@ export function IsometricOfficeStage({
     fillLight.position.set(-14, 12, -10);
     scene.add(fillLight);
 
-    // 6. Memuat 3D Diorama Shell (office_room_shell.glb)
+    // 6. Memuat 3D Diorama Shell (office_room_shell.glb) & Modular Desk (desk.glb)
     const loader = new GLTFLoader();
+    let deskTemplate: THREE.Group | null = null;
+
     loader.load(
       '/models/office_room_shell.glb',
       (gltf) => {
@@ -125,6 +128,25 @@ export function IsometricOfficeStage({
       (err) => {
         console.error('Error loading office_room_shell.glb:', err);
         setLoadError(String(err));
+      },
+    );
+
+    // Otomatis muat desk.glb jika file sudah ada (Plug-and-Play)
+    loader.load(
+      '/models/desk.glb',
+      (gltf) => {
+        deskTemplate = gltf.scene;
+        deskTemplate.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        updateAgents();
+      },
+      undefined,
+      () => {
+        // desk.glb belum ada atau sedang dibuat di background; gunakan fallback sementara
       },
     );
 
@@ -196,26 +218,32 @@ export function IsometricOfficeStage({
       }
 
       agents.forEach((ag, idx) => {
-        const pos = AGENT_3D_POSITIONS[ag.id] ?? { x: idx - 5, z: 0 };
+        const posInfo = AGENT_3D_POSITIONS[ag.id] ?? { x: idx - 5, z: 0, rotY: 0 };
         const isSelected = ag.id === selectedAgentId;
         const color = new THREE.Color(ag.color);
 
         const group = new THREE.Group();
-        group.position.set(pos.x, 0, pos.z);
+        group.position.set(posInfo.x, 0, posInfo.z);
+        group.rotation.y = posInfo.rotY;
         group.userData = { agentId: ag.id };
 
-        // Meja kerja sementara (alas penanda)
-        const deskGeo = new THREE.BoxGeometry(1.4, 0.75, 0.7);
-        const deskMat = new THREE.MeshStandardMaterial({
-          color: isSelected ? 0x223841 : 0x182a32,
-          roughness: 0.6,
-          metalness: 0.2,
-        });
-        const deskMesh = new THREE.Mesh(deskGeo, deskMat);
-        deskMesh.position.y = 0.75 / 2;
-        deskMesh.castShadow = true;
-        deskMesh.receiveShadow = true;
-        group.add(deskMesh);
+        // Meja Kerja: Gunakan model modular desk.glb jika sudah diunduh, atau fallback balok jika belum
+        if (deskTemplate) {
+          const clonedDesk = deskTemplate.clone(true);
+          group.add(clonedDesk);
+        } else {
+          const deskGeo = new THREE.BoxGeometry(1.4, 0.75, 0.7);
+          const deskMat = new THREE.MeshStandardMaterial({
+            color: isSelected ? 0x223841 : 0x182a32,
+            roughness: 0.6,
+            metalness: 0.2,
+          });
+          const deskMesh = new THREE.Mesh(deskGeo, deskMat);
+          deskMesh.position.y = 0.75 / 2;
+          deskMesh.castShadow = true;
+          deskMesh.receiveShadow = true;
+          group.add(deskMesh);
+        }
 
         // Monitor kerja
         const monGeo = new THREE.BoxGeometry(0.6, 0.35, 0.05);
