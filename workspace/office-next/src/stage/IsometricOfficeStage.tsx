@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { type AgentView, type Lang, roleLabel } from '@office/shared';
 import { OFFICE_ZONES } from '../isometric/coords';
 
@@ -48,10 +49,9 @@ export function IsometricOfficeStage({
     const height = container.clientHeight || 500;
     const aspect = width / height;
 
-    // 1. Scene & Fog
+    // 1. Scene & Environment (Tanpa fog gelap agar ruangan jernih & cerah)
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f1a1f);
-    scene.fog = new THREE.FogExp2(0x0f1a1f, 0.015);
+    scene.background = new THREE.Color(0x0b151b);
 
     // 2. Isometric Orthographic Camera
     const viewHeight = 15;
@@ -67,18 +67,26 @@ export function IsometricOfficeStage({
     camera.lookAt(0, 1.05, 0);
     cameraRef.current = camera;
 
-    // 3. WebGL Renderer
+    // 3. WebGL Renderer & ACES Tonemapping
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.35; // Pencahayaan lebih terang dan hidup
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
 
-    // 4. Orbit Controls (dengan batas isometrik agar nyaman)
+    // 4. Room Environment (PMREM) — Menghidupkan pantulan PBR logam, kaca, dan kayu
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const roomEnvironment = new RoomEnvironment();
+    const envTexture = pmremGenerator.fromScene(roomEnvironment, 0.04).texture;
+    scene.environment = envTexture;
+    roomEnvironment.dispose();
+    pmremGenerator.dispose();
+
+    // 5. Orbit Controls (dengan batas isometrik agar nyaman)
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 1.05, 0);
     controls.enableDamping = true;
@@ -90,23 +98,52 @@ export function IsometricOfficeStage({
     controls.update();
     controlsRef.current = controls;
 
-    // 5. Pencahayaan Kantor 3D
-    const ambientLight = new THREE.AmbientLight(0x1b2c35, 1.4);
-    scene.add(ambientLight);
+    // 6. Tata Cahaya Sinematik & Hidup (Lighting Architecture)
+    // 6.1 Cahaya Langit & Pantulan Lantai (Hemisphere)
+    const hemiLight = new THREE.HemisphereLight(0xdcf3ff, 0x1c2b33, 1.8);
+    scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xe9f4f6, 2.2);
-    sunLight.position.set(15, 22, 14);
+    // 6.2 Sinar Matahari Hangat (Key Sunlight) dari Arah Muka Terbuka
+    const sunLight = new THREE.DirectionalLight(0xfff7ed, 3.2);
+    sunLight.position.set(12, 24, 16);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
     sunLight.shadow.camera.near = 0.5;
-    sunLight.shadow.camera.far = 60;
-    sunLight.shadow.bias = -0.0005;
+    sunLight.shadow.camera.far = 70;
+    sunLight.shadow.camera.left = -16;
+    sunLight.shadow.camera.right = 16;
+    sunLight.shadow.camera.top = 16;
+    sunLight.shadow.camera.bottom = -16;
+    sunLight.shadow.bias = -0.0003;
+    sunLight.shadow.normalBias = 0.02;
     scene.add(sunLight);
 
-    const fillLight = new THREE.DirectionalLight(0x4da8da, 0.8);
-    fillLight.position.set(-14, 12, -10);
+    // 6.3 Sinar Pengisi Halus dari Sudut Belakang
+    const fillLight = new THREE.DirectionalLight(0x7ec8e3, 1.4);
+    fillLight.position.set(-14, 15, -10);
     scene.add(fillLight);
+
+    // 6.4 Lampu Gantung Plafon 4 Zona Departemen (Interior Downlights)
+    // Zona A: Strategi & Komando Raka (Warm Executive Amber)
+    const lightZoneA = new THREE.PointLight(0xffdfb0, 32, 10, 1.6);
+    lightZoneA.position.set(-3.5, 3.0, -2.0);
+    scene.add(lightZoneA);
+
+    // Zona B: Studio Kreatif Tari & Wulan (Warm Sunset Peach)
+    const lightZoneB = new THREE.PointLight(0xffc89b, 28, 10, 1.6);
+    lightZoneB.position.set(-3.5, 3.0, 2.2);
+    scene.add(lightZoneB);
+
+    // Zona C: Engineering Bima & Gita (Vibrant Tech Cyan)
+    const lightZoneC = new THREE.PointLight(0x6ee7b7, 30, 10, 1.6);
+    lightZoneC.position.set(3.5, 3.0, -2.0);
+    scene.add(lightZoneC);
+
+    // Zona D: Security Vault Satria & Laras (Clean Electric Blue)
+    const lightZoneD = new THREE.PointLight(0x60a5fa, 28, 10, 1.6);
+    lightZoneD.position.set(3.5, 3.0, 2.2);
+    scene.add(lightZoneD);
 
     // 6. Memuat 3D Models Modular (Room Shell, Desk, Chair, Server Rack, Plants)
     const loader = new GLTFLoader();
@@ -243,6 +280,12 @@ export function IsometricOfficeStage({
           rack.rotation.y = pos.rotY;
           rack.name = `ServerRack_42U_${idx + 1}`;
           decorGroup.add(rack);
+
+          // Pendaran Lampu LED Server Aktif (Blinking Data Center Pulse)
+          const ledLight = new THREE.PointLight(idx === 0 ? 0x5dbb8a : 0x4da8da, 4.5, 3.5, 2);
+          ledLight.position.set(pos.x, 1.2, pos.z - 0.45);
+          ledLight.userData = { isServerPulse: true, offset: idx * 2.5 };
+          decorGroup.add(ledLight);
         });
       }
 
@@ -326,8 +369,13 @@ export function IsometricOfficeStage({
       animId = requestAnimationFrame(animate);
       time += 0.03;
 
-      // Update avatar markers (efek bobbing halus)
-      agentMeshGroup.children.forEach((agentGrp) => {
+      // Update avatar markers (efek bobbing halus) & breathing
+      agentMeshGroup.children.forEach((agentGrp, agIdx) => {
+        const avatar = agentGrp.getObjectByName(`Avatar_${agents[agIdx]?.id}`);
+        if (avatar) {
+          avatar.position.y = 0.45 + Math.sin(time * 2 + agIdx) * 0.006;
+          avatar.rotation.y = Math.sin(time * 1.5 + agIdx) * 0.03;
+        }
         agentGrp.children.forEach((child) => {
           if (child.userData?.isBeacon) {
             child.position.y =
@@ -336,6 +384,14 @@ export function IsometricOfficeStage({
             child.rotation.y += 0.02;
           }
         });
+      });
+
+      // Update kedipan dinamis lampu LED server rack
+      decorGroup.children.forEach((child) => {
+        if (child.userData?.isServerPulse) {
+          (child as THREE.PointLight).intensity =
+            2.8 + Math.sin(time * 5 + child.userData.offset) * 1.8;
+        }
       });
 
       controls.update();
@@ -438,18 +494,29 @@ export function IsometricOfficeStage({
 
         group.add(avatarGroup);
 
-        // Monitor kerja
+        // Monitor kerja dengan layar menyala hidup
         const monGeo = new THREE.BoxGeometry(0.6, 0.35, 0.05);
         const monMat = new THREE.MeshStandardMaterial({
           color: 0x0f1a1f,
-          emissive: ag.status === 'working' || ag.status === 'thinking' ? color : 0x14232a,
-          emissiveIntensity: ag.status === 'working' ? 1.4 : 0.6,
-          roughness: 0.3,
+          emissive: ag.status === 'working' ? color : isSelected ? 0x62e3ed : 0x38bdf8,
+          emissiveIntensity: ag.status === 'working' ? 2.8 : isSelected ? 2.2 : 1.5,
+          roughness: 0.2,
+          metalness: 0.3,
         });
         const monMesh = new THREE.Mesh(monGeo, monMat);
         monMesh.position.set(0, 0.75 + 0.2, -0.2);
         monMesh.castShadow = true;
         group.add(monMesh);
+
+        // Pendaran cahaya layar ke meja kerja (Workstation Screen Glow)
+        const screenGlow = new THREE.PointLight(
+          ag.status === 'working' ? color : 0x58c5d6,
+          isSelected ? 3.0 : 1.6,
+          1.8,
+          2,
+        );
+        screenGlow.position.set(0, 0.95, -0.05);
+        group.add(screenGlow);
 
         // Kristal/Beacon indikator status melayang di atas kepala agen
         const beaconGeo = new THREE.OctahedronGeometry(0.14, 0);
