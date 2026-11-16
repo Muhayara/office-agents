@@ -57,6 +57,15 @@ import { buildBoardroom } from './rooms/boardroom';
 // Tipe & konstanta panggung
 // ============================================================================
 
+export type { CameraMode };
+
+export interface StageApi {
+  focusRoom: (room: 'workspace' | 'boardroom') => void;
+  toggleCamera: () => void;
+  resetCamera: () => void;
+  focusAgent: (agentId: string) => void;
+}
+
 interface IsometricOfficeStageProps {
   agents: AgentView[];
   selectedAgentId: string;
@@ -66,6 +75,10 @@ interface IsometricOfficeStageProps {
   live?: boolean;
   /** Event bicara / kunjungan meja / rapat dari server (bertambah, dengan seq naik). */
   stageEvents?: StageEvent[];
+  /** Ref API kontrol kamera/fokus panggung untuk bilah header utama. */
+  stageApiRef?: React.MutableRefObject<StageApi | null>;
+  onCamModeChange?: (mode: CameraMode) => void;
+  onLoadErrorChange?: (err: string | null) => void;
 }
 
 const COFFEE_MIN_S   = 10;
@@ -194,13 +207,6 @@ interface MeetingState {
   focusBackAt: number;
 }
 
-interface StageApi {
-  focusRoom: (room: 'workspace' | 'boardroom') => void;
-  toggleCamera: () => void;
-  resetCamera: () => void;
-  focusAgent: (agentId: string) => void;
-}
-
 function rand(a: number, b: number) { return a + Math.random() * (b - a); }
 function pick<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)]!; }
 function clipText(text: string, max = 110) {
@@ -238,13 +244,18 @@ export function IsometricOfficeStage({
   onSelectAgent,
   live = false,
   stageEvents = [],
+  stageApiRef,
+  onCamModeChange,
+  onLoadErrorChange,
 }: IsometricOfficeStageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
-  const [modelLoaded, setModelLoaded] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [camMode, setCamMode] = useState<CameraMode>('iso');
   const apiRef = useRef<StageApi | null>(null);
+  const onCamModeChangeRef = useRef(onCamModeChange);
+  const onLoadErrorChangeRef = useRef(onLoadErrorChange);
+  useEffect(() => { onCamModeChangeRef.current = onCamModeChange; }, [onCamModeChange]);
+  useEffect(() => { onLoadErrorChangeRef.current = onLoadErrorChange; }, [onLoadErrorChange]);
 
   const agentsRef = useRef(agents);
   const selectedRef = useRef(selectedAgentId);
@@ -302,7 +313,10 @@ export function IsometricOfficeStage({
 
     // ----- Dual Kamera (Isometrik ↔ Free Cam 3D) & Auto-Fade Wall -----
     const cam = new CameraRig(renderer.domElement, width / height);
-    cam.onModeChange = (m) => setCamMode(m);
+    cam.onModeChange = (m) => {
+      setCamMode(m);
+      onCamModeChangeRef.current?.(m);
+    };
     const fader = new WallFader();
 
     // ================================================================
@@ -443,8 +457,8 @@ export function IsometricOfficeStage({
     const main = buildMainWorkspace({
       load,
       fader,
-      onShellLoaded: () => setModelLoaded(true),
-      onShellError: (e) => setLoadError(String(e)),
+      onShellLoaded: () => {},
+      onShellError: (e) => onLoadErrorChangeRef.current?.(String(e)),
     });
     const corridor = buildCorridorEast(load);
     const board = buildBoardroom(load, fader);
@@ -2023,6 +2037,7 @@ export function IsometricOfficeStage({
         cam.focus(new THREE.Vector3(refs.avatar.position.x, 0.8, refs.avatar.position.z));
       },
     };
+    if (stageApiRef) stageApiRef.current = apiRef.current;
 
     // Hook diagnostik khusus dev server (tidak ikut ke build produksi).
     const win = window as unknown as Record<string, unknown>;
@@ -2077,6 +2092,7 @@ export function IsometricOfficeStage({
       disposed = true;
       cancelAnimationFrame(animId);
       apiRef.current = null;
+      if (stageApiRef) stageApiRef.current = null;
       if (import.meta.env.DEV) {
         delete win.__officeStage;
         delete win.__officeStageDebug;
@@ -2100,7 +2116,6 @@ export function IsometricOfficeStage({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const t = (id: string, en: string) => (language === 'id' ? id : en);
-  const hudButton: React.CSSProperties = { padding: '4px 10px', minHeight: 28, fontSize: 12 };
 
   return (
     <section
@@ -2115,88 +2130,6 @@ export function IsometricOfficeStage({
         height: '100%',
       }}
     >
-      {/* Top HUD Bar */}
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          flexWrap: 'wrap', gap: 8,
-          padding: '10px 16px',
-          borderBottom: '1px solid var(--color-rule)',
-          background: 'var(--color-paper-2)',
-          zIndex: 10,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <strong style={{ fontSize: 14 }}>
-            {t('Ruang Kantor 3D (Three.js WebGL Diorama)', '3D Virtual Office (Three.js WebGL Diorama)')}
-          </strong>
-          <span className="mono" style={{ fontSize: 12, color: 'var(--color-muted)' }}>
-            {t('Lantai 1 · Ruang Kerja 14×10 m + Ruang Rapat 8×8 m', 'Floor 1 · Workspace 14×10 m + Boardroom 8×8 m')}
-          </span>
-          {modelLoaded ? (
-            <span className="chip mono" style={{ fontSize: 11, color: 'var(--color-ok)', borderColor: 'var(--color-ok)' }}>
-              GLB Active
-            </span>
-          ) : loadError ? (
-            <span className="chip mono" style={{ fontSize: 11, color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}>
-              GLB Error
-            </span>
-          ) : (
-            <span className="chip mono" style={{ fontSize: 11, color: 'var(--color-warn)', borderColor: 'var(--color-warn)' }}>
-              Loading GLB...
-            </span>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={() => apiRef.current?.focusRoom('workspace')}
-            title={t('Arahkan kamera ke ruang kerja', 'Focus the workspace')}
-            style={hudButton}
-          >
-            {t('Fokus: Ruang Kerja', 'Focus: Workspace')}
-          </button>
-          <button
-            type="button"
-            onClick={() => apiRef.current?.focusRoom('boardroom')}
-            title={t('Arahkan kamera ke ruang rapat', 'Focus the boardroom')}
-            style={hudButton}
-          >
-            {t('Fokus: Ruang Rapat', 'Focus: Boardroom')}
-          </button>
-          <button
-            type="button"
-            onClick={() => apiRef.current?.toggleCamera()}
-            aria-pressed={camMode === 'free'}
-            title={t('Ganti kamera isometrik ↔ Free Cam 3D', 'Toggle isometric ↔ Free Cam 3D')}
-            style={{
-              ...hudButton,
-              borderColor: camMode === 'free' ? 'var(--color-focus)' : undefined,
-              color: camMode === 'free' ? 'var(--color-focus)' : undefined,
-            }}
-          >
-            {camMode === 'free' ? t('Kamera: Free Cam 3D', 'Camera: Free Cam 3D') : t('Kamera: Isometrik', 'Camera: Isometric')}
-          </button>
-          <button
-            type="button"
-            onClick={() => apiRef.current?.resetCamera()}
-            title={t('Reset sudut kamera', 'Reset camera')}
-            style={hudButton}
-          >
-            {t('Reset Kamera', 'Reset Camera')}
-          </button>
-          <button
-            type="button"
-            onClick={() => apiRef.current?.focusAgent(selectedAgentId)}
-            title={t('Fokus ke agen terpilih', 'Focus selected agent')}
-            style={{ ...hudButton, borderColor: 'var(--color-focus)', color: 'var(--color-focus)' }}
-          >
-            {t('Fokus Agen', 'Focus Agent')}
-          </button>
-        </div>
-      </div>
-
       {/* Kontainer Kanvas 3D + Bubble Overlay */}
       <div
         ref={containerRef}

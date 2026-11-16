@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type ClientCommand, type StateSnapshot, parseServerEvent } from '@office/shared';
-import { IsometricOfficeStage } from './stage/IsometricOfficeStage';
+import { IsometricOfficeStage, type CameraMode, type StageApi } from './stage/IsometricOfficeStage';
 import { InspectorPanel } from './panels/InspectorPanel';
 import {
   DEMO_BUILD,
@@ -15,7 +15,7 @@ import {
 
 const FALLBACK_SNAPSHOT: StateSnapshot = {
   office: {
-    name: 'Office Agents 2.5D',
+    name: 'Office Agents 3D',
     version: '1.1.0',
     mode: 'semi',
     language: 'id',
@@ -67,6 +67,9 @@ export function App() {
   const [stageEvents, setStageEvents] = useState<StageEvent[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const stageApiRef = useRef<StageApi | null>(null);
+  const [camMode, setCamMode] = useState<CameraMode>('iso');
+  const [loadError, setLoadError] = useState<string | null>(null);
   const agentIdsRef = useRef<ReadonlySet<string>>(new Set(FALLBACK_SNAPSHOT.agents.map((a) => a.id)));
 
   const checkSession = useCallback(async () => {
@@ -179,6 +182,8 @@ export function App() {
   const live = connection === 'live';
   const viewOnly = spectatorMode || role !== 'ceo';
   const lang = snapshot.office.language;
+  const t = (id: string, en: string) => (lang === 'id' ? id : en);
+  const hudButton: React.CSSProperties = { padding: '4px 10px', minHeight: 28, fontSize: 12 };
   const selectedAgent = snapshot.agents.find((a) => a.id === selectedAgentId);
   const connectionChip = useMemo(() => {
     switch (connection) {
@@ -187,7 +192,7 @@ export function App() {
           ? { text: 'LIVE', color: 'var(--color-ok)' }
           : { text: 'Menyambung ulang…', color: 'var(--color-warn)' };
       case 'demo':
-        return { text: 'DEMO (simulasi)', color: 'var(--color-focus)' };
+        return null;
       case 'offline':
         return { text: 'Server mati · simulasi', color: 'var(--color-danger)' };
       case 'login':
@@ -199,28 +204,90 @@ export function App() {
 
   return (
     <>
-      <header className="app-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <strong style={{ fontSize: 15, whiteSpace: 'nowrap' }}>{snapshot.office.name} · 2.5D Studio</strong>
-          <span className="chip mono" style={{ color: connectionChip.color, borderColor: connectionChip.color }}>
-            {connectionChip.text}
+      <header className="app-header" style={{ flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: 15, whiteSpace: 'nowrap' }}>
+            {snapshot.office.name.replace(/2\.5D/g, '3D')} · 3D Studio
+          </strong>
+          <span style={{ color: 'var(--color-rule-strong)' }} aria-hidden="true">|</span>
+          <strong style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+            {t('Kantor 3D', '3D Office')}
+          </strong>
+          <span className="mono" style={{ fontSize: 12, color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>
+            {t('Lantai 1 · Ruang Kerja + Ruang Rapat', 'Floor 1 · Workspace + Boardroom')}
           </span>
+          {connectionChip && (
+            <span className="chip mono" style={{ color: connectionChip.color, borderColor: connectionChip.color }}>
+              {connectionChip.text}
+            </span>
+          )}
+          {loadError && (
+            <span className="chip mono" style={{ fontSize: 11, color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}>
+              GLB Error
+            </span>
+          )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            onClick={() => stageApiRef.current?.focusRoom('workspace')}
+            title={t('Arahkan kamera ke ruang kerja', 'Focus the workspace')}
+            style={hudButton}
+          >
+            {t('Fokus: Ruang Kerja', 'Focus: Workspace')}
+          </button>
+          <button
+            type="button"
+            onClick={() => stageApiRef.current?.focusRoom('boardroom')}
+            title={t('Arahkan kamera ke ruang rapat', 'Focus the boardroom')}
+            style={hudButton}
+          >
+            {t('Fokus: Ruang Rapat', 'Focus: Boardroom')}
+          </button>
+          <button
+            type="button"
+            onClick={() => stageApiRef.current?.toggleCamera()}
+            aria-pressed={camMode === 'free'}
+            title={t('Ganti kamera isometrik ↔ Free Cam 3D', 'Toggle isometric ↔ Free Cam 3D')}
+            style={{
+              ...hudButton,
+              borderColor: camMode === 'free' ? 'var(--color-focus)' : undefined,
+              color: camMode === 'free' ? 'var(--color-focus)' : undefined,
+            }}
+          >
+            {camMode === 'free' ? t('Kamera: Free Cam 3D', 'Camera: Free Cam 3D') : t('Kamera: Isometrik', 'Camera: Isometric')}
+          </button>
+          <button
+            type="button"
+            onClick={() => stageApiRef.current?.resetCamera()}
+            title={t('Reset sudut kamera', 'Reset camera')}
+            style={hudButton}
+          >
+            {t('Reset Kamera', 'Reset Camera')}
+          </button>
+          <button
+            type="button"
+            onClick={() => stageApiRef.current?.focusAgent(selectedAgentId)}
+            title={t('Fokus ke agen terpilih', 'Focus selected agent')}
+            style={{ ...hudButton, borderColor: 'var(--color-focus)', color: 'var(--color-focus)' }}
+          >
+            {t('Fokus Agen', 'Focus Agent')}
+          </button>
+
           {live && role === 'ceo' && (
-            <button type="button" onClick={() => setSpectatorMode((v) => !v)} aria-pressed={spectatorMode}>
+            <button type="button" onClick={() => setSpectatorMode((v) => !v)} aria-pressed={spectatorMode} style={hudButton}>
               {spectatorMode ? 'Tampilan: Pengunjung' : 'Tampilan: CEO'}
             </button>
           )}
           {live && role === 'viewer' && <span className="chip mono">Pengunjung (lihat saja)</span>}
           {live && (
-            <button type="button" onClick={handleLogout}>
+            <button type="button" onClick={handleLogout} style={hudButton}>
               Keluar
             </button>
           )}
           {(connection === 'demo' || connection === 'offline') && !DEMO_BUILD && (
-            <button type="button" onClick={() => void checkSession()}>
+            <button type="button" onClick={() => void checkSession()} style={hudButton}>
               {connection === 'offline' ? 'Coba sambung lagi' : 'Masuk ke kantor live'}
             </button>
           )}
@@ -235,6 +302,9 @@ export function App() {
           onSelectAgent={setSelectedAgentId}
           live={live}
           stageEvents={stageEvents}
+          stageApiRef={stageApiRef}
+          onCamModeChange={setCamMode}
+          onLoadErrorChange={setLoadError}
         />
 
         <InspectorPanel
