@@ -7,7 +7,14 @@ import {
   WATER_DISPENSER_POS,
 } from '../layout';
 import type { WallFader } from '../camera/wallFade';
-import { enableShadow, mountAsset, splitMeshAlongZ, std, type ModelLoader } from './assets';
+import {
+  createCarpetFloor,
+  enableShadow,
+  mountAsset,
+  splitMeshAlongZ,
+  type ModelLoader,
+  std,
+} from './assets';
 
 /**
  * LAYER INDUK RUANGAN 1: Room_MainWorkspace (plan §4), pusat (0, 0).
@@ -18,6 +25,7 @@ export interface MainWorkspace {
   workstations: THREE.Group;
   chairs: THREE.Group;
   seatAnchors: THREE.Group;
+  setCarpetMaterial: (mat: THREE.MeshStandardMaterial) => void;
   update: (time: number) => void;
 }
 
@@ -61,9 +69,20 @@ export function buildMainWorkspace(opts: {
     return slot;
   });
 
+  // ---- Lantai karpet seragam (disamakan dengan karpet ruang rapat) ----
+  const carpet = createCarpetFloor(13.5, 9.5, [-0.01, -0.01, -0.01], 'Main_Acoustic_Carpet');
+  architecture.add(carpet.mesh);
+  const setCarpetMaterial = carpet.applyMaterial;
+
   // ---- Shell ruangan ----
   opts.load('/models/office_room_shell.glb', (shell) => {
     enableShadow(shell);
+    // Sembunyikan zona kayu bawaan GLB yang berlebih keluar dinding barat (-6.97 ± 3.48 m)
+    // serta sub-slab tetap berada tepat di bawah karpet utama (Y -0.30..-0.02).
+    shell.traverse((obj) => {
+      if (/^Timber_/.test(obj.name)) obj.visible = false;
+      if (obj.name === 'Floor_Slab') obj.castShadow = false;
+    });
     architecture.add(shell);
     group.updateWorldMatrix(true, true);
     for (const name of DOOR_CROSSING_PARTS) {
@@ -173,5 +192,5 @@ export function buildMainWorkspace(opts: {
     for (const led of serverLeds) led.intensity = 2.8 + Math.sin(time * 5 + (led.userData.offset as number)) * 1.8;
   };
 
-  return { group, workstations, chairs, seatAnchors, update };
+  return { group, workstations, chairs, seatAnchors, setCarpetMaterial, update };
 }

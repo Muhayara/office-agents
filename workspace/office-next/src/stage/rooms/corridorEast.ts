@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { CORRIDOR_EAST } from '../layout';
-import { box, mountAsset, std, type ModelLoader } from './assets';
+import {
+  box,
+  createCarpetFloor,
+  mountAsset,
+  std,
+  type ModelLoader,
+} from './assets';
 
 /**
  * LAYER KONEKTOR KORIDOR: Corridor_East_Connector (plan §4).
@@ -15,12 +21,19 @@ export function buildCorridorEast(load: ModelLoader) {
   // tidak berkedip (z-fighting); permukaan jalan tetap di atas slab ruang kerja.
   group.position.set(CORRIDOR_EAST.origin.x, -0.004, CORRIDOR_EAST.origin.z);
 
+  const carpet = createCarpetFloor(CORRIDOR_EAST.halfLength * 2, 1.5, [0, -0.01, 0], 'Corridor_Acoustic_Carpet');
+  group.add(carpet.mesh);
+  const setCarpetMaterial = carpet.applyMaterial;
+
   const connector = new THREE.Group();
   connector.name = 'SubLayer_Connector';
   group.add(connector);
 
-  mountAsset(connector, '/models/Office_Glass_Corridor.glb', corridorPlaceholder(), load);
-  return { group };
+  mountAsset(connector, '/models/Office_Glass_Corridor.glb', corridorPlaceholder(), load, (model) => {
+    const runner = model.getObjectByName('Terrazzo_Runner');
+    if (runner) runner.visible = false;
+  });
+  return { group, setCarpetMaterial };
 }
 
 function corridorPlaceholder() {
@@ -28,7 +41,6 @@ function corridorPlaceholder() {
   g.name = 'Office_Glass_Corridor_Placeholder';
   const L = CORRIDOR_EAST.halfLength * 2;
   const slate = std(0x18252b, 0.9, 0.05);
-  const terrazzo = std(0x263339, 0.65, 0.05);
   const frame = std(0x172a30, 0.35, 0.75);
   const led = std(0x0b1a1d, 0.4, 0.1, { emissive: 0x5ed9e7, emissiveIntensity: 1.2 });
   const glass = new THREE.MeshStandardMaterial({
@@ -37,9 +49,8 @@ function corridorPlaceholder() {
   });
   const handle = std(0x0b1a1d, 0.3, 0.2, { emissive: 0x5ed9e7, emissiveIntensity: 1.5 });
 
-  // Lantai: sub-slab + runner terrazzo + strip LED pemandu
+  // Lantai: sub-slab + strip LED pemandu (runner karpet dipasang di induk koridor)
   g.add(box(L, 0.28, 2.0, slate, [0, -0.16, 0], 'Corridor_SubSlab'));
-  g.add(box(L, 0.02, 1.5, terrazzo, [0, -0.01, 0], 'Corridor_Terrazzo'));
   for (const z of [-0.76, 0.76]) {
     const strip = box(L, 0.004, 0.03, led, [0, 0.002, z], 'Corridor_LED_Guide');
     strip.castShadow = false;

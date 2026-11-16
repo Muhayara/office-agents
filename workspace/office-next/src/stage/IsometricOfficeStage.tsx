@@ -461,7 +461,10 @@ export function IsometricOfficeStage({
       onShellError: (e) => onLoadErrorChangeRef.current?.(String(e)),
     });
     const corridor = buildCorridorEast(load);
-    const board = buildBoardroom(load, fader);
+    const board = buildBoardroom(load, fader, (mat) => {
+      main.setCarpetMaterial(mat);
+      corridor.setCarpetMaterial(mat);
+    });
     floor1.add(main.group, corridor.group, board.group);
 
     // Avatar berada di level lantai karena berpindah antar-ruangan.

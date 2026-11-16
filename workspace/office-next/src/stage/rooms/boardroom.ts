@@ -1,7 +1,16 @@
 import * as THREE from 'three';
 import { BOARDROOM, BOARDROOM_SEATS, ROOM_BOARDROOM, type BoardroomSeat, type Pt } from '../layout';
 import type { WallFader } from '../camera/wallFade';
-import { box, canvasTexture, enableShadow, mountAsset, std, type ModelLoader } from './assets';
+import {
+  box,
+  canvasTexture,
+  createFallbackCarpetMaterial,
+  enableShadow,
+  meterBox,
+  mountAsset,
+  std,
+  type ModelLoader,
+} from './assets';
 
 /**
  * LAYER INDUK RUANGAN 2: Room_Boardroom_10p (plan §4–6), pusat dunia (13.5, 0).
@@ -48,7 +57,11 @@ export interface Boardroom {
 
 const SLAT_COUNT = 28;
 
-export function buildBoardroom(load: ModelLoader, fader: WallFader): Boardroom {
+export function buildBoardroom(
+  load: ModelLoader,
+  fader: WallFader,
+  onCarpetMaterial?: (mat: THREE.MeshStandardMaterial) => void,
+): Boardroom {
   const group = new THREE.Group();
   group.name = ROOM_BOARDROOM.name;
   group.position.set(ROOM_BOARDROOM.origin.x, 0, ROOM_BOARDROOM.origin.z);
@@ -103,6 +116,13 @@ export function buildBoardroom(load: ModelLoader, fader: WallFader): Boardroom {
   mountAsset(architecture, '/models/Office_Boardroom_Shell.glb', shellPh, load, (shell) => {
     wallNorth = shell.getObjectByName('North_Wall') ?? undefined;
     wallWest = shell.getObjectByName('West_Wall_Acoustic') ?? undefined;
+    const carpetMesh = shell.getObjectByName('Floor_Carpet_AcousticCharcoal') as THREE.Mesh | undefined;
+    if (carpetMesh) {
+      carpetMesh.castShadow = false;
+      if (carpetMesh.material instanceof THREE.MeshStandardMaterial) {
+        onCarpetMaterial?.(carpetMesh.material);
+      }
+    }
     registerWalls();
   });
 
@@ -381,23 +401,7 @@ function shellPlaceholder() {
   const floor = new THREE.Group();
   floor.name = 'Floor_Group';
   floor.add(box(8.0, 0.28, 8.0, slate, [0, -0.16, 0], 'Boardroom_SubSlab'));
-  const carpetCanvas = document.createElement('canvas');
-  carpetCanvas.width = carpetCanvas.height = 128;
-  const cc = carpetCanvas.getContext('2d')!;
-  cc.fillStyle = '#1d242b';
-  cc.fillRect(0, 0, 128, 128);
-  cc.fillStyle = '#242d35';
-  cc.fillRect(0, 0, 64, 64);
-  cc.fillRect(64, 64, 64, 64);
-  cc.strokeStyle = '#161c22';
-  cc.lineWidth = 2;
-  cc.strokeRect(1, 1, 126, 126);
-  const carpetTex = canvasTexture(carpetCanvas);
-  carpetTex.wrapS = carpetTex.wrapT = THREE.RepeatWrapping;
-  carpetTex.repeat.set(8, 8);
-  const carpet = box(7.76, 0.02, 7.76, std(0xffffff, 0.92, 0.02, { map: carpetTex }), [0, -0.01, 0], 'Acoustic_Carpet');
-  carpet.castShadow = false;
-  floor.add(carpet);
+  floor.add(meterBox(7.76, 0.02, 7.76, createFallbackCarpetMaterial(), [0, -0.01, 0], 'Acoustic_Carpet'));
   g.add(floor);
 
   // North_Wall (Z = -3.88, tebal 0.24)
