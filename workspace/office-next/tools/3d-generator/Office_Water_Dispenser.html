@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Office Water Dispenser — Procedural PBR Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg0:#05070c; --bg1:#0c1220; --panel:rgba(12,17,30,.78); --line:rgba(148,163,184,.16);
+    --text:#e2e8f0; --mute:#8b98ad; --hot:#ef4444; --room:#f8fafc; --cold:#06b6d4; --acc:#38bdf8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:radial-gradient(1200px 800px at 60% 35%,#152036 0%,var(--bg1) 45%,var(--bg0) 100%);color:var(--text);font-family:Inter,system-ui,sans-serif}
+  #view{position:fixed;inset:0;display:block;width:100%;height:100%}
+  .panel{position:fixed;background:var(--panel);border:1px solid var(--line);border-radius:12px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+  #hud{top:16px;left:16px;width:292px;padding:16px 16px 14px}
+  h1{font-size:13px;font-weight:600;letter-spacing:.02em;margin:0 0 2px}
+  .sub{font-size:11px;color:var(--mute);margin-bottom:14px}
+  .sec{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);margin:14px 0 8px}
+  .grid{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-family:"JetBrains Mono",monospace;font-size:12px}
+  .grid .k{color:var(--mute)} .grid .v{text-align:right;color:var(--text)}
+  .ax{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle}
+  .btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  button{font:500 12px Inter,sans-serif;color:var(--text);background:rgba(30,41,59,.7);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer;transition:background .15s,border-color .15s}
+  button:hover{background:rgba(51,65,85,.85);border-color:rgba(148,163,184,.35)}
+  button.on{border-color:rgba(56,189,248,.6);background:rgba(14,116,144,.35)}
+  #export{grid-column:1/-1;background:linear-gradient(180deg,#0ea5e9,#0284c7);border-color:#0ea5e9;font-weight:600;padding:10px}
+  #export:hover{background:linear-gradient(180deg,#38bdf8,#0ea5e9)}
+  #export:disabled{opacity:.6;cursor:wait}
+  #status{font-size:11px;color:var(--mute);margin-top:8px;min-height:14px}
+  #tree{top:16px;right:16px;width:262px;max-height:calc(100% - 32px);overflow:auto;padding:14px 14px 10px;font-family:"JetBrains Mono",monospace;font-size:11px}
+  #tree .row{white-space:nowrap;color:#cbd5e1;line-height:1.65;cursor:default;border-radius:4px;padding:0 4px}
+  #tree .row:hover{background:rgba(56,189,248,.12);color:#fff}
+  #tree .g{color:#7dd3fc} #tree .tc{color:var(--mute);float:right}
+  .dim{position:fixed;pointer-events:none;font:500 11px "JetBrains Mono",monospace;padding:3px 7px;border-radius:6px;background:rgba(2,6,23,.82);border:1px solid var(--line);white-space:nowrap;transform:translate(-50%,-50%)}
+  #legend{left:16px;bottom:16px;padding:9px 12px;font-size:11px;color:var(--mute)}
+  #legend b{color:var(--text);font-weight:500}
+  @media (max-width:760px){#tree{display:none}#hud{width:calc(100% - 32px)}}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="hud" class="panel">
+  <h1>Office_Water_Dispenser</h1>
+  <div class="sub">Bottom-load hot / cold cooler · procedural PBR</div>
+
+  <div class="sec">Bounding box</div>
+  <div class="grid">
+    <span class="k"><span class="ax" style="background:#f87171"></span>Width X</span><span class="v" id="dx">–</span>
+    <span class="k"><span class="ax" style="background:#4ade80"></span>Height Y</span><span class="v" id="dy">–</span>
+    <span class="k"><span class="ax" style="background:#60a5fa"></span>Depth Z</span><span class="v" id="dz">–</span>
+    <span class="k">Origin</span><span class="v">floor · centre</span>
+  </div>
+
+  <div class="sec">Geometry</div>
+  <div class="grid">
+    <span class="k">Triangles</span><span class="v" id="tris">–</span>
+    <span class="k">Vertices</span><span class="v" id="verts">–</span>
+    <span class="k">Meshes</span><span class="v" id="meshes">–</span>
+    <span class="k">Materials</span><span class="v" id="mats">–</span>
+    <span class="k">Draw calls</span><span class="v" id="calls">–</span>
+  </div>
+
+  <div class="sec">Inspect</div>
+  <div class="btns">
+    <button id="bWire">Wireframe</button>
+    <button id="bBox" class="on">Bounds</button>
+    <button id="bTray">Pull drip tray</button>
+    <button id="bLed">LED: heat+cool</button>
+    <button id="bRot">Auto-rotate</button>
+    <button id="bReset">Reset view</button>
+    <button id="export">Export GLB</button>
+  </div>
+  <div id="status"></div>
+</div>
+
+<div id="tree" class="panel"><div class="sec" style="margin-top:0">Scene hierarchy</div><div id="treeBody"></div></div>
+<div id="legend" class="panel"><b>Drag</b> orbit · <b>Right-drag</b> pan · <b>Wheel</b> zoom · front faces <b>+Z</b></div>
+
+<div class="dim" id="lw" style="color:#fca5a5"></div>
+<div class="dim" id="lh" style="color:#86efac"></div>
+<div class="dim" id="ld" style="color:#93c5fd"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+
+<script>
+// BEGIN MODEL
+/* ================================================================
+   Procedural model — all units in metres. Origin: floor, centred.
+   Front faces +Z.  W 0.34 (X) · H 1.05 (Y) · D 0.38 (Z)
+   ================================================================ */
+function buildDispenser(opts) {
+  opts = opts || {};
+  const T = THREE;
+  const W = 0.34, D = 0.38, H = 1.05, HW = W / 2, HD = D / 2;
+
+  /* ---------- geometry helpers ---------- */
+  // Polygon with per-corner fillet radius -> drawn onto a Shape or Path.
+  function polyPath(target, pts) {
+    const n = pts.length, V = T.Vector2;
+    const corner = (i) => {
+      const p0 = new V(pts[(i - 1 + n) % n][0], pts[(i - 1 + n) % n][1]);
+      const p1 = new V(pts[i][0], pts[i][1]);
+      const p2 = new V(pts[(i + 1) % n][0], pts[(i + 1) % n][1]);
+      const r = pts[i][2] || 0;
+      const a = p1.clone().add(p0.clone().sub(p1).normalize().multiplyScalar(r));
+      const b = p1.clone().add(p2.clone().sub(p1).normalize().multiplyScalar(r));
+      return { p1, a, b, r };
+    };
+    const c0 = corner(0);
+    target.moveTo(c0.b.x, c0.b.y);
+    for (let i = 1; i <= n; i++) {
+      const c = corner(i % n);
+      target.lineTo(c.a.x, c.a.y);
+      if (c.r > 0) target.quadraticCurveTo(c.p1.x, c.p1.y, c.b.x, c.b.y);
+    }
+    return target;
+  }
+  const rectPts = (w, h, r, cx = 0, cy = 0) => [
+    [cx - w / 2, cy - h / 2, r], [cx + w / 2, cy - h / 2, r],
+    [cx + w / 2, cy + h / 2, r], [cx - w / 2, cy + h / 2, r]];
+
+  // Rounded box with exact outer dimensions, centred at origin.
+  function rbox(w, h, d, r, seg) {
+    r = Math.min(r, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4);
+    const iw = w - 2 * r, ih = h - 2 * r;
+    const rc = Math.min(r, iw / 2 - 1e-5, ih / 2 - 1e-5);
+    const shape = polyPath(new T.Shape(), rectPts(iw, ih, Math.max(rc, 0)));
+    const g = new T.ExtrudeGeometry(shape, {
+      depth: Math.max(d - 2 * r, 1e-5), bevelEnabled: true, bevelThickness: r,
+      bevelSize: r, bevelSegments: seg || 3, curveSegments: 6
+    });
+    g.translate(0, 0, -(d - 2 * r) / 2);
+    return g;
+  }
+  // Side-profile (Z,Y) shape extruded along X, positioned with min.x at x0.
+  function profileX(shape, depth, bevel, x0) {
+    const g = new T.ExtrudeGeometry(shape, {
+      depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel,
+      bevelSegments: 3, curveSegments: 10
+    });
+    g.rotateY(-Math.PI / 2);
+    g.computeBoundingBox();
+    g.translate(x0 - g.boundingBox.min.x, 0, 0);
+    return g;
+  }
+  function lathe(profile, seg) {
+    // profiles are authored top→down; lathe needs bottom→top for outward-facing normals
+    return new T.LatheGeometry(profile.slice().reverse().map(p => new T.Vector2(p[0], p[1])), seg || 40);
+  }
+  // Box-projected metric UVs so textures keep a consistent real-world scale.
+  function boxUV(g, scale) {
+    if (g.index) g = g.toNonIndexed();
+    const p = g.attributes.position, uv = new Float32Array(p.count * 2);
+    const a = new T.Vector3(), b = new T.Vector3(), c = new T.Vector3(), n = new T.Vector3();
+    for (let i = 0; i < p.count; i += 3) {
+      a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
+      n.subVectors(c, b).cross(a.clone().sub(b)).normalize();
+      const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
+      for (let k = 0; k < 3; k++) {
+        const x = p.getX(i + k), y = p.getY(i + k), z = p.getZ(i + k);
+        let u, v;
+        if (ax >= ay && ax >= az) { u = z; v = y; }
+        else if (ay >= az) { u = x; v = z; }
+        else { u = x; v = y; }
+        uv[(i + k) * 2] = u * scale; uv[(i + k) * 2 + 1] = v * scale;
+      }
+    }
+    g.setAttribute('uv', new T.BufferAttribute(uv, 2));
+    return g;
+  }
+
+  /* ---------- materials ---------- */
+  const tex = opts.textures === false ? {} : makeTextures();
+  const std = (name, o) => { const m = new T.MeshStandardMaterial(o); m.name = name; return m; };
+  const M = {
+    abs: std('ABS_Matte_Black', { color: 0x0f172a, roughness: 0.55, metalness: 0.1,
+      normalMap: tex.absNormal || null, normalScale: new T.Vector2(0.12, 0.12), envMapIntensity: 0.55 }),
+    absDeep: std('ABS_Deep_Shadow', { color: 0x050912, roughness: 0.8, metalness: 0.05, envMapIntensity: 0.5 }),
+    steel: std('Brushed_Stainless_Steel', { color: 0xe2e8f0, roughness: 0.25, metalness: 0.85,
+      map: tex.brushColor || null, roughnessMap: tex.brushRM || null, metalnessMap: tex.brushRM || null }),
+    grid: std('Perforated_Steel_Grid', { color: 0xc7d0dc, roughness: 0.32, metalness: 0.9,
+      map: tex.brushColor || null, roughnessMap: tex.brushRM || null, metalnessMap: tex.brushRM || null }),
+    fascia: std('Fascia_Gloss_Black', { color: 0x0b1222, roughness: 0.16, metalness: 0.25 }),
+    chrome: std('Chrome', { color: 0xdde3ea, roughness: 0.12, metalness: 1.0 }),
+    rubber: std('Rubber_Foot', { color: 0x070707, roughness: 0.92, metalness: 0.0 }),
+    alcove: std('Alcove_Interior', { color: 0x111827, roughness: 0.6, metalness: 0.1, envMapIntensity: 0.6 }),
+    hot: std('Accent_Hot', { color: 0xef4444, roughness: 0.35, metalness: 0.05, emissive: new T.Color(0xef4444).multiplyScalar(0.18) }),
+    room: std('Accent_Room', { color: 0xf8fafc, roughness: 0.32, metalness: 0.05, emissive: new T.Color(0xf8fafc).multiplyScalar(0.06) }),
+    cold: std('Accent_Cold', { color: 0x06b6d4, roughness: 0.35, metalness: 0.05, emissive: new T.Color(0x06b6d4).multiplyScalar(0.18) }),
+    hotRing: std('Ring_Hot', { color: 0xef4444, roughness: 0.3, metalness: 0, emissive: 0xef4444 }),
+    roomRing: std('Ring_Room', { color: 0xf8fafc, roughness: 0.3, metalness: 0, emissive: 0xcbd5e1 }),
+    coldRing: std('Ring_Cold', { color: 0x06b6d4, roughness: 0.3, metalness: 0, emissive: 0x06b6d4 }),
+    ledHeat: std('LED_Heating', { color: 0xf97316, roughness: 0.2, metalness: 0, emissive: 0xf97316 }),
+    ledCool: std('LED_Cooling', { color: 0x06b6d4, roughness: 0.2, metalness: 0, emissive: 0x22d3ee }),
+    ledEmpty: std('LED_Bottle_Empty', { color: 0x3b2a0a, roughness: 0.2, metalness: 0, emissive: 0x000000 }),
+    lightStrip: std('Alcove_Light', { color: 0xe0f2fe, roughness: 0.4, metalness: 0, emissive: 0xbae6fd }),
+    label: std('Fascia_Print', { map: tex.labels || null, transparent: true, roughness: 0.4, metalness: 0,
+      depthWrite: false, color: 0xffffff })
+  };
+  if (!tex.labels) M.label.visible = false;
+
+  const ABS_UV = 1 / 0.08, STEEL_UV = 1 / 0.22;
+  const texturedUV = new Map([[M.abs, ABS_UV], [M.steel, STEEL_UV], [M.grid, STEEL_UV]]);
+  function mesh(name, geo, mat, parent, x = 0, y = 0, z = 0) {
+    if (texturedUV.has(mat)) geo = boxUV(geo, texturedUV.get(mat));
+    const m = new T.Mesh(geo, mat);
+    m.name = name; m.position.set(x, y, z);
+    m.castShadow = true; m.receiveShadow = true;
+    parent.add(m); return m;
+  }
+  const group = (name, parent) => { const g = new T.Group(); g.name = name; if (parent) parent.add(g); return g; };
+
+  /* ---------- key heights ---------- */
+  const Y_BASE = 0.035;           // underside of housing (plinth below)
+  const Y_ALC0 = 0.62, Y_ALC1 = 0.90;   // alcove floor / ceiling
+  const Z_ALC_BACK = 0.05;        // alcove back wall
+  const Z_LOWER = 0.180, Z_HEAD = 0.178; // recessed front planes between cheeks
+  const CHEEK = 0.022, XIN = HW - CHEEK; // side panel thickness, inner face x
+
+  const root = group('Office_Water_Dispenser');
+
+  /* ================= HOUSING ================= */
+  const housing = group('Housing', root);
+
+  // Centre body: one continuous side profile with the dispensing-alcove notch.
+  const centreShape = polyPath(new T.Shape(), [
+    [-HD, Y_BASE, 0.006], [Z_LOWER, Y_BASE, 0.006],
+    [Z_LOWER, Y_ALC0, 0.004], [Z_ALC_BACK, Y_ALC0, 0.014],
+    [Z_ALC_BACK, Y_ALC1, 0.014], [Z_HEAD, Y_ALC1, 0.004],
+    [Z_HEAD, H, 0.024], [-HD, H, 0.024]]);
+  mesh('Body_Centre_Shell', profileX(centreShape, XIN * 2, 0, -XIN), M.abs, housing);
+
+  // Side panels frame the front at full depth (bevelled edges).
+  const bv = 0.003;
+  const cheekShape = polyPath(new T.Shape(), [
+    [-HD + bv, Y_BASE + bv, 0.006], [HD - bv, Y_BASE + bv, 0.006],
+    [HD - bv, H - bv, 0.022], [-HD + bv, H - bv, 0.022]]);
+  mesh('Side_Panel_L', profileX(cheekShape, CHEEK - 2 * bv, bv, -HW), M.abs, housing);
+  mesh('Side_Panel_R', profileX(cheekShape, CHEEK - 2 * bv, bv, XIN), M.abs, housing);
+
+  // Recessed plinth + levelling feet
+  mesh('Base_Plinth', rbox(0.31, 0.024, 0.35, 0.003), M.absDeep, housing, 0, 0.023, 0);
+  const feet = group('Levelling_Feet', housing);
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz], i) =>
+    mesh('Foot_' + (i + 1), new T.CylinderGeometry(0.013, 0.014, 0.011, 24), M.rubber, feet,
+      sx * 0.135, 0.0055, sz * 0.15));
+
+  // Rear condenser vent slots
+  const vent = group('Rear_Vent', housing);
+  for (let i = 0; i < 10; i++)
+    mesh('Vent_Slot_' + (i + 1), rbox(0.20, 0.0065, 0.001, 0.0004, 1), M.absDeep, vent, 0, 0.14 + i * 0.019, -HD + 0.0006);
+
+  /* ================= CONTROL FASCIA (head) ================= */
+  const head = group('Control_Fascia', root);
+  const FY = 0.965, FW = 0.272, FH = 0.118, FZ = Z_HEAD + 0.002;
+  mesh('Fascia_Panel', rbox(FW, FH, 0.004, 0.0015), M.fascia, head, 0, FY, FZ);
+  if (tex.labels) mesh('Fascia_Print', new T.PlaneGeometry(FW, FH), M.label, head, 0, FY, Z_HEAD + 0.00415).castShadow = false;
+
+  const BX = [-0.08, 0, 0.08], BY = 0.952;
+  const buttons = group('Dispense_Buttons', head);
+  [['Hot', M.hot, M.hotRing], ['Room', M.room, M.roomRing], ['Cold', M.cold, M.coldRing]].forEach(([nm, cap, ring], i) => {
+    const b = group('Button_' + nm, buttons); b.position.set(BX[i], BY, 0);
+    mesh('Bezel_' + nm, new T.CylinderGeometry(0.017, 0.0175, 0.005, 48).rotateX(Math.PI / 2), M.chrome, b, 0, 0, 0.184);
+    mesh('Ring_' + nm, new T.TorusGeometry(0.0146, 0.0011, 8, 48), ring, b, 0, 0, 0.1866);
+    mesh('Cap_' + nm, lathe([[0, 0.0034], [0.004, 0.0032], [0.008, 0.0026], [0.011, 0.0014], [0.0125, 0], [0.0125, -0.002]], 48)
+      .rotateX(Math.PI / 2), cap, b, 0, 0, 0.1865);
+  });
+
+  const leds = group('Status_LEDs', head);
+  [['Heating', M.ledHeat], ['Cooling', M.ledCool], ['Bottle_Empty', M.ledEmpty]].forEach(([nm, mat], i) => {
+    const l = group('LED_' + nm, leds); l.position.set(BX[i], 1.008, 0);
+    mesh('LED_Bezel_' + nm, new T.CylinderGeometry(0.0064, 0.0066, 0.002, 32).rotateX(Math.PI / 2), M.chrome, l, 0, 0, 0.183);
+    mesh('LED_Lens_' + nm, lathe([[0, 0.0026], [0.0022, 0.0022], [0.0038, 0.001], [0.0043, 0], [0.0043, -0.001]], 24)
+      .rotateX(Math.PI / 2), mat, l, 0, 0, 0.184);
+  });
+
+  /* ================= DISPENSING ALCOVE ================= */
+  const alc = group('Dispensing_Alcove', root);
+  mesh('Alcove_Backplate_Steel', rbox(0.27, 0.256, 0.003, 0.0012), M.steel, alc, 0, 0.766, Z_ALC_BACK + 0.0015);
+  mesh('Spout_Manifold', rbox(0.236, 0.014, 0.064, 0.004), M.alcove, alc, 0, Y_ALC1 - 0.007, Z_ALC_BACK + 0.034);
+  [['Hot', M.hotRing], ['Room', M.roomRing], ['Cold', M.coldRing]].forEach(([nm, ring], i) => {
+    const n = group('Nozzle_' + nm, alc); n.position.set(BX[i], 0, 0.098);
+    mesh('Nozzle_Body_' + nm, new T.CylinderGeometry(0.0055, 0.0075, 0.022, 32), M.chrome, n, 0, 0.875, 0);
+    mesh('Nozzle_Tip_' + nm, new T.TorusGeometry(0.0055, 0.0011, 8, 32).rotateX(Math.PI / 2), ring, n, 0, 0.8645, 0);
+    mesh('Nozzle_Bore_' + nm, new T.CylinderGeometry(0.0032, 0.0032, 0.001, 20), M.absDeep, n, 0, 0.8639, 0);
+  });
+  mesh('Alcove_Light_Strip', rbox(0.22, 0.003, 0.006, 0.001, 1), M.lightStrip, alc, 0, Y_ALC1 - 0.0015, 0.164).castShadow = false;
+
+  /* ================= DRIP TRAY (removable) ================= */
+  const tray = group('Drip_Tray', root);
+  const TZ = 0.117, TW = 0.25, TD = 0.125;
+  mesh('Drip_Tray_Basin', rbox(TW, 0.013, TD, 0.004), M.alcove, tray, 0, Y_ALC0 + 0.0065, TZ);
+  const rim = group('Drip_Tray_Rim', tray);
+  mesh('Rim_Front', rbox(TW, 0.006, 0.006, 0.0018, 2), M.alcove, rim, 0, Y_ALC0 + 0.016, TZ + TD / 2 - 0.003);
+  mesh('Rim_Back', rbox(TW, 0.006, 0.006, 0.0018, 2), M.alcove, rim, 0, Y_ALC0 + 0.016, TZ - TD / 2 + 0.003);
+  mesh('Rim_Left', rbox(0.006, 0.006, TD - 0.012, 0.0018, 2), M.alcove, rim, -TW / 2 + 0.003, Y_ALC0 + 0.016, TZ);
+  mesh('Rim_Right', rbox(0.006, 0.006, TD - 0.012, 0.0018, 2), M.alcove, rim, TW / 2 - 0.003, Y_ALC0 + 0.016, TZ);
+  // Perforated grid plate (real through-holes)
+  const gw = TW - 0.012, gd = TD - 0.012;
+  const gridShape = polyPath(new T.Shape(), rectPts(gw, gd, 0.002));
+  const COLS = 18, ROWS = 8, PITCH = 0.0122, HR = 0.0038;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const hx = (c - (COLS - 1) / 2) * PITCH, hy = (r - (ROWS - 1) / 2) * PITCH;
+    const h = new T.Path(); h.absarc(hx, hy, HR, 0, Math.PI * 2, true); gridShape.holes.push(h);
+  }
+  const gridGeo = new T.ExtrudeGeometry(gridShape, { depth: 0.0015, bevelEnabled: false, curveSegments: 5 }).rotateX(-Math.PI / 2);
+  mesh('Drip_Tray_Grid', gridGeo, M.grid, tray, 0, Y_ALC0 + 0.013, TZ);
+
+  /* ================= LOWER ACCESS DOOR ================= */
+  const doorY = 0.3305, DW = 0.284, DH = 0.545, dbv = 0.0015;
+  mesh('Door_Shadow_Gap', rbox(DW + 0.008, DH + 0.008, 0.002, 0.0008, 1), M.absDeep, housing, 0, doorY, Z_LOWER + 0.0005);
+  const door = group('Access_Door', root);
+  door.position.set(-DW / 2, doorY, 0);   // pivot on hinge (left) edge
+  const doorShape = polyPath(new T.Shape(), rectPts(DW - 2 * dbv, DH - 2 * dbv, 0.008));
+  const HXc = 0.109, HYc = 0.17, HWd = 0.018, HHt = 0.11;   // handle indent (door-local)
+  doorShape.holes.push(polyPath(new T.Path(), rectPts(HWd, HHt, 0.0085, HXc, HYc).reverse()));
+  const doorGeo = new T.ExtrudeGeometry(doorShape, { depth: 0.006, bevelEnabled: true, bevelThickness: dbv,
+    bevelSize: dbv, bevelSegments: 3, curveSegments: 8 });
+  doorGeo.translate(DW / 2, 0, 0.1885 - 0.0075);
+  mesh('Door_Panel', doorGeo, M.abs, door);
+  mesh('Door_Handle_Indent', new T.BoxGeometry(HWd + 0.006, HHt + 0.006, 0.006), M.absDeep, door, DW / 2 + HXc, HYc, 0.1795);
+  mesh('Door_Accent_Steel', rbox(0.07, 0.50, 0.002, 0.0008, 2), M.steel, door, DW / 2, 0, 0.18875);
+  // Concealed hinge knuckles (flush, top & bottom of the vertical seam)
+  [-1, 1].forEach((s, i) => mesh('Hinge_' + (i + 1), new T.CylinderGeometry(0.0022, 0.0022, 0.028, 16), M.absDeep, door,
+    0.0015, s * (DH / 2 - 0.04), 0.1845));
+
+  return { root, M, parts: { tray, door, leds } };
+}
+
+/* ---------- procedural textures (canvas → exported as PNG by GLTFExporter) ---------- */
+function makeTextures() {
+  const T = THREE;
+  const cv = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  // seeded PRNG for repeatable output
+  let seed = 1337; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+  // 1) ABS fine stipple → tileable normal map
+  const N = 256, hgt = new Float32Array(N * N);
+  for (let i = 0; i < N * N; i++) hgt[i] = rnd();
+  for (let pass = 0; pass < 2; pass++) {
+    const t = new Float32Array(N * N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      let s = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+        s += hgt[((y + dy + N) % N) * N + ((x + dx + N) % N)];
+      t[y * N + x] = s / 9;
+    }
+    hgt.set(t);
+  }
+  const nc = cv(N, N), nx = nc.getContext('2d'), nd = nx.createImageData(N, N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const hL = hgt[y * N + (x - 1 + N) % N], hR = hgt[y * N + (x + 1) % N];
+    const hU = hgt[((y - 1 + N) % N) * N + x], hD = hgt[((y + 1) % N) * N + x];
+    const v = new T.Vector3((hL - hR) * 6, (hD - hU) * 6, 1).normalize(), o = (y * N + x) * 4;
+    nd.data[o] = (v.x * 0.5 + 0.5) * 255; nd.data[o + 1] = (v.y * 0.5 + 0.5) * 255; nd.data[o + 2] = (v.z * 0.5 + 0.5) * 255; nd.data[o + 3] = 255;
+  }
+  nx.putImageData(nd, 0, 0);
+
+  // 2) Brushed stainless — vertical grain. Colour map + packed roughness(G)/metalness(B).
+  const B = 512, col = new Float32Array(B);
+  let walk = 0; for (let x = 0; x < B; x++) { walk = walk * 0.6 + (rnd() - 0.5); col[x] = walk; }
+  const cc = cv(B, B), cx = cc.getContext('2d'), cd = cx.createImageData(B, B);
+  const rc = cv(B, B), rx = rc.getContext('2d'), rd = rx.createImageData(B, B);
+  for (let y = 0; y < B; y++) for (let x = 0; x < B; x++) {
+    const g = col[x] * 0.8 + (rnd() - 0.5) * 0.35 + Math.sin((y + x * 0.07) * 0.02) * 0.05, o = (y * B + x) * 4;
+    const c = Math.max(0, Math.min(255, 236 + g * 22));
+    cd.data[o] = c; cd.data[o + 1] = c; cd.data[o + 2] = Math.min(255, c + 3); cd.data[o + 3] = 255;
+    rd.data[o] = 0; rd.data[o + 1] = Math.max(150, Math.min(255, 220 + g * 55)); rd.data[o + 2] = 255; rd.data[o + 3] = 255;
+  }
+  cx.putImageData(cd, 0, 0); rx.putImageData(rd, 0, 0);
+
+  // 3) Fascia print (legends) — 1024 × 444 maps onto 0.272 × 0.118 m
+  const LW = 1024, LH = 444, lc = cv(LW, LH), l = lc.getContext('2d');
+  const px = (x) => (x + 0.136) / 0.272 * LW, py = (y) => (1.024 - y) / 0.118 * LH;
+  l.textAlign = 'center'; l.textBaseline = 'middle';
+  const BX = [-0.08, 0, 0.08];
+  l.font = '600 24px Inter, Arial, sans-serif'; l.fillStyle = '#94a3b8';
+  ['HEATING', 'COOLING', 'EMPTY'].forEach((t, i) => l.fillText(t, px(BX[i]), py(0.9935)));
+  l.font = '700 34px Inter, Arial, sans-serif';
+  [['HOT', '#f87171'], ['ROOM', '#e2e8f0'], ['COLD', '#22d3ee']].forEach(([t, c], i) => { l.fillStyle = c; l.fillText(t, px(BX[i]), py(0.9215)); });
+  l.strokeStyle = 'rgba(148,163,184,.28)'; l.lineWidth = 2;
+  l.beginPath(); l.moveTo(px(-0.12), py(0.982)); l.lineTo(px(0.12), py(0.982)); l.stroke();
+
+  const mk = (c, srgb) => {
+    const t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping;
+    t.anisotropy = 8; if (srgb) t.encoding = T.sRGBEncoding; return t;
+  };
+  const labels = new T.CanvasTexture(lc); labels.encoding = T.sRGBEncoding; labels.anisotropy = 8;
+  return { absNormal: mk(nc, false), brushColor: mk(cc, true), brushRM: mk(rc, false), labels };
+}
+// END MODEL
+
+/* ================================================================
+   Viewer / inspector
+   ================================================================ */
+(function () {
+  const canvas = document.getElementById('view');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: false });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.95;
+  renderer.physicallyCorrectLights = true;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 50);
+
+  // Studio environment for PBR reflections (built procedurally, no HDR download)
+  (function env() {
+    const es = new THREE.Scene();
+    es.add(new THREE.Mesh(new THREE.BoxGeometry(12, 7, 12), new THREE.MeshBasicMaterial({ color: 0x1b2230, side: THREE.BackSide })));
+    const panel = (w, h, x, y, z, k, tint) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(tint || 0xffffff).multiplyScalar(k), side: THREE.DoubleSide }));
+      m.position.set(x, y, z); m.lookAt(0, 0.5, 0); es.add(m);
+    };
+    panel(5, 1.2, 0, 3.4, 0, 5);           // overhead softbox
+    panel(1.2, 3.5, -4.5, 1.5, 2.5, 3.2);  // key strip left
+    panel(1.2, 3.5, 4.5, 1.5, 1.5, 2.2, 0xdbeafe); // fill strip right
+    panel(4, 1.5, 0, 1.2, -5.5, 1.4);      // back rim
+    panel(10, 10, 0, -3.4, 0, 0.15);       // dim floor bounce
+    const pm = new THREE.PMREMGenerator(renderer);
+    scene.environment = pm.fromScene(es, 0.03).texture;
+  })();
+
+  scene.add(new THREE.HemisphereLight(0xdbeafe, 0x0b1020, 0.4));
+  const key = new THREE.DirectionalLight(0xffffff, 2.4);
+  key.position.set(-1.4, 2.6, 1.8); key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  Object.assign(key.shadow.camera, { left: -0.7, right: 0.7, top: 1.4, bottom: -0.3, near: 0.5, far: 6 });
+  key.shadow.bias = -0.0004; key.shadow.normalBias = 0.012;
+  scene.add(key);
+  const rimL = new THREE.DirectionalLight(0x93c5fd, 1.2); rimL.position.set(1.6, 1.5, -2); scene.add(rimL);
+
+  // Ground: shadow catcher + subtle grid (helpers, not exported)
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.ShadowMaterial({ opacity: 0.42 }));
+  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+  const grid = new THREE.GridHelper(4, 40, 0x334155, 0x1e293b);
+  grid.material.transparent = true; grid.material.opacity = 0.45; grid.position.y = -0.0005; scene.add(grid);
+
+  // Build model
+  const { root, M, parts } = buildDispenser();
+  scene.add(root);
+
+  // Bounds helper
+  const box = new THREE.Box3().setFromObject(root);
+  const boxHelper = new THREE.Box3Helper(box, 0x38bdf8);
+  boxHelper.material.transparent = true; boxHelper.material.opacity = 0.55;
+  scene.add(boxHelper);
+  const axes = new THREE.AxesHelper(0.12); axes.position.set(0, 0.0008, 0); scene.add(axes);
+
+  // Controls
+  const controls = new THREE.OrbitControls(camera, canvas);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.minDistance = 0.3; controls.maxDistance = 6; controls.maxPolarAngle = Math.PI * 0.495;
+  controls.autoRotateSpeed = 1.2;
+  const home = () => { camera.position.set(1.05, 1.15, 1.95); controls.target.set(0, 0.52, 0); controls.update(); };
+  home();
+
+  // ---------- HUD stats ----------
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => n.toLocaleString('en-US');
+  function stats() {
+    box.setFromObject(root);
+    const s = box.getSize(new THREE.Vector3());
+    const f = (v) => `${v.toFixed(3)} m · ${Math.round(v * 1000)} mm`;
+    $('dx').textContent = f(s.x); $('dy').textContent = f(s.y); $('dz').textContent = f(s.z);
+    let tris = 0, verts = 0, meshes = 0; const mats = new Set();
+    root.traverse((o) => {
+      if (!o.isMesh || !o.visible) return;
+      const g = o.geometry; meshes++; mats.add(o.material);
+      verts += g.attributes.position.count;
+      tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    });
+    $('tris').textContent = fmt(Math.round(tris)); $('verts').textContent = fmt(verts);
+    $('meshes').textContent = fmt(meshes); $('mats').textContent = mats.size;
+  }
+  stats();
+
+  // ---------- hierarchy tree ----------
+  (function tree() {
+    const out = [];
+    const triCount = (o) => { let t = 0; o.traverse(c => { if (c.isMesh) { const g = c.geometry; t += (g.index ? g.index.count : g.attributes.position.count) / 3; } }); return t; };
+    const walk = (o, d) => {
+      const isG = !o.isMesh;
+      if (d > 2 && !isG) return;     // keep tree compact below depth 2
+      out.push(`<div class="row" style="padding-left:${4 + d * 12}px"><span class="${isG ? 'g' : ''}">${isG ? '▾ ' : '· '}${o.name}</span><span class="tc">${fmt(Math.round(triCount(o)))}</span></div>`);
+      o.children.forEach(c => walk(c, d + 1));
+    };
+    walk(root, 0);
+    $('treeBody').innerHTML = out.join('');
+  })();
+
+  // ---------- dimension labels ----------
+  const lw = $('lw'), lh = $('lh'), ld = $('ld');
+  const v3 = new THREE.Vector3();
+  function place(el, x, y, z, txt) {
+    v3.set(x, y, z).project(camera);
+    const vis = v3.z < 1 && boxHelper.visible;
+    el.style.display = vis ? 'block' : 'none';
+    el.style.left = ((v3.x + 1) / 2 * innerWidth) + 'px';
+    el.style.top = ((1 - v3.y) / 2 * innerHeight) + 'px';
+    el.textContent = txt;
+  }
+  function labels() {
+    const s = box.getSize(new THREE.Vector3());
+    place(lw, 0, box.min.y - 0.035, box.max.z + 0.02, `W ${(s.x * 1000).toFixed(0)} mm`);
+    place(lh, box.max.x + 0.05, (box.min.y + box.max.y) / 2, box.max.z, `H ${(s.y * 1000).toFixed(0)} mm`);
+    place(ld, box.max.x + 0.04, box.min.y - 0.02, 0, `D ${(s.z * 1000).toFixed(0)} mm`);
+  }
+
+  // ---------- inspector toggles ----------
+  const allMats = Object.values(M);
+  let wire = false;
+  $('bWire').onclick = (e) => { wire = !wire; allMats.forEach(m => { if (m !== M.label) m.wireframe = wire; }); e.target.classList.toggle('on', wire); };
+  $('bBox').onclick = (e) => { boxHelper.visible = !boxHelper.visible; axes.visible = boxHelper.visible; e.target.classList.toggle('on', boxHelper.visible); };
+  $('bRot').onclick = (e) => { controls.autoRotate = !controls.autoRotate; e.target.classList.toggle('on', controls.autoRotate); };
+  $('bReset').onclick = home;
+
+  let trayOut = false, trayZ = 0;
+  $('bTray').onclick = (e) => { trayOut = !trayOut; e.target.classList.toggle('on', trayOut); e.target.textContent = trayOut ? 'Seat drip tray' : 'Pull drip tray'; };
+
+  const ledStates = [
+    ['LED: heat+cool', [1, 1, 0]], ['LED: bottle empty', [0, 0, 1]], ['LED: heating', [1, 0, 0]], ['LED: all off', [0, 0, 0]]];
+  const ledDefs = [[M.ledHeat, 0xf97316, 0x3a1a08], [M.ledCool, 0x22d3ee, 0x06303a], [M.ledEmpty, 0xf59e0b, 0x3b2a0a]];
+  let ledIdx = 0;
+  function applyLed() {
+    const [label, st] = ledStates[ledIdx];
+    ledDefs.forEach(([m, on, off], i) => { m.emissive.set(st[i] ? on : 0x000000); m.color.set(st[i] ? on : off); });
+    $('bLed').textContent = label;
+  }
+  $('bLed').onclick = () => { ledIdx = (ledIdx + 1) % ledStates.length; applyLed(); };
+  applyLed();
+
+  // ---------- GLB export ----------
+  let downloads = null;
+  if (window.claude && typeof window.claude.use === 'function') {
+    window.claude.use('downloads').then(d => {
+      downloads = d;
+      if (d) { $('export').textContent = 'Export GLB (.zip)'; $('export').title = 'In this viewer the .glb is delivered inside a zip'; }
+    }).catch(() => {});
+  }
+  const status = (t) => { $('status').textContent = t; };
+
+  function exportGLB() {
+    const btn = $('export'); btn.disabled = true; status('Packing GLB…');
+    const wasWire = wire; if (wire) allMats.forEach(m => m.wireframe = false);
+    root.updateMatrixWorld(true);
+    new THREE.GLTFExporter().parse(root, async (result) => {
+      if (wasWire) allMats.forEach(m => { if (m !== M.label) m.wireframe = true; });
+      const glb = new Uint8Array(result);
+      const kb = (glb.byteLength / 1024).toFixed(0);
+      try {
+        if (downloads) {
+          const zip = zipStore('Office_Water_Dispenser.glb', glb);
+          await downloads.save({ filename: 'Office_Water_Dispenser.zip', data: new Blob([zip]) });
+          status(`Saved Office_Water_Dispenser.glb (${kb} KB) in zip`);
+        } else {
+          const url = URL.createObjectURL(new Blob([glb], { type: 'model/gltf-binary' }));
+          const a = document.createElement('a'); a.href = url; a.download = 'Office_Water_Dispenser.glb';
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+          status(`Downloaded Office_Water_Dispenser.glb (${kb} KB)`);
+        }
+      } catch (err) {
+        status(err && err.code === 'declined' ? 'Download cancelled.' : 'Export failed: ' + (err && (err.message || err.code) || err));
+      }
+      btn.disabled = false;
+    }, { binary: true, onlyVisible: true, maxTextureSize: 1024 });
+  }
+  $('export').onclick = exportGLB;
+
+  // Minimal store-only ZIP (single entry)
+  function zipStore(name, data) {
+    const crcT = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crcT[n] = c >>> 0; }
+    let crc = 0xFFFFFFFF; for (let i = 0; i < data.length; i++) crc = crcT[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8); crc = (crc ^ 0xFFFFFFFF) >>> 0;
+    const nm = new TextEncoder().encode(name), L = 30 + nm.length, C = 46 + nm.length;
+    const out = new Uint8Array(L + data.length + C + 22), dv = new DataView(out.buffer);
+    dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true); dv.setUint16(12, 0x21, true);
+    dv.setUint32(14, crc, true); dv.setUint32(18, data.length, true); dv.setUint32(22, data.length, true); dv.setUint16(26, nm.length, true);
+    out.set(nm, 30); out.set(data, L);
+    const c = L + data.length;
+    dv.setUint32(c, 0x02014b50, true); dv.setUint16(c + 4, 20, true); dv.setUint16(c + 6, 20, true); dv.setUint16(c + 14, 0x21, true);
+    dv.setUint32(c + 16, crc, true); dv.setUint32(c + 20, data.length, true); dv.setUint32(c + 24, data.length, true); dv.setUint16(c + 28, nm.length, true);
+    out.set(nm, c + 46);
+    const e = c + C;
+    dv.setUint32(e, 0x06054b50, true); dv.setUint16(e + 8, 1, true); dv.setUint16(e + 10, 1, true);
+    dv.setUint32(e + 12, C, true); dv.setUint32(e + 16, c, true);
+    return out;
+  }
+
+  window.__viewer = { camera, controls };
+  // ---------- loop ----------
+  function resize() {
+    renderer.setSize(innerWidth, innerHeight, false);
+    camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  const clock = new THREE.Clock();
+  (function loop() {
+    requestAnimationFrame(loop);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const target = trayOut ? 0.11 : 0;
+    if (Math.abs(trayZ - target) > 1e-4) {
+      trayZ += (target - trayZ) * Math.min(1, dt * 7);
+      parts.tray.position.z = trayZ;
+      stats();
+    }
+    controls.update();
+    renderer.render(scene, camera);
+    $('calls').textContent = renderer.info.render.calls;
+    labels();
+  })();
+})();
+</script>
+</body>
+</html>

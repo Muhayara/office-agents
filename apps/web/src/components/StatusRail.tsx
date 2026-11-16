@@ -12,6 +12,8 @@ interface StatusRailProps {
   language: Lang;
   pendingApprovalCount: number;
   wsConnected: boolean;
+  role: 'ceo' | 'viewer';
+  onLogout: () => void;
   onSetMode: (mode: Mode) => void;
   onTogglePause: () => void;
   onSetLanguage: (lang: Lang) => void;
@@ -28,6 +30,8 @@ export function StatusRail({
   language,
   pendingApprovalCount,
   wsConnected,
+  role,
+  onLogout,
   onSetMode,
   onTogglePause,
   onSetLanguage,
@@ -258,6 +262,13 @@ export function StatusRail({
         <span className="mono" style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           {clock}
         </span>
+
+        <span className="role-chip" title={language === 'id' ? 'Peran sesi ini' : 'Session role'}>
+          {role === 'ceo' ? 'CEO' : language === 'id' ? 'Pengunjung' : 'Viewer'}
+        </span>
+        <button type="button" onClick={onLogout} style={{ fontSize: 13, padding: '4px 10px' }}>
+          {language === 'id' ? 'Keluar' : 'Sign out'}
+        </button>
       </div>
     </header>
   );

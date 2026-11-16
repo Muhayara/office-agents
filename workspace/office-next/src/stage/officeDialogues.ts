@@ -1,3 +1,5 @@
+import type { AgentStatus } from '@office/shared';
+
 /**
  * Dialog Templates Bahasa Indonesia untuk Agen Virtual Office 2.5D
  * 100% template-based tanpa memerlukan external API key.
@@ -199,3 +201,45 @@ export const AGENT_SOLO_THOUGHTS: Record<string, string[]> = {
     'Semua animasi transisi berjalan halus di 60 Hz maupun 120 Hz.',
   ],
 };
+
+// Ucapan singkat saat status agen sebenarnya berubah (mode live)
+export const LIVE_STATUS_LINES: Partial<Record<AgentStatus, readonly string[]>> = {
+  thinking: [
+    'Oke, saya pelajari dulu permintaannya...',
+    'Sebentar, saya susun langkahnya.',
+    'Baca konteks dulu sebelum mulai.',
+  ],
+  working: [
+    'Mulai eksekusi, fokus mode on.',
+    'Langsung dikerjakan!',
+  ],
+  waiting_approval: [
+    '✋ Menunggu izin CEO untuk menjalankan perintah.',
+    '✋ Pak/Bu CEO, perlu persetujuan dulu ya.',
+  ],
+  error: [
+    'Hmm, ada kendala. Saya cek ulang dulu.',
+    'Waduh, gagal. Perlu dicoba lagi nanti.',
+  ],
+  offline: [
+    'Kuota hari ini habis, pamit pulang dulu!',
+    'Sampai besok, kuota sudah terpakai semua.',
+  ],
+};
+
+// Balasan peserta saat rapat di meja bundar
+export const MEETING_REPLIES: readonly string[] = [
+  'Siap, dicatat.',
+  'Setuju, saya ambil bagian saya.',
+  'Noted, nanti saya update di papan tugas.',
+  'Oke, timeline-nya masuk akal.',
+  'Ada risiko kecil, nanti saya sampaikan detailnya.',
+];
+
+// Jawaban rekan saat mejanya dikunjungi (serah-terima / minta review)
+export const VISIT_ACKS: readonly string[] = [
+  'Oke, saya terima.',
+  'Siap, langsung saya cek.',
+  'Taruh di sini saja, nanti saya review.',
+  'Noted, makasih!',
+];
