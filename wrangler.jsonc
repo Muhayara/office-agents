@@ -1,0 +1,9 @@
+{
+  // Konfigurasi Cloudflare Workers Static Assets untuk demo statis Office Agents 3D.
+  "name": "office-agents",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./workspace/office-next/dist",
+    "not_found_handling": "single-page-application"
+  }
+}
