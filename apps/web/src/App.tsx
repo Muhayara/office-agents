@@ -16,8 +16,14 @@ import { DispatchLog, type FeedItem } from './components/DispatchLog';
 import { CommandComposer } from './components/CommandComposer';
 import { DetailRail } from './components/DetailRail';
 import { ApprovalModal } from './components/ApprovalModal';
+import { type SessionRole, fetchSession } from './lib/session';
 
-export function App() {
+interface AppProps {
+  role: SessionRole;
+  onLogout: () => void;
+}
+
+export function App({ role, onLogout }: AppProps) {
   const [snapshot, setSnapshot] = useState<StateSnapshot | null>(null);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
@@ -40,17 +46,32 @@ export function App() {
     }, 4000);
   }, []);
 
-  const sendCommand = useCallback(async (cmd: ClientCommand) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(cmd));
-      return;
-    }
-    await fetch('/api/command', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cmd),
-    });
-  }, []);
+  const sendCommand = useCallback(
+    async (cmd: ClientCommand) => {
+      if (role !== 'ceo') {
+        showToast('Mode pengunjung: perintah tidak bisa dikirim.', 'var(--warn)');
+        return;
+      }
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify(cmd));
+        return;
+      }
+      const res = await fetch('/api/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cmd),
+      }).catch(() => null);
+      if (!res) {
+        showToast('Server tidak merespons.', 'var(--danger)');
+      } else if (res.status === 401) {
+        onLogout();
+      } else if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        showToast(data.error ?? `Perintah gagal (HTTP ${res.status})`, 'var(--danger)');
+      }
+    },
+    [role, showToast, onLogout],
+  );
 
   const applyServerEvent = useCallback(
     (event: ServerEvent) => {
@@ -198,7 +219,12 @@ export function App() {
                 a.id === event.id
                   ? {
                       ...a,
-                      status: event.approved ? 'approved' : 'denied',
+                      // Penolakan oleh "system" = kedaluwarsa/dibatalkan, bukan keputusan CEO.
+                      status: event.approved
+                        ? 'approved'
+                        : event.decidedBy === 'system'
+                          ? 'expired'
+                          : 'denied',
                       decidedAt: event.at,
                       decidedBy: event.decidedBy,
                       reason: event.reason,
@@ -326,9 +352,19 @@ export function App() {
 
       ws.onclose = () => {
         setWsConnected(false);
-        if (!unmounted) {
-          reconnectTimer = setTimeout(connect, 2000);
-        }
+        if (unmounted) return;
+        // Bila sesi kedaluwarsa, kembali ke layar login alih-alih mencoba terus.
+        reconnectTimer = setTimeout(() => {
+          void fetchSession()
+            .then((s) => {
+              if (unmounted) return;
+              if (!s.authenticated) onLogout();
+              else connect();
+            })
+            .catch(() => {
+              if (!unmounted) connect();
+            });
+        }, 2000);
       };
     };
 
@@ -349,7 +385,7 @@ export function App() {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       wsRef.current?.close();
     };
-  }, [applyServerEvent]);
+  }, [applyServerEvent, onLogout]);
 
   if (!snapshot) {
     return (
@@ -382,6 +418,7 @@ export function App() {
 
   const handleCheckGateway = async () => {
     try {
+      if (role !== 'ceo') return;
       const res = await fetch('/api/gateway/check', { method: 'POST' });
       if (res.ok) {
         const gw = await res.json();
@@ -405,6 +442,8 @@ export function App() {
         language={lang}
         pendingApprovalCount={pendingApprovalCount}
         wsConnected={wsConnected}
+        role={role}
+        onLogout={onLogout}
         onSetMode={(mode: Mode) => void sendCommand({ type: 'office.setMode', mode })}
         onTogglePause={() =>
           void sendCommand({ type: 'office.pauseAll', paused: !office.paused })

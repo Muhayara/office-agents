@@ -1,6 +1,11 @@
 import http from 'node:http';
 import { TOOL_DEFINITIONS, isToolName, type ToolName } from '@office/shared';
 import type { OfficeCore } from './core/office-core';
+import { type AuthConfig, isAllowedHost, isAllowedOrigin, resolveRequestRole } from './security/auth';
+import { HttpError, readJsonBody, sendJson } from './http-util';
+
+/** write_file bisa membawa konten 256 KB (plus escape JSON). */
+export const MCP_BODY_LIMIT = 2 * 1024 * 1024;
 
 const CLAUDE_DESKTOP_TOOLS = [
   {
@@ -139,12 +144,27 @@ export async function handleMcpJsonRpc(
         };
       }
       case 'office_read_inbox': {
-        const target = String(args.agentId ?? agentId);
-        const exec = await core.executeTool(target, 'read_inbox', { limit: 20, markRead: true });
+        const target = String(args.agentId ?? agentId).trim().toLowerCase();
+        if (!core.getAgentConfig(target)) {
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: {
+              content: [{ type: 'text', text: `Agen "${target}" tidak terdaftar.` }],
+              isError: true,
+            },
+          };
+        }
+        // Hanya inbox milik sendiri yang ditandai terbaca; mengintip inbox agen lain
+        // tidak boleh membuat pesan mereka "hilang" dari giliran berikutnya.
+        const exec = await core.executeTool(target, 'read_inbox', {
+          limit: 20,
+          markRead: target === agentId,
+        });
         return {
           jsonrpc: '2.0',
           id,
-          result: { content: [{ type: 'text', text: exec.output }] },
+          result: { content: [{ type: 'text', text: exec.output }], isError: !exec.ok },
         };
       }
       case 'office_send_message': {
@@ -219,55 +239,101 @@ export async function handleMcpJsonRpc(
   };
 }
 
-export function startMcpHttpServer(core: OfficeCore, port = 7421): http.Server {
-  const server = http.createServer(async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Office-Agent');
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
+export function startMcpHttpServer(options: {
+  core: OfficeCore;
+  auth: AuthConfig;
+  port?: number;
+  host?: string;
+}): http.Server {
+  const server = createMcpHttpServer(options);
+  server.listen(options.port ?? 7421, options.host ?? '127.0.0.1');
+  return server;
+}
+
+export function createMcpHttpServer(options: { core: OfficeCore; auth: AuthConfig }): http.Server {
+  const { core, auth } = options;
+
+  const server = http.createServer((req, res) => {
+    void handle(req, res).catch((err) => {
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      const status = err instanceof HttpError ? err.status : 400;
+      sendJson(res, status, {
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: status === 400 ? -32700 : -32600,
+          message: err instanceof Error ? err.message : 'Parse error',
+        },
+      });
+    });
+  });
+
+  async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    // Spesifikasi MCP Streamable HTTP: validasi Origin untuk mencegah DNS rebinding.
+    if (!isAllowedHost(auth, req)) {
+      sendJson(res, 421, { error: 'Host tidak diizinkan' });
+      return;
+    }
+    if (!isAllowedOrigin(auth, req)) {
+      sendJson(res, 403, { error: 'Origin tidak diizinkan' });
+      return;
+    }
+
+    const url = new URL(req.url ?? '/', 'http://office.local');
+    if (url.pathname !== '/mcp') {
+      sendJson(res, 404, { error: 'Not Found' });
+      return;
+    }
+    if (req.method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
       res.end();
       return;
     }
 
-    const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
-    if (url.pathname !== '/mcp') {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Not Found' }));
+    // MCP hanya untuk klien non-browser: wajib Bearer token CEO, cookie tidak diterima.
+    const role = resolveRequestRole(auth, req, { allowCookie: false });
+    if (role !== 'ceo') {
+      sendJson(
+        res,
+        401,
+        {
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32001, message: 'Wajib header Authorization: Bearer <OFFICE_TOKEN>' },
+        },
+        { 'WWW-Authenticate': 'Bearer' },
+      );
       return;
     }
 
-    const agentId =
+    const rawAgent =
       url.searchParams.get('agent') ||
       (req.headers['x-office-agent'] as string | undefined) ||
       'laras';
+    const agentId = rawAgent.trim().toLowerCase();
+    const agentCfg = core.getAgentConfig(agentId);
 
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const rpc = (await readJsonBody(req, MCP_BODY_LIMIT)) as Parameters<typeof handleMcpJsonRpc>[2];
+    if (!agentCfg || !agentCfg.enabled) {
+      sendJson(res, 403, {
+        jsonrpc: '2.0',
+        id: (rpc as { id?: unknown })?.id ?? null,
+        error: { code: -32002, message: `Agen "${agentId}" tidak terdaftar atau nonaktif.` },
+      });
+      return;
     }
-    const raw = Buffer.concat(chunks).toString('utf8');
-    try {
-      const rpc = JSON.parse(raw);
-      const reply = await handleMcpJsonRpc(core, agentId, rpc);
-      if (reply === null) {
-        res.writeHead(202);
-        res.end();
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(reply));
-    } catch (err) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: null,
-          error: { code: -32700, message: err instanceof Error ? err.message : 'Parse error' },
-        }),
-      );
-    }
-  });
 
-  server.listen(port, '127.0.0.1');
+    const reply = await handleMcpJsonRpc(core, agentId, rpc);
+    if (reply === null) {
+      res.writeHead(202);
+      res.end();
+      return;
+    }
+    sendJson(res, 200, reply);
+  }
+
   return server;
 }
