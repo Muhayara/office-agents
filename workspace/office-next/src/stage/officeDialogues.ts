@@ -227,7 +227,21 @@ export const LIVE_STATUS_LINES: Partial<Record<AgentStatus, readonly string[]>> 
   ],
 };
 
-// Balasan peserta saat rapat di meja bundar
+// Ajakan pimpinan rapat saat memanggil tim ke ruang rapat
+export const MEETING_CALL_LINES: readonly string[] = [
+  'Tim, kumpul di ruang rapat sekarang ya!',
+  'Rapat sebentar di ruang rapat, yuk!',
+  'Semua ke ruang rapat, ada yang perlu dibahas.',
+];
+
+// Celetukan singkat agen saat berangkat ke ruang rapat
+export const MEETING_ON_THE_WAY: readonly string[] = [
+  'Siap, otw ruang rapat!',
+  'Oke, saya simpan kerjaan dulu.',
+  'Bawa catatan dulu, sebentar.',
+];
+
+// Balasan peserta saat rapat di ruang rapat
 export const MEETING_REPLIES: readonly string[] = [
   'Siap, dicatat.',
   'Setuju, saya ambil bagian saya.',

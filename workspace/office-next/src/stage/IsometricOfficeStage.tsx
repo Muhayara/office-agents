@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { type AgentStatus, type AgentView, type Lang } from '@office/shared';
+import { type AgentStatus, type AgentView, type Lang, roleLabel } from '@office/shared';
 import { OFFICE_ZONES } from '../isometric/coords';
 import type { StageEvent } from '../state/liveOffice';
 import {
@@ -11,12 +10,50 @@ import {
   OFFICE_CONVERSATIONS,
   AGENT_SOLO_THOUGHTS,
   LIVE_STATUS_LINES,
+  MEETING_CALL_LINES,
+  MEETING_ON_THE_WAY,
   MEETING_REPLIES,
   VISIT_ACKS,
 } from './officeDialogues';
+import {
+  AGENT_3D_POSITIONS,
+  BOARDROOM,
+  BOARDROOM_SEATS,
+  COFFEE_QUEUE_SPOTS,
+  CORRIDOR_EAST,
+  DOOR_MUTEX_GAP_S,
+  MEETING_DEPART_GAP_S,
+  MEETING_GATHER_TIMEOUT_S,
+  MEETING_PRESENT_S,
+  MEETING_SEAT_ASSIGNMENT,
+  MEETING_SESSION_S,
+  ROOM_MAIN,
+  TRASH_STAND,
+  WALK_SPEED,
+  sitWorld,
+  type Pt,
+} from './layout';
+import {
+  BOARDROOM_DOOR_GATE,
+  FLOOR1_PORTALS,
+  boardroomPath,
+  corridorPath,
+  createBuildingNav,
+  mainRoomPath,
+  pathLength,
+  segLen,
+  visitSpotFor,
+  type NavPt,
+} from './navigation';
+import { CameraRig, ISO_FOCUS_HEIGHT, type CameraMode } from './camera/cameraRig';
+import { WallFader } from './camera/wallFade';
+import { disposeObject, enableShadow, type ModelLoader } from './rooms/assets';
+import { buildMainWorkspace } from './rooms/mainWorkspace';
+import { buildCorridorEast } from './rooms/corridorEast';
+import { buildBoardroom } from './rooms/boardroom';
 
 // ============================================================================
-// Tipe & Penataan Ruang Kantor Profesional
+// Tipe & konstanta panggung
 // ============================================================================
 
 interface IsometricOfficeStageProps {
@@ -30,58 +67,6 @@ interface IsometricOfficeStageProps {
   stageEvents?: StageEvent[];
 }
 
-/**
- * Tata Letak Meja Kantor Modern (Benching Pod System):
- * - Meja Eksekutif & QA di dinding utara menghadap ke seluruh ruangan.
- * - Pod Barat (Riset & Desain): 4 meja 2x2 berhadapan (Sari & Dimas vs Tari & Wulan).
- * - Pod Timur (Engineering & Security): 4 meja 2x2 berhadapan (Bima & Gita vs Satria & Laras).
- * - Koridor tengah luas & terbuka menuju Barista Bar di kiri bawah.
- */
-const AGENT_3D_POSITIONS: Record<string, { x: number; z: number; rotY: number }> = {
-  // Command & Executive (Dinding Utara — Menghadap Selatan +Z)
-  raka:   { x: -3.8, z: -3.8, rotY: Math.PI }, // Manajer
-  fajar:  { x:  3.0, z: -3.8, rotY: Math.PI }, // Penguji Visual
-
-  // Pod 1 (Barat: Riset, Penulisan & Desain — 4 Meja Berhadapan)
-  sari:   { x: -4.8, z: -2.3, rotY: Math.PI }, // Peneliti (Baris atas, hadap Selatan)
-  dimas:  { x: -2.8, z: -2.3, rotY: Math.PI }, // Penulis (Baris atas, hadap Selatan)
-  tari:   { x: -4.8, z: -0.9, rotY: 0 },       // Desainer UI/UX (Baris bawah, hadap Utara)
-  wulan:  { x: -2.8, z: -0.9, rotY: 0 },       // Artis Visual (Baris bawah, hadap Utara)
-
-  // Pod 2 (Timur: Engineering & Keamanan — 4 Meja Berhadapan)
-  bima:   { x:  2.0, z: -2.3, rotY: Math.PI }, // Programmer (Baris atas, hadap Selatan)
-  gita:   { x:  4.0, z: -2.3, rotY: Math.PI }, // Game Dev 2.5D (Baris atas, hadap Selatan)
-  satria: { x:  2.0, z: -0.9, rotY: 0 },       // Keamanan (Baris bawah, hadap Utara)
-  laras:  { x:  4.0, z: -0.9, rotY: 0 },       // Reviewer (Baris bawah, hadap Utara)
-};
-
-// Titik Pantry & Antrean Kopi Barista
-const COFFEE_BAR_POS = { x: -3.8, z: 4.1 };
-const TRASH_BIN_POS  = { x: -5.0, z: 4.1 };
-/** Titik berdiri di depan tempat sampah (bukan di dalam tong). */
-const TRASH_STAND    = { x: -5.0, z: 3.75 };
-
-// Titik Slot Antrean Kopi (Slot 0 di depan mesin, Slot 1-3 berbaris rapi di belakang)
-const COFFEE_QUEUE_SPOTS = [
-  { x: -3.8, z: 3.4 }, // Slot 0: Sedang menyeduh di depan mesin espresso
-  { x: -3.8, z: 2.5 }, // Slot 1: Antrean pertama di belakang slot 0
-  { x: -3.8, z: 1.6 }, // Slot 2: Antrean kedua
-  { x: -3.8, z: 0.7 }, // Slot 3: Antrean ketiga
-];
-
-// Meja rapat bundar (posisi dari office-density-expansion-plan.md) & titik berdiri peserta
-const MEETING_TABLE_POS = { x: 0.2, z: 2.2 };
-const MEETING_RADIUS = 1.35;
-const MEETING_SPOTS: Array<{ x: number; z: number }> = Array.from({ length: 10 }, (_, i) => {
-  // Busur menghadap utara (sisi promenade) agar jalur masuk tidak menembus meja.
-  const theta = ((-110 + (i * 220) / 9) * Math.PI) / 180;
-  return {
-    x: MEETING_TABLE_POS.x + MEETING_RADIUS * Math.sin(theta),
-    z: MEETING_TABLE_POS.z - MEETING_RADIUS * Math.cos(theta),
-  };
-});
-
-const WALK_SPEED     = 2.2;
 const COFFEE_MIN_S   = 10;
 const COFFEE_MAX_S   = 22;
 const CONVO_MIN_S    = 12;
@@ -89,7 +74,10 @@ const CONVO_MAX_S    = 24;
 const THOUGHT_MIN_S  = 8;
 const THOUGHT_MAX_S  = 18;
 const VISIT_STAY_S   = 3.5;
-const MEETING_STAY_S = 22;
+/** Pusat bayangan matahari: tengah gedung (ruang kerja + koridor + ruang rapat). */
+const SUN_TARGET = new THREE.Vector3(5.25, 0, 0);
+const SUN_OFFSET = new THREE.Vector3(12, 24, 16);
+const SEATED_LEG = Math.PI / 2.2;
 
 type AnimState =
   | 'working'
@@ -104,8 +92,14 @@ type AnimState =
   | 'walk_to_visit'
   | 'visiting'
   | 'walk_from_visit'
+  /** Dipanggil rapat, masih di meja menunggu giliran berangkat (jeda 0.9 s). */
+  | 'meeting_called'
   | 'walk_to_meeting'
+  /** Tarik kursi, duduk, dorong kursi ke meja. */
+  | 'meeting_sitting'
   | 'in_meeting'
+  /** Tarik kursi, berdiri, mundur ke belakang kursi. */
+  | 'meeting_standing'
   | 'walk_from_meeting'
   /** Dipanggil balik ke meja dari rutinitas santai karena ada pekerjaan nyata. */
   | 'walk_back_to_desk';
@@ -128,20 +122,36 @@ const COFFEE_STATES: ReadonlySet<AnimState> = new Set<AnimState>([
   'walk_from_trash',
 ]);
 
+/** Agen yang sedang terikat rapat (dari dipanggil sampai berdiri dari kursi rapat). */
+const MEETING_STATES: ReadonlySet<AnimState> = new Set<AnimState>([
+  'meeting_called',
+  'walk_to_meeting',
+  'meeting_sitting',
+  'in_meeting',
+  'meeting_standing',
+]);
+
 interface AgentAnim {
   state: AnimState;
   stateTime: number;
   stateDuration: number;
-  walkPath: Array<{ x: number; z: number }>;
+  walkPath: NavPt[];
   walkSeg: number;
   walkT: number;
+  /** Indeks segmen yang gate-nya sudah dilewati (door mutex). */
+  gateSeg: number;
   hasCup: boolean;
   hasDoc: boolean;
   bubbleText: string | null;
   bubbleTimer: number;
   /** Tujuan kunjungan meja (agentId) saat walk_to_visit / visiting. */
   visitTarget?: string;
-  meetingSpot?: { x: number; z: number };
+  /** Indeks kursi di BOARDROOM_SEATS selama terikat rapat. */
+  meetingSeat?: number;
+  /** Waktu berangkat ke / pulang dari ruang rapat (jeda bertahap). */
+  departAt?: number;
+  /** Penanda sub-fase animasi duduk / berdiri. */
+  subT?: number;
 }
 
 interface AgentMeshRefs {
@@ -169,9 +179,26 @@ interface ScheduledLine {
   dur: number;
 }
 
-// ============================================================================
-// Navigasi Jalur Bebas Tabrakan (Collision-Free Waypoint Graph)
-// ============================================================================
+type MeetingPhase = 'gathering' | 'session' | 'dispersing';
+
+interface MeetingState {
+  phase: MeetingPhase;
+  host: string;
+  topic: string;
+  attendees: string[];
+  startedAt: number;
+  sessionStartAt: number;
+  sessionEndsAt: number;
+  /** Waktu kamera kembali ke ruang kerja setelah rapat bubar (0 = sudah). */
+  focusBackAt: number;
+}
+
+interface StageApi {
+  focusRoom: (room: 'workspace' | 'boardroom') => void;
+  toggleCamera: () => void;
+  resetCamera: () => void;
+  focusAgent: (agentId: string) => void;
+}
 
 function rand(a: number, b: number) { return a + Math.random() * (b - a); }
 function pick<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)]!; }
@@ -179,107 +206,7 @@ function clipText(text: string, max = 110) {
   const t = text.replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
-
-function segLen(a: { x: number; z: number }, b: { x: number; z: number }) {
-  const dx = b.x - a.x, dz = b.z - a.z;
-  return Math.sqrt(dx * dx + dz * dz);
-}
-
-/**
- * SISTEM NAVIGASI KORIDOR RESMI KANTOR (Anti Menembus Objek & Agen Lain)
- *
- * Jaringan jalan:
- * - Lorong Utara (North Aisle): Z = -3.4 (di antara meja Raka/Fajar dan meja Pods)
- * - Lorong Tengah (Central Avenue): X = 0.0 (menghubungkan Utara ke Selatan)
- * - Promenade Selatan: Z = 0.8 (di depan Pods menuju Pantry, Meja Rapat & Server)
- * - Garis Antrean Kopi: X = -3.8 dan Koridor Tempat Sampah: X = -5.0 (keluar-masuk via promenade)
- *
- * Setiap titik punya "jalan keluar" ke jaringan; rute = keluar -> koridor -> masuk.
- */
-type Pt = { x: number; z: number };
-const NORTH_AISLE_Z = -3.4;
-const PROMENADE_Z = 0.8;
-const AVENUE_X = 0.0;
-/** Meja eksekutif di dinding utara (Raka & Fajar). */
-const EXEC_DESKS: Pt[] = Object.values(AGENT_3D_POSITIONS)
-  .filter((p) => p.z < -3.0)
-  .map((p) => ({ x: p.x, z: p.z }));
-
-function toNetwork(p: Pt): Pt[] {
-  // Antrean / mesin kopi: mundur lurus di garis antrean ke promenade
-  if (p.z > 1.6 && Math.abs(p.x - -3.8) < 0.6) return [{ x: -3.8, z: PROMENADE_Z }];
-  // Tempat sampah: lewat koridor X = -5.0 agar tidak menabrak bar kopi
-  if (p.x <= -4.5 && p.z >= 3.0) return [{ x: -5.0, z: PROMENADE_Z }];
-  // Kursi eksekutif di depan dinding utara: keluar lewat celah samping meja (tidak menembus meja).
-  // Celah dihitung dari posisi meja, bukan dari posisi agen, agar titik di celah itu sendiri
-  // tidak terus "digeser" ke timur.
-  if (p.z < -4.0) {
-    const desk = EXEC_DESKS.reduce((best, d) => (Math.abs(d.x - p.x) < Math.abs(best.x - p.x) ? d : best), EXEC_DESKS[0]!);
-    const gapX = desk.x + 0.95;
-    return [{ x: gapX, z: p.z }, { x: gapX, z: NORTH_AISLE_Z }];
-  }
-  // Sudah berada di Lorong Tengah (mis. dipanggil balik di tengah jalan)
-  if (Math.abs(p.x - AVENUE_X) < 0.4) return [];
-  // Baris belakang pod & depan meja eksekutif: mundur ke Lorong Utara
-  if (p.z < -1.5) return [{ x: p.x, z: NORTH_AISLE_Z }];
-  // Baris depan pod, area rapat, dan sisi selatan: ke promenade
-  return [{ x: p.x, z: PROMENADE_Z }];
-}
-
-function viaCorridor(a: Pt, b: Pt): Pt[] {
-  const sameZ = Math.abs(a.z - b.z) < 0.05;
-  if (sameZ) return [];
-  return [{ x: AVENUE_X, z: a.z }, { x: AVENUE_X, z: b.z }];
-}
-
-function walkPath(from: Pt, to: Pt): Pt[] {
-  const exit = toNetwork(from);
-  const entry = toNetwork(to).reverse();
-  const a = exit[exit.length - 1] ?? from;
-  const b = entry[0] ?? to;
-  const pts = [{ ...from }, ...exit, ...viaCorridor(a, b), ...entry, { ...to }];
-  // Hapus titik-titik redundan yang berdekatan
-  return pts.filter((pt, i, arr) =>
-    i === 0 || Math.abs(pt.x - arr[i - 1]!.x) > 0.06 || Math.abs(pt.z - arr[i - 1]!.z) > 0.06,
-  );
-}
-
-/** Titik berdiri tamu di samping/depan meja rekan (selalu di koridor yang bisa dicapai). */
-function visitSpotFor(p: { x: number; z: number; rotY: number }): Pt {
-  if (p.z < -3.0) return { x: p.x, z: -3.15 };          // depan meja eksekutif (Raka/Fajar)
-  if (p.z < -1.5) return { x: p.x + 0.55, z: NORTH_AISLE_Z }; // belakang kursi baris belakang pod
-  return { x: p.x + 0.55, z: 0.15 };                    // belakang kursi baris depan pod
-}
-
-/**
- * Menghitung koordinat dunia dan rotasi hadap kursi yang tepat.
- * Posisi kursi berjarak +0.55m di belakang meja pada arah posInfo.rotY.
- * Karyawan duduk menghadap KE MEJA (rotY + Math.PI).
- */
-function sitWorld(p: { x: number; z: number; rotY: number }) {
-  return {
-    x: p.x + 0.55 * Math.sin(p.rotY),
-    y: 0.45,
-    z: p.z + 0.55 * Math.cos(p.rotY),
-  };
-}
-
-/** Membebaskan geometri, material, dan tekstur sebuah objek beserta anak-anaknya. */
-function disposeObject(root: THREE.Object3D) {
-  root.traverse((obj) => {
-    const mesh = obj as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    mesh.geometry?.dispose();
-    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    for (const mat of mats) {
-      if (!mat) continue;
-      for (const value of Object.values(mat)) {
-        if (value instanceof THREE.Texture) value.dispose();
-      }
-      mat.dispose();
-    }
-  });
-}
+const smoothstep = (t: number) => { const c = Math.min(1, Math.max(0, t)); return c * c * (3 - 2 * c); };
 
 /** Tampilan monitor & beacon per status agen (mode live). beacon null = warna kursi. */
 const STATUS_LOOK: Record<AgentStatus, {
@@ -315,8 +242,8 @@ export function IsometricOfficeStage({
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [modelLoaded, setModelLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
-  const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
+  const [camMode, setCamMode] = useState<CameraMode>('iso');
+  const apiRef = useRef<StageApi | null>(null);
 
   const agentsRef = useRef(agents);
   const selectedRef = useRef(selectedAgentId);
@@ -344,25 +271,15 @@ export function IsometricOfficeStage({
     if (!container) return;
 
     const initAgents = agentsRef.current;
-    let animId: number;
+    let animId = 0;
     const clock = new THREE.Clock();
 
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 500;
-    const aspect = width / height;
 
-    // ----- Scene & Environment -----
+    // ----- Scene -----
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0b151b);
-
-    // ----- Kamera Isometrik -----
-    const VH = 15;
-    const camera = new THREE.OrthographicCamera(
-      (-VH * aspect) / 2, (VH * aspect) / 2, VH / 2, -VH / 2, 0.1, 1000,
-    );
-    camera.position.set(18, 14, 20);
-    camera.lookAt(0, 1.05, 0);
-    cameraRef.current = camera;
 
     // ----- Renderer -----
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -382,17 +299,10 @@ export function IsometricOfficeStage({
     roomEnv.dispose();
     pmrem.dispose();
 
-    // ----- Orbit Controls -----
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 1.05, 0);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.minZoom = 0.6;
-    controls.maxZoom = 3.0;
-    controls.minPolarAngle = 0.35;
-    controls.maxPolarAngle = Math.PI * 0.49;
-    controls.update();
-    controlsRef.current = controls;
+    // ----- Dual Kamera (Isometrik ↔ Free Cam 3D) & Auto-Fade Wall -----
+    const cam = new CameraRig(renderer.domElement, width / height);
+    cam.onModeChange = (m) => setCamMode(m);
+    const fader = new WallFader();
 
     // ================================================================
     // ANIMATED MONITOR CODE CANVAS (Tekstur Layar Depan Saja)
@@ -454,8 +364,10 @@ export function IsometricOfficeStage({
     const hemi = new THREE.HemisphereLight(0xdcf3ff, 0x1c2b33, 1.8);
     scene.add(hemi);
 
+    // Bayangan matahari dipusatkan di tengah gedung agar ruang rapat ikut tercakup.
     const sun = new THREE.DirectionalLight(0xfff7ed, 3.2);
-    sun.position.set(12, 24, 16);
+    sun.position.copy(SUN_TARGET).add(SUN_OFFSET);
+    sun.target.position.copy(SUN_TARGET);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 0.5;
@@ -466,7 +378,7 @@ export function IsometricOfficeStage({
     sun.shadow.camera.bottom = -16;
     sun.shadow.bias = -0.0003;
     sun.shadow.normalBias = 0.02;
-    scene.add(sun);
+    scene.add(sun, sun.target);
 
     const fill = new THREE.DirectionalLight(0x7ec8e3, 1.4);
     fill.position.set(-14, 15, -10);
@@ -483,43 +395,118 @@ export function IsometricOfficeStage({
     zoneLight(0x60a5fa, 28,  3.5,  2.0); // QA & Vault
 
     // ================================================================
-    // MEMUAT MODEL 3D
+    // PEMUAT MODEL (sekali unduh per file, tiap pemakai mendapat klon)
     // ================================================================
-    const loader = new GLTFLoader();
+    const gltfLoader = new GLTFLoader();
     // Model yang selesai dimuat setelah komponen dilepas tidak boleh menyentuh scene lagi.
     let disposed = false;
-    const loadModel = (url: string, onLoad: (scene: THREE.Group) => void, onError?: (e: unknown) => void) => {
-      loader.load(
-        url,
-        (gltf) => {
-          if (disposed) {
-            disposeObject(gltf.scene);
-            return;
-          }
-          onLoad(gltf.scene);
-        },
-        undefined,
-        (e) => { if (!disposed) onError?.(e); },
-      );
+    type Waiter = { onLoad: (g: THREE.Group) => void; onError?: (e: unknown) => void };
+    const templates = new Map<string, { scene?: THREE.Group; error?: unknown; waiters: Waiter[] }>();
+    const load: ModelLoader = (url, onLoad, onError) => {
+      let entry = templates.get(url);
+      if (!entry) {
+        const e: { scene?: THREE.Group; error?: unknown; waiters: Waiter[] } = { waiters: [] };
+        entry = e;
+        templates.set(url, e);
+        gltfLoader.load(
+          url,
+          (gltf) => {
+            if (disposed) { disposeObject(gltf.scene); return; }
+            e.scene = gltf.scene;
+            for (const w of e.waiters.splice(0)) w.onLoad(gltf.scene.clone(true));
+          },
+          undefined,
+          (err) => {
+            e.error = err ?? new Error(`Gagal memuat ${url}`);
+            if (disposed) return;
+            for (const w of e.waiters.splice(0)) w.onError?.(e.error);
+          },
+        );
+      }
+      if (entry.scene) { onLoad(entry.scene.clone(true)); return; }
+      if (entry.error !== undefined) { onError?.(entry.error); return; }
+      entry.waiters.push({ onLoad, onError });
     };
-    let deskT: THREE.Group | null = null;
-    let chairT: THREE.Group | null = null;
-    let serverT: THREE.Group | null = null;
-    let monsteraT: THREE.Group | null = null;
-    let snakeT: THREE.Group | null = null;
-    let coffeeBarT: THREE.Group | null = null;
 
-    const decorGroup = new THREE.Group();
-    decorGroup.name = 'OfficeDecor3D';
-    scene.add(decorGroup);
+    // ================================================================
+    // HIRARKI GEDUNG: BuildingRoot → Floor_1_Group → Layer Ruangan
+    // ================================================================
+    const building = new THREE.Group();
+    building.name = 'BuildingRoot';
+    const floor1 = new THREE.Group();
+    floor1.name = 'Floor_1_Group';
+    building.add(floor1);
+    scene.add(building);
 
-    const deskStationsGroup = new THREE.Group();
-    deskStationsGroup.name = 'DeskStations';
-    scene.add(deskStationsGroup);
+    const main = buildMainWorkspace({
+      load,
+      fader,
+      onShellLoaded: () => setModelLoaded(true),
+      onShellError: (e) => setLoadError(String(e)),
+    });
+    const corridor = buildCorridorEast(load);
+    const board = buildBoardroom(load, fader);
+    floor1.add(main.group, corridor.group, board.group);
 
+    // Avatar berada di level lantai karena berpindah antar-ruangan.
     const avatarsGroup = new THREE.Group();
     avatarsGroup.name = 'AgentAvatars';
-    scene.add(avatarsGroup);
+    floor1.add(avatarsGroup);
+    building.updateMatrixWorld(true);
+    board.bindWalls();
+
+    // ================================================================
+    // NAVIGASI GEDUNG (graf lokal per ruangan + portal pintu)
+    // ================================================================
+    const roomTransform = (g: THREE.Object3D) => {
+      g.updateWorldMatrix(true, false);
+      const m = g.matrixWorld.clone();
+      const inv = m.clone().invert();
+      const v = new THREE.Vector3();
+      return {
+        toWorld: (p: Pt) => { v.set(p.x, 0, p.z).applyMatrix4(m); return { x: v.x, z: v.z }; },
+        toLocal: (p: Pt) => { v.set(p.x, 0, p.z).applyMatrix4(inv); return { x: v.x, z: v.z }; },
+      };
+    };
+    const nav = createBuildingNav(
+      [
+        {
+          id: 'boardroom',
+          bounds: { minX: -4, maxX: 4, minZ: -4, maxZ: 4 },
+          pathLocal: boardroomPath,
+          ...roomTransform(board.group),
+        },
+        {
+          id: 'corridor',
+          bounds: {
+            minX: -CORRIDOR_EAST.halfLength, maxX: CORRIDOR_EAST.halfLength,
+            minZ: -CORRIDOR_EAST.halfWidth, maxZ: CORRIDOR_EAST.halfWidth,
+          },
+          pathLocal: corridorPath,
+          ...roomTransform(corridor.group),
+        },
+        {
+          id: 'main',
+          bounds: { minX: -ROOM_MAIN.halfX, maxX: ROOM_MAIN.eastPartitionX, minZ: -ROOM_MAIN.halfZ, maxZ: ROOM_MAIN.halfZ },
+          pathLocal: mainRoomPath,
+          ...roomTransform(main.group),
+        },
+      ],
+      [
+        { id: 'main-corridor', a: { room: 'main', portal: FLOOR1_PORTALS.mainEast }, b: { room: 'corridor', portal: FLOOR1_PORTALS.corridorWest } },
+        {
+          id: 'corridor-boardroom',
+          a: { room: 'corridor', portal: FLOOR1_PORTALS.corridorEastQueue },
+          b: { room: 'boardroom', portal: FLOOR1_PORTALS.boardroomDoorInside },
+          gate: BOARDROOM_DOOR_GATE,
+        },
+      ],
+    );
+    const walkPath = (from: Pt, to: Pt): NavPt[] => nav.path(from, to);
+    const boardDoorInside = (() => {
+      const v = board.group.localToWorld(new THREE.Vector3(BOARDROOM.doorInside.x, 0, BOARDROOM.doorInside.z));
+      return { x: v.x, z: v.z };
+    })();
 
     const meshMap = new Map<string, AgentMeshRefs>();
     const animMap = new Map<string, AgentAnim>();
@@ -527,156 +514,20 @@ export function IsometricOfficeStage({
     // Antrean Kopi Terstruktur
     let coffeeQueue: string[] = [];
 
-    const enableShadow = (g: THREE.Group) => {
-      g.traverse((c) => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-    };
-
-    // ---- Room Shell ----
-    loadModel('/models/office_room_shell.glb', (shell) => {
-      enableShadow(shell);
-      scene.add(shell);
-      setModelLoaded(true);
-    }, (e) => { setLoadError(String(e)); });
-
-    // ---- Desk ----
-    loadModel('/models/desk.glb', (m) => { deskT = m; enableShadow(m); rebuildDesks(); });
-
-    // ---- Chair ----
-    loadModel('/models/Office_Ergonomic_Chair.glb', (m) => { chairT = m; enableShadow(m); rebuildDesks(); });
-
-    // ---- Server Rack ----
-    loadModel('/models/Server_Rack_42U.glb', (m) => { serverT = m; enableShadow(m); rebuildDecor(); });
-
-    // ---- Monstera ----
-    loadModel('/models/Office_Indoor_Plant.glb', (m) => { monsteraT = m; enableShadow(m); rebuildDecor(); });
-
-    // ---- Snake Plant ----
-    loadModel('/models/Office_Indoor_Plant_SnakePlant.glb', (m) => { snakeT = m; enableShadow(m); rebuildDecor(); });
-
-    // ---- Coffee Bar ----
-    loadModel('/models/Office_Coffee_Bar.glb', (m) => { coffeeBarT = m; enableShadow(m); rebuildDecor(); });
-
-    // ---- Meja Rapat Bundar ----
-    // Placeholder prosedural; otomatis diganti GLB bila Office_Meeting_Table_Round.glb sudah dibuat.
-    const meetingGroup = new THREE.Group();
-    meetingGroup.name = 'MeetingTable';
-    meetingGroup.position.set(MEETING_TABLE_POS.x, 0, MEETING_TABLE_POS.z);
-    {
-      const top = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.6, 0.6, 0.04, 40),
-        new THREE.MeshStandardMaterial({ color: 0x6b4a32, roughness: 0.45, metalness: 0.05 }),
-      );
-      top.position.y = 0.74;
-      top.castShadow = true;
-      top.receiveShadow = true;
-      const stem = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06, 0.08, 0.72, 16),
-        new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.35, metalness: 0.8 }),
-      );
-      stem.position.y = 0.36;
-      const base = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.3, 0.32, 0.03, 24),
-        new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.8 }),
-      );
-      base.position.y = 0.015;
-      meetingGroup.add(top, stem, base);
-    }
-    scene.add(meetingGroup);
-    loadModel('/models/Office_Meeting_Table_Round.glb', (m) => {
-      enableShadow(m);
-      for (const child of [...meetingGroup.children]) {
-        meetingGroup.remove(child);
-        disposeObject(child);
-      }
-      meetingGroup.add(m);
-    });
-
-    // ================================================================
-    // DEKORASI TETAP (Pantry, Tanaman Estetik, Server Rack)
-    // ================================================================
-    const rebuildDecor = () => {
-      while (decorGroup.children.length > 0) decorGroup.remove(decorGroup.children[0]!);
-
-      // Server Rack di Area Data Center Kanan Bawah
-      if (serverT) {
-        [{ x: 1.8, z: 3.8 }, { x: 5.5, z: 3.8 }].forEach((p, i) => {
-          const r = serverT!.clone(true);
-          r.position.set(p.x, 0, p.z);
-          r.name = `ServerRack_${i}`;
-          decorGroup.add(r);
-          const led = new THREE.PointLight(i === 0 ? 0x5dbb8a : 0x4da8da, 4.5, 3.5, 2);
-          led.position.set(p.x, 1.2, p.z - 0.45);
-          led.userData = { isServerPulse: true, offset: i * 2.5 };
-          decorGroup.add(led);
-        });
-      }
-
-      // Monstera di Sudut-sudut Estetik
-      if (monsteraT) {
-        [
-          { x: -6.0, z: 3.8, s: 0.95 },  // Sudut Rehat/Lounge
-          { x: -6.0, z: -4.2, s: 0.90 }, // Sudut Eksekutif Raka
-          { x: -6.0, z: -1.6, s: 0.85 }, // Pembatas Pod Barat
-        ].forEach((p, i) => {
-          const m = monsteraT!.clone(true);
-          m.position.set(p.x, 0, p.z);
-          m.scale.setScalar(p.s);
-          m.name = `Monstera_${i}`;
-          decorGroup.add(m);
-        });
-      }
-
-      // Snake Plant di Sepanjang Partisi & Koridor
-      if (snakeT) {
-        [
-          { x: 0.0, z: -4.0, s: 0.90 }, // Dinding Tengah Utara
-          { x: 5.8, z: -4.0, s: 0.90 }, // Sudut Kanan Atas
-          { x: 5.8, z: 0.0, s: 0.85 },  // Pembatas Samping Pod Timur
-        ].forEach((p, i) => {
-          const m = snakeT!.clone(true);
-          m.position.set(p.x, 0, p.z);
-          m.scale.setScalar(p.s);
-          m.name = `SnakePlant_${i}`;
-          decorGroup.add(m);
-        });
-      }
-
-      // Office Coffee Bar
-      if (coffeeBarT) {
-        const bar = coffeeBarT.clone(true);
-        bar.position.set(COFFEE_BAR_POS.x, 0, COFFEE_BAR_POS.z);
-        bar.rotation.y = Math.PI;
-        bar.name = 'Office_Coffee_Bar';
-        decorGroup.add(bar);
-      }
-
-      // Modern Metallic Trash Bin
-      const binGeo = new THREE.CylinderGeometry(0.16, 0.13, 0.52, 16);
-      const binMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.35, metalness: 0.8 });
-      const bin = new THREE.Mesh(binGeo, binMat);
-      bin.position.set(TRASH_BIN_POS.x, 0.26, TRASH_BIN_POS.z);
-      bin.castShadow = true;
-      bin.name = 'Trash_Bin';
-      decorGroup.add(bin);
-
-      const lidGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.03, 16);
-      const lidMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.2, metalness: 0.9 });
-      const lid = new THREE.Mesh(lidGeo, lidMat);
-      lid.position.set(TRASH_BIN_POS.x, 0.53, TRASH_BIN_POS.z);
-      decorGroup.add(lid);
-
-      // Warm Barista Downlight
-      const baristaLight = new THREE.PointLight(0xffdfb8, 28, 5, 1.6);
-      baristaLight.position.set(-3.8, 2.3, 3.8);
-      decorGroup.add(baristaLight);
-    };
-    rebuildDecor();
+    let deskT: THREE.Group | null = null;
+    let chairT: THREE.Group | null = null;
 
     // ================================================================
     // DESK STATIONS (Meja, Kursi, Monitor SATU SISI LAYAR DEPAN SAJA)
     // ================================================================
+    const seatAnchorOf = new Map<string, THREE.Object3D>();
+    const clearGroup = (g: THREE.Group) => { while (g.children.length > 0) g.remove(g.children[0]!); };
+
     const rebuildDesks = () => {
-      while (deskStationsGroup.children.length > 0) deskStationsGroup.remove(deskStationsGroup.children[0]!);
+      clearGroup(main.workstations);
+      clearGroup(main.chairs);
+      clearGroup(main.seatAnchors);
+      seatAnchorOf.clear();
 
       initAgents.forEach((ag) => {
         const posInfo = AGENT_3D_POSITIONS[ag.id];
@@ -684,6 +535,7 @@ export function IsometricOfficeStage({
         const color = new THREE.Color(ag.color);
 
         const g = new THREE.Group();
+        g.name = `Workstation_${ag.id}`;
         g.position.set(posInfo.x, 0, posInfo.z);
         g.rotation.y = posInfo.rotY;
         g.userData = { agentId: ag.id };
@@ -700,22 +552,6 @@ export function IsometricOfficeStage({
           m.castShadow = true;
           m.receiveShadow = true;
           g.add(m);
-        }
-
-        // Kursi Kerja Ergonomis di belakang meja (z = 0.55 local, menghadap ke meja di -Z)
-        if (chairT) {
-          const c = chairT.clone(true);
-          c.position.set(0, 0, 0.55);
-          c.rotation.y = Math.PI;
-          g.add(c);
-        } else {
-          const c = new THREE.Mesh(
-            new THREE.BoxGeometry(0.5, 0.45, 0.5),
-            new THREE.MeshStandardMaterial({ color: 0x111c22, roughness: 0.8 }),
-          );
-          c.position.set(0, 0.225, 0.55);
-          c.castShadow = true;
-          g.add(c);
         }
 
         // Keyboard di atas meja (z = 0.10 local)
@@ -735,17 +571,9 @@ export function IsometricOfficeStage({
 
         // ==============================================================
         // MONITOR: HANYA SATU LAYAR DEPAN AKTIF, BELAKANG MATTE PLASTIK!
-        // Di Three.js BoxGeometry:
-        // index 0: +X, index 1: -X, index 2: +Y, index 3: -Y
-        // index 4: +Z (Layar depan menghadap ke arah karyawan di kursi!)
-        // index 5: -Z (Casing belakang menghadap ke luar/belakang!)
+        // BoxGeometry index 4 = +Z (layar menghadap karyawan), sisanya casing.
         // ==============================================================
-        const casingMat = new THREE.MeshStandardMaterial({
-          color: 0x0f172a, // Matte dark slate plastic
-          roughness: 0.85,
-          metalness: 0.2,
-        });
-
+        const casingMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.85, metalness: 0.2 });
         const screenMat = new THREE.MeshStandardMaterial({
           color: 0x050c12,
           map: codeTexture,
@@ -755,16 +583,7 @@ export function IsometricOfficeStage({
           roughness: 0.2,
           metalness: 0.1,
         });
-
-        const monitorMaterials = [
-          casingMat, // 0: +X (kanan)
-          casingMat, // 1: -X (kiri)
-          casingMat, // 2: +Y (atas)
-          casingMat, // 3: -Y (bawah)
-          screenMat, // 4: +Z (Hanya sisi depan yang menyala & ada animasi kode!)
-          casingMat, // 5: -Z (Sisi belakang monitor gelap plastik murni!)
-        ];
-
+        const monitorMaterials = [casingMat, casingMat, casingMat, casingMat, screenMat, casingMat];
         const mon = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.36, 0.04), monitorMaterials);
         mon.position.set(0, 0.95, -0.2);
         mon.castShadow = true;
@@ -776,18 +595,45 @@ export function IsometricOfficeStage({
         g.add(glow);
 
         // Selection Ring
-        const ringMat = new THREE.MeshBasicMaterial({
-          color, side: THREE.DoubleSide, transparent: true, opacity: 0,
-        });
+        const ringMat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0 });
         const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 0.9, 32), ringMat);
         ring.rotation.x = -Math.PI / 2;
         ring.position.y = 0.01;
         g.add(ring);
 
-        deskStationsGroup.add(g);
+        main.workstations.add(g);
 
+        // Kursi kerja (SubLayer_Chairs) di titik duduk, menghadap ke meja
         const sp = sitWorld(posInfo);
         const sRotY = posInfo.rotY + Math.PI; // Karyawan duduk menghadap KE MEJA!
+        const cg = new THREE.Group();
+        cg.name = `Chair_${ag.id}`;
+        cg.userData = { agentId: ag.id };
+        cg.position.set(sp.x, 0, sp.z);
+        cg.rotation.y = sRotY;
+        if (chairT) {
+          cg.add(chairT.clone(true));
+        } else {
+          const c = new THREE.Mesh(
+            new THREE.BoxGeometry(0.5, 0.45, 0.5),
+            new THREE.MeshStandardMaterial({ color: 0x111c22, roughness: 0.8 }),
+          );
+          c.position.set(0, 0.225, 0);
+          c.castShadow = true;
+          cg.add(c);
+        }
+        main.chairs.add(cg);
+
+        // Seat anchor (SubLayer_SeatAnchors): posisi duduk dibaca lewat getWorldPosition.
+        const anchor = new THREE.Object3D();
+        anchor.name = `SeatAnchor_${ag.id}`;
+        anchor.position.set(sp.x, sp.y, sp.z);
+        anchor.rotation.y = sRotY;
+        main.seatAnchors.add(anchor);
+        seatAnchorOf.set(ag.id, anchor);
+        anchor.updateWorldMatrix(true, false);
+        const wp = anchor.getWorldPosition(new THREE.Vector3());
+        const sitPos = { x: wp.x, y: wp.y, z: wp.z };
 
         const existing = meshMap.get(ag.id);
         if (existing) {
@@ -796,7 +642,7 @@ export function IsometricOfficeStage({
           existing.screenMat = screenMat;
           existing.screenGlow = glow;
           existing.selRing = ring;
-          existing.sitPos = sp;
+          existing.sitPos = sitPos;
           existing.sitRotY = sRotY;
         } else {
           meshMap.set(ag.id, {
@@ -805,7 +651,7 @@ export function IsometricOfficeStage({
             leftLegPivot: new THREE.Group(), rightLegPivot: new THREE.Group(),
             cup: new THREE.Mesh(), doc: new THREE.Mesh(), monitor: mon, screenMat, screenGlow: glow,
             beacon: new THREE.Mesh(), selRing: ring,
-            sitPos: sp, sitRotY: sRotY,
+            sitPos, sitRotY: sRotY,
           });
         }
       });
@@ -818,17 +664,16 @@ export function IsometricOfficeStage({
       while (avatarsGroup.children.length > 0) avatarsGroup.remove(avatarsGroup.children[0]!);
 
       initAgents.forEach((ag, idx) => {
-        const posInfo = AGENT_3D_POSITIONS[ag.id];
-        if (!posInfo) return;
+        const refs = meshMap.get(ag.id);
+        if (!refs) return;
         const color = new THREE.Color(ag.color);
-        const sp = sitWorld(posInfo);
-        const sRotY = posInfo.rotY + Math.PI; // Menghadap KE MEJA & KEYBOARD!
+        const sp = refs.sitPos;
 
         const g = new THREE.Group();
         g.name = `Avatar_${ag.id}`;
         g.userData = { agentId: ag.id };
         g.position.set(sp.x, sp.y, sp.z);
-        g.rotation.y = sRotY;
+        g.rotation.y = refs.sitRotY;
 
         // Badan / Kemeja
         const body = new THREE.Mesh(
@@ -865,10 +710,7 @@ export function IsometricOfficeStage({
         );
         lf.position.y = -0.09;
         lap.add(lf);
-        const lh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.03, 8, 8),
-          new THREE.MeshStandardMaterial({ color: 0xffd9b3 }),
-        );
+        const lh = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), new THREE.MeshStandardMaterial({ color: 0xffd9b3 }));
         lh.position.y = -0.18;
         lap.add(lh);
 
@@ -892,21 +734,18 @@ export function IsometricOfficeStage({
         );
         rf.position.y = -0.09;
         rap.add(rf);
-        const rh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.03, 8, 8),
-          new THREE.MeshStandardMaterial({ color: 0xffd9b3 }),
-        );
+        const rh = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), new THREE.MeshStandardMaterial({ color: 0xffd9b3 }));
         rh.position.y = -0.18;
         rap.add(rh);
 
         // Cangkir Kopi di Tangan Kanan
-        const cupGeo = new THREE.CylinderGeometry(0.04, 0.032, 0.08, 8);
-        const cupMat = new THREE.MeshStandardMaterial({ color: 0xfaf8f5, roughness: 0.25, metalness: 0.1 });
-        const cup = new THREE.Mesh(cupGeo, cupMat);
+        const cup = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.04, 0.032, 0.08, 8),
+          new THREE.MeshStandardMaterial({ color: 0xfaf8f5, roughness: 0.25, metalness: 0.1 }),
+        );
         cup.position.set(0, -0.20, 0.04);
         cup.visible = false;
         rap.add(cup);
-
         g.add(rap);
 
         // Kaki Kiri (Pivot Pinggul)
@@ -945,19 +784,14 @@ export function IsometricOfficeStage({
 
         avatarsGroup.add(g);
 
-        const refs = meshMap.get(ag.id);
-        if (refs) {
-          refs.avatar = g;
-          refs.leftArmPivot = lap;
-          refs.rightArmPivot = rap;
-          refs.leftLegPivot = llp;
-          refs.rightLegPivot = rlp;
-          refs.cup = cup;
-          refs.doc = doc;
-          refs.beacon = beacon;
-          refs.sitPos = sp;
-          refs.sitRotY = sRotY;
-        }
+        refs.avatar = g;
+        refs.leftArmPivot = lap;
+        refs.rightArmPivot = rap;
+        refs.leftLegPivot = llp;
+        refs.rightLegPivot = rlp;
+        refs.cup = cup;
+        refs.doc = doc;
+        refs.beacon = beacon;
       });
     };
 
@@ -973,6 +807,7 @@ export function IsometricOfficeStage({
           walkPath: [],
           walkSeg: 0,
           walkT: 0,
+          gateSeg: -1,
           hasCup: false,
           hasDoc: false,
           bubbleText: null,
@@ -1042,17 +877,25 @@ export function IsometricOfficeStage({
     initAnims();
     initBubbles();
 
+    // Template meja & kursi kerja (setelah fungsi rebuild siap)
+    load('/models/desk.glb', (m) => { deskT = m; enableShadow(m); rebuildDesks(); });
+    load('/models/Office_Ergonomic_Chair.glb', (m) => { chairT = m; enableShadow(m); rebuildDesks(); });
+
     // ================================================================
-    // RAYCASTER
+    // PEMILIHAN AGEN (klik tanpa seret, kedua mode kamera)
     // ================================================================
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
-    const onPointerDown = (ev: MouseEvent) => {
+    let downX = 0;
+    let downY = 0;
+    const onPointerDown = (ev: PointerEvent) => { downX = ev.clientX; downY = ev.clientY; };
+    const onPointerUp = (ev: PointerEvent) => {
+      if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > 6) return;
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(mouse, camera);
-      const hits = raycaster.intersectObjects([deskStationsGroup, avatarsGroup], true);
+      raycaster.setFromCamera(mouse, cam.active());
+      const hits = raycaster.intersectObjects([main.workstations, main.chairs, avatarsGroup], true);
       if (hits.length > 0) {
         let obj: THREE.Object3D | null = hits[0]!.object;
         while (obj && !obj.userData?.agentId) obj = obj.parent;
@@ -1060,24 +903,22 @@ export function IsometricOfficeStage({
       }
     };
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
 
     // ================================================================
     // RESIZE
     // ================================================================
     const handleResize = () => {
       if (!container) return;
-      const w = container.clientWidth, h = container.clientHeight, a = w / h;
+      const w = container.clientWidth, h = container.clientHeight;
+      if (w === 0 || h === 0) return;
       renderer.setSize(w, h);
-      camera.left = (-VH * a) / 2;
-      camera.right = (VH * a) / 2;
-      camera.top = VH / 2;
-      camera.bottom = -VH / 2;
-      camera.updateProjectionMatrix();
+      cam.resize(w, h);
     };
     window.addEventListener('resize', handleResize);
 
     // ================================================================
-    // SCHEDULER & ANTREAN KOPI (Queue State Machine)
+    // SCHEDULER, ANTREAN KOPI & PINTU
     // ================================================================
     let globalTime = 0;
     let nextCoffeeT = rand(4, 8);
@@ -1085,6 +926,302 @@ export function IsometricOfficeStage({
     let nextThoughtT = rand(6, 12);
     let lastCodeUpdate = 0;
     const dlgQueue: ScheduledLine[] = [];
+    const visitQueue = new Map<string, Array<{ to: string; text: string; carryDoc: boolean }>>();
+
+    const currentPos = (refs: AgentMeshRefs): Pt => ({ x: refs.avatar.position.x, z: refs.avatar.position.z });
+    const deskPos = (refs: AgentMeshRefs): Pt => ({ x: refs.sitPos.x, z: refs.sitPos.z });
+
+    // ---- Door mutex: satu agen per DOOR_MUTEX_GAP_S detik melewati pintu ruang rapat ----
+    const gates = new Map<string, { lastGrant: number; waiting: string[] }>();
+    const gateOf = (id: string) => {
+      let g = gates.get(id);
+      if (!g) { g = { lastGrant: -Infinity, waiting: [] }; gates.set(id, g); }
+      return g;
+    };
+    const leaveGate = (agentId: string) => {
+      for (const g of gates.values()) {
+        const i = g.waiting.indexOf(agentId);
+        if (i >= 0) g.waiting.splice(i, 1);
+      }
+    };
+    /** true = boleh lanjut melewati pintu. */
+    const passGate = (agentId: string, gateId: string): boolean => {
+      const g = gateOf(gateId);
+      g.waiting = g.waiting.filter((id) => {
+        const a = animMap.get(id);
+        return !!a && a.walkPath[a.walkSeg]?.gate === gateId && a.gateSeg !== a.walkSeg;
+      });
+      if (!g.waiting.includes(agentId)) g.waiting.push(agentId);
+      if (g.waiting[0] === agentId && globalTime - g.lastGrant >= DOOR_MUTEX_GAP_S) {
+        g.lastGrant = globalTime;
+        g.waiting.shift();
+        return true;
+      }
+      return false;
+    };
+
+    /** Pasang rute jalan baru (selalu lewat sini agar status gate ikut direset). */
+    const setWalk = (agentId: string, anim: AgentAnim, path: NavPt[]) => {
+      leaveGate(agentId);
+      anim.walkPath = path;
+      anim.walkSeg = 0;
+      anim.walkT = 0;
+      anim.gateSeg = -1;
+    };
+
+    /** Keluarkan agen dari antrean kopi dan majukan yang di belakangnya. */
+    const leaveCoffeeQueue = (agentId: string) => {
+      const idx = coffeeQueue.indexOf(agentId);
+      if (idx === -1) return;
+      coffeeQueue.splice(idx, 1);
+      coffeeQueue.forEach((waitingId, newIdx) => {
+        const wAnim = animMap.get(waitingId);
+        const wRefs = meshMap.get(waitingId);
+        if (!wAnim || !wRefs || newIdx < idx) return;
+        if (wAnim.state !== 'waiting_in_queue' && wAnim.state !== 'walk_to_coffee') return;
+        const nextSpot = COFFEE_QUEUE_SPOTS[Math.min(newIdx, COFFEE_QUEUE_SPOTS.length - 1)]!;
+        wAnim.state = 'walk_to_coffee';
+        setWalk(waitingId, wAnim, [currentPos(wRefs), nextSpot]);
+      });
+    };
+
+    /** Panggil kembali ke meja dari rutinitas santai (mis. ada pekerjaan/izin masuk). */
+    const recallToDesk = (agentId: string, text?: string) => {
+      const anim = animMap.get(agentId);
+      const refs = meshMap.get(agentId);
+      if (!anim || !refs) return;
+      leaveCoffeeQueue(agentId);
+      anim.hasCup = false;
+      refs.cup.visible = false;
+      // State khusus (bukan bagian rutinitas kopi) agar recall tidak terpicu ulang tiap frame.
+      anim.state = 'walk_back_to_desk';
+      anim.stateTime = 0;
+      setWalk(agentId, anim, walkPath(currentPos(refs), deskPos(refs)));
+      if (text) {
+        anim.bubbleText = text;
+        anim.bubbleTimer = 3.0;
+      }
+    };
+
+    const startVisit = (fromId: string, toId: string, text: string, carryDoc: boolean) => {
+      const anim = animMap.get(fromId);
+      const refs = meshMap.get(fromId);
+      const targetPos = AGENT_3D_POSITIONS[toId];
+      if (!anim || !refs || !targetPos) return;
+      const spot = visitSpotFor(targetPos);
+      anim.state = 'walk_to_visit';
+      anim.stateTime = 0;
+      anim.visitTarget = toId;
+      anim.hasDoc = carryDoc;
+      refs.doc.visible = carryDoc;
+      setWalk(fromId, anim, walkPath(deskPos(refs), spot));
+      anim.bubbleText = clipText(text, 90);
+      anim.bubbleTimer = 4.5;
+    };
+
+    const statusOf = (agentId: string): AgentStatus | null => {
+      if (!liveRef.current) return null;
+      return agentsRef.current.find((a) => a.id === agentId)?.status ?? null;
+    };
+
+    const atDesk = (anim: AgentAnim) => anim.state === 'working' || anim.state === 'drinking';
+
+    const sitAtDesk = (refs: AgentMeshRefs) => {
+      refs.avatar.position.set(refs.sitPos.x, refs.sitPos.y, refs.sitPos.z);
+      refs.avatar.rotation.y = refs.sitRotY;
+      refs.leftLegPivot.rotation.set(SEATED_LEG, 0, 0);
+      refs.rightLegPivot.rotation.set(SEATED_LEG, 0, 0);
+    };
+
+    // ================================================================
+    // RAPAT DI RUANG RAPAT: berkumpul → sesi → bubar
+    // ================================================================
+    let meeting: MeetingState | null = null;
+    const seatOccupant: Array<string | null> = BOARDROOM_SEATS.map(() => null);
+    const agentName = (id: string) => initAgents.find((a) => a.id === id)?.name ?? id;
+    const agentRole = (id: string) => {
+      const ag = initAgents.find((a) => a.id === id);
+      return ag ? ag.title ?? roleLabel(ag.role, 'id') : '';
+    };
+
+    const assignSeat = (id: string, anim: AgentAnim): number => {
+      if (anim.meetingSeat !== undefined) return anim.meetingSeat;
+      const prefer = MEETING_SEAT_ASSIGNMENT[id];
+      let idx = prefer ? BOARDROOM_SEATS.findIndex((s) => s.id === prefer) : -1;
+      if (idx < 0 || seatOccupant[idx]) idx = seatOccupant.findIndex((o) => o === null);
+      if (idx >= 0) {
+        seatOccupant[idx] = id;
+        anim.meetingSeat = idx;
+      }
+      return idx;
+    };
+    const releaseSeat = (id: string, anim: AgentAnim) => {
+      const i = seatOccupant.indexOf(id);
+      if (i >= 0) seatOccupant[i] = null;
+      anim.meetingSeat = undefined;
+    };
+
+    const refreshScreen = () => {
+      if (!meeting || meeting.phase === 'dispersing') { board.setScreen(null); return; }
+      const seated = meeting.attendees.filter((id) => animMap.get(id)?.state === 'in_meeting').length;
+      const role = agentRole(meeting.host);
+      board.setScreen({
+        phase: meeting.phase === 'session' ? 'session' : 'gathering',
+        topic: meeting.topic,
+        host: role ? `${agentName(meeting.host)} · ${role}` : agentName(meeting.host),
+        seated,
+        total: meeting.attendees.length,
+      });
+    };
+
+    const walkToSeat = (id: string, anim: AgentAnim, refs: AgentMeshRefs) => {
+      anim.state = 'walk_to_meeting';
+      anim.stateTime = 0;
+      setWalk(id, anim, walkPath(currentPos(refs), board.approachWorld(anim.meetingSeat!)));
+    };
+
+    const startMeeting = (host: string, text: string) => {
+      const topic = clipText(text, 140);
+      if (meeting && meeting.phase !== 'dispersing') {
+        // Rapat masih berjalan: perbarui agenda; sesi yang sedang berlangsung diulang dengan topik baru.
+        meeting.topic = topic;
+        meeting.host = host;
+        if (meeting.phase === 'session') beginSession();
+        refreshScreen();
+        return;
+      }
+
+      const attendees: string[] = [];
+      const ids = [host, ...Array.from(animMap.keys()).filter((id) => id !== host)];
+      for (const id of ids) {
+        const anim = animMap.get(id);
+        if (!anim || !meshMap.get(id) || statusOf(id) === 'offline') continue;
+        if (assignSeat(id, anim) < 0) continue;
+        attendees.push(id);
+      }
+      if (attendees.length === 0) return;
+      meeting = {
+        phase: 'gathering', host, topic, attendees,
+        startedAt: globalTime, sessionStartAt: 0, sessionEndsAt: 0, focusBackAt: 0,
+      };
+
+      // Urutan keberangkatan: jarak tempuh ke pintu ruang rapat, terdekat jalan duluan.
+      const order = attendees
+        .map((id) => ({ id, len: pathLength(walkPath(currentPos(meshMap.get(id)!), boardDoorInside)) }))
+        .sort((a, b) => a.len - b.len);
+      let slot = 0;
+      for (const { id } of order) {
+        const anim = animMap.get(id)!;
+        const refs = meshMap.get(id)!;
+        if (anim.state === 'in_meeting' || anim.state === 'meeting_sitting' ||
+            anim.state === 'walk_to_meeting' || anim.state === 'meeting_standing') continue;
+        if (anim.state === 'walk_from_meeting') { walkToSeat(id, anim, refs); continue; }
+
+        leaveCoffeeQueue(id);
+        anim.hasCup = false;
+        refs.cup.visible = false;
+        anim.hasDoc = false;
+        refs.doc.visible = false;
+        anim.visitTarget = undefined;
+        visitQueue.delete(id);
+        if (atDesk(anim)) {
+          anim.state = 'meeting_called';
+          anim.stateTime = 0;
+          anim.departAt = globalTime + 0.6 + slot * MEETING_DEPART_GAP_S;
+          slot += 1;
+        } else {
+          walkToSeat(id, anim, refs);
+        }
+      }
+
+      if (attendees.includes(host)) {
+        dlgQueue.push({ agentId: host, text: pick(MEETING_CALL_LINES), showAt: globalTime + 0.2, dur: 3.2 });
+      }
+      const other = attendees.find((id) => id !== host);
+      if (other) dlgQueue.push({ agentId: other, text: pick(MEETING_ON_THE_WAY), showAt: globalTime + 1.8, dur: 2.6 });
+
+      cam.focus(board.focusPoint(), { auto: true });
+      refreshScreen();
+    };
+
+    /** Sesi dimulai setelah semua duduk: presentasi (kursi menghadap TV) lalu tanggapan peserta. */
+    const beginSession = () => {
+      if (!meeting) return;
+      meeting.phase = 'session';
+      meeting.sessionStartAt = globalTime;
+      meeting.sessionEndsAt = globalTime + MEETING_SESSION_S;
+      const present = meeting.attendees.filter((id) => MEETING_STATES.has(animMap.get(id)?.state ?? 'working'));
+      if (present.includes(meeting.host)) {
+        dlgQueue.push({ agentId: meeting.host, text: meeting.topic, showAt: globalTime + 0.8, dur: 6.5 });
+      }
+      let t = globalTime + MEETING_PRESENT_S + 0.5;
+      for (const id of present.filter((a) => a !== meeting!.host).slice(0, 3)) {
+        dlgQueue.push({ agentId: id, text: pick(MEETING_REPLIES), showAt: t, dur: 3 });
+        t += 3.4;
+      }
+      refreshScreen();
+    };
+
+    /** Bubar: kursi terdekat pintu keluar lebih dulu, jeda bertahap + door mutex. */
+    const beginDispersal = () => {
+      if (!meeting) return;
+      meeting.phase = 'dispersing';
+      meeting.focusBackAt = globalTime + 3.5;
+      const seated: Array<{ id: string; len: number }> = [];
+      for (const id of meeting.attendees) {
+        const anim = animMap.get(id);
+        const refs = meshMap.get(id);
+        if (!anim || !refs) continue;
+        if (anim.meetingSeat !== undefined) board.rigs[anim.meetingSeat]!.swivelTarget = 0;
+        if (anim.state === 'in_meeting' || anim.state === 'meeting_sitting') {
+          seated.push({ id, len: pathLength(walkPath(board.approachWorld(anim.meetingSeat!), boardDoorInside)) });
+        } else if (anim.state === 'meeting_called') {
+          anim.state = 'working';
+          anim.stateTime = 0;
+          releaseSeat(id, anim);
+        } else if (anim.state === 'walk_to_meeting') {
+          anim.state = 'walk_from_meeting';
+          anim.stateTime = 0;
+          setWalk(id, anim, walkPath(currentPos(refs), deskPos(refs)));
+        }
+      }
+      seated.sort((a, b) => a.len - b.len).forEach(({ id }, k) => {
+        animMap.get(id)!.departAt = globalTime + 0.5 + k * MEETING_DEPART_GAP_S;
+      });
+      refreshScreen();
+    };
+
+    const updateMeeting = () => {
+      if (!meeting) return;
+      if (meeting.phase === 'gathering') {
+        const seated = meeting.attendees.filter((id) => animMap.get(id)?.state === 'in_meeting').length;
+        if (seated === meeting.attendees.length || globalTime - meeting.startedAt > MEETING_GATHER_TIMEOUT_S) {
+          beginSession();
+        }
+      } else if (meeting.phase === 'session') {
+        const toTv = globalTime - meeting.sessionStartAt < MEETING_PRESENT_S;
+        for (const id of meeting.attendees) {
+          const anim = animMap.get(id);
+          if (!anim || anim.meetingSeat === undefined || anim.state !== 'in_meeting') continue;
+          board.rigs[anim.meetingSeat]!.swivelTarget = toTv ? board.tvSwivel(anim.meetingSeat) : 0;
+        }
+        if (globalTime >= meeting.sessionEndsAt) beginDispersal();
+      } else {
+        if (meeting.focusBackAt > 0 && globalTime >= meeting.focusBackAt) {
+          meeting.focusBackAt = 0;
+          cam.focus(new THREE.Vector3(0, ISO_FOCUS_HEIGHT, 0), { auto: true });
+        }
+        const busy = meeting.attendees.some((id) => {
+          const a = animMap.get(id);
+          return !!a && (MEETING_STATES.has(a.state) || a.state === 'walk_from_meeting');
+        });
+        if (!busy) {
+          meeting = null;
+          seatOccupant.fill(null);
+        }
+      }
+      refreshScreen();
+    };
 
     // ================================================================
     // HANDLER KEDATANGAN STATE MACHINE
@@ -1092,6 +1229,7 @@ export function IsometricOfficeStage({
     const handleArrival = (agentId: string, anim: AgentAnim) => {
       const refs = meshMap.get(agentId);
       if (!refs) return;
+      leaveGate(agentId);
 
       switch (anim.state) {
         case 'walk_to_coffee': {
@@ -1128,11 +1266,7 @@ export function IsometricOfficeStage({
           anim.stateDuration = rand(12, 18);
           anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.sipping_at_desk);
           anim.bubbleTimer = 3.5;
-          // Duduk kembali di kursi menghadap ke meja kerja
-          refs.avatar.position.set(refs.sitPos.x, refs.sitPos.y, refs.sitPos.z);
-          refs.avatar.rotation.y = refs.sitRotY;
-          refs.leftLegPivot.rotation.set(Math.PI / 2.2, 0, 0);
-          refs.rightLegPivot.rotation.set(Math.PI / 2.2, 0, 0);
+          sitAtDesk(refs);
           break;
         }
 
@@ -1153,16 +1287,13 @@ export function IsometricOfficeStage({
         case 'walk_from_visit':
         case 'walk_from_meeting':
         case 'walk_back_to_desk': {
+          if (anim.state === 'walk_from_meeting') releaseSeat(agentId, anim);
           anim.state = 'working';
           anim.stateTime = 0;
           anim.hasDoc = false;
           anim.visitTarget = undefined;
-          anim.meetingSpot = undefined;
           refs.doc.visible = false;
-          refs.avatar.position.set(refs.sitPos.x, refs.sitPos.y, refs.sitPos.z);
-          refs.avatar.rotation.y = refs.sitRotY;
-          refs.leftLegPivot.rotation.set(Math.PI / 2.2, 0, 0);
-          refs.rightLegPivot.rotation.set(Math.PI / 2.2, 0, 0);
+          sitAtDesk(refs);
           // Kunjungan berikutnya yang mengantre
           const next = visitQueue.get(agentId)?.shift();
           if (next) startVisit(agentId, next.to, next.text, next.carryDoc);
@@ -1193,11 +1324,14 @@ export function IsometricOfficeStage({
         }
 
         case 'walk_to_meeting': {
-          anim.state = 'in_meeting';
+          // Tiba di belakang kursi: tarik kursi, duduk, dorong ke meja.
+          anim.state = 'meeting_sitting';
           anim.stateTime = 0;
-          const spot = anim.meetingSpot ?? MEETING_SPOTS[0]!;
-          refs.avatar.position.set(spot.x, 0, spot.z);
-          refs.avatar.rotation.y = Math.atan2(MEETING_TABLE_POS.x - spot.x, MEETING_TABLE_POS.z - spot.z);
+          if (anim.meetingSeat !== undefined) {
+            const a = board.approachWorld(anim.meetingSeat);
+            refs.avatar.position.set(a.x, 0, a.z);
+            refs.avatar.rotation.y = board.seatYaw(anim.meetingSeat);
+          }
           refs.leftLegPivot.rotation.set(0, 0, 0);
           refs.rightLegPivot.rotation.set(0, 0, 0);
           break;
@@ -1206,76 +1340,8 @@ export function IsometricOfficeStage({
     };
 
     // ================================================================
-    // RUTINITAS BERBASIS DATA LIVE (kunjungan meja, rapat, recall)
+    // EVENT LIVE DARI SERVER (bicara, kunjungan meja, rapat)
     // ================================================================
-    const visitQueue = new Map<string, Array<{ to: string; text: string; carryDoc: boolean }>>();
-    let meetingEndsAt = 0;
-
-    const currentPos = (refs: AgentMeshRefs): Pt => ({ x: refs.avatar.position.x, z: refs.avatar.position.z });
-
-    /** Keluarkan agen dari antrean kopi dan majukan yang di belakangnya. */
-    const leaveCoffeeQueue = (agentId: string) => {
-      const idx = coffeeQueue.indexOf(agentId);
-      if (idx === -1) return;
-      coffeeQueue.splice(idx, 1);
-      coffeeQueue.forEach((waitingId, newIdx) => {
-        const wAnim = animMap.get(waitingId);
-        const wRefs = meshMap.get(waitingId);
-        if (!wAnim || !wRefs || newIdx < idx) return;
-        if (wAnim.state !== 'waiting_in_queue' && wAnim.state !== 'walk_to_coffee') return;
-        const nextSpot = COFFEE_QUEUE_SPOTS[Math.min(newIdx, COFFEE_QUEUE_SPOTS.length - 1)]!;
-        wAnim.state = 'walk_to_coffee';
-        wAnim.walkPath = [currentPos(wRefs), nextSpot];
-        wAnim.walkSeg = 0;
-        wAnim.walkT = 0;
-      });
-    };
-
-    /** Panggil kembali ke meja dari rutinitas santai (mis. ada pekerjaan/izin masuk). */
-    const recallToDesk = (agentId: string, text?: string) => {
-      const anim = animMap.get(agentId);
-      const refs = meshMap.get(agentId);
-      if (!anim || !refs) return;
-      leaveCoffeeQueue(agentId);
-      anim.hasCup = false;
-      refs.cup.visible = false;
-      // State khusus (bukan bagian rutinitas kopi) agar recall tidak terpicu ulang tiap frame.
-      anim.state = 'walk_back_to_desk';
-      anim.stateTime = 0;
-      anim.walkPath = walkPath(currentPos(refs), { x: refs.sitPos.x, z: refs.sitPos.z });
-      anim.walkSeg = 0;
-      anim.walkT = 0;
-      if (text) {
-        anim.bubbleText = text;
-        anim.bubbleTimer = 3.0;
-      }
-    };
-
-    const startVisit = (fromId: string, toId: string, text: string, carryDoc: boolean) => {
-      const anim = animMap.get(fromId);
-      const refs = meshMap.get(fromId);
-      const targetPos = AGENT_3D_POSITIONS[toId];
-      if (!anim || !refs || !targetPos) return;
-      const spot = visitSpotFor(targetPos);
-      anim.state = 'walk_to_visit';
-      anim.stateTime = 0;
-      anim.visitTarget = toId;
-      anim.hasDoc = carryDoc;
-      refs.doc.visible = carryDoc;
-      anim.walkPath = walkPath({ x: refs.sitPos.x, z: refs.sitPos.z }, spot);
-      anim.walkSeg = 0;
-      anim.walkT = 0;
-      anim.bubbleText = clipText(text, 90);
-      anim.bubbleTimer = 4.5;
-    };
-
-    const statusOf = (agentId: string): AgentStatus | null => {
-      if (!liveRef.current) return null;
-      return agentsRef.current.find((a) => a.id === agentId)?.status ?? null;
-    };
-
-    const atDesk = (anim: AgentAnim) => anim.state === 'working' || anim.state === 'drinking';
-
     const handleStageEvent = (ev: StageEvent) => {
       if (ev.kind === 'say') {
         const anim = animMap.get(ev.agentId);
@@ -1310,71 +1376,17 @@ export function IsometricOfficeStage({
         return;
       }
 
-      // Rapat: semua yang hadir berkumpul di meja bundar
-      meetingEndsAt = globalTime + MEETING_STAY_S;
-      let spotIdx = 0;
-      const ids = [ev.host, ...Array.from(animMap.keys()).filter((id) => id !== ev.host)];
-      const attendees: string[] = [];
-      for (const id of ids) {
-        const anim = animMap.get(id);
-        const refs = meshMap.get(id);
-        if (!anim || !refs || statusOf(id) === 'offline') continue;
-        attendees.push(id);
-        if (anim.state === 'in_meeting' || anim.state === 'walk_to_meeting') {
-          spotIdx += 1;
-          continue;
-        }
-        leaveCoffeeQueue(id);
-        anim.hasCup = false;
-        refs.cup.visible = false;
-        anim.hasDoc = false;
-        refs.doc.visible = false;
-        visitQueue.delete(id);
-        const spot = MEETING_SPOTS[spotIdx % MEETING_SPOTS.length]!;
-        spotIdx += 1;
-        anim.meetingSpot = spot;
-        anim.state = 'walk_to_meeting';
-        anim.stateTime = 0;
-        anim.walkPath = walkPath(currentPos(refs), spot);
-        anim.walkSeg = 0;
-        anim.walkT = 0;
-      }
-      if (attendees.includes(ev.host)) {
-        dlgQueue.push({ agentId: ev.host, text: clipText(ev.text, 120), showAt: globalTime + 4.5, dur: 6 });
-        let t = globalTime + 11;
-        for (const id of attendees.filter((a) => a !== ev.host).slice(0, 3)) {
-          dlgQueue.push({ agentId: id, text: pick(MEETING_REPLIES), showAt: t, dur: 3 });
-          t += 3.4;
-        }
-      }
+      // Rapat: semua yang hadir menuju ruang rapat
+      startMeeting(ev.host, ev.text);
     };
 
     const lastStatus = new Map<string, AgentStatus>();
-
-    // Hook diagnostik khusus dev server (tidak ikut ke build produksi).
-    if (import.meta.env.DEV) {
-      (window as unknown as Record<string, unknown>).__officeStage = () =>
-        Array.from(animMap.entries()).map(([id, a]) => {
-          const r = meshMap.get(id);
-          return {
-            id,
-            state: a.state,
-            seg: `${a.walkSeg}/${a.walkPath.length}`,
-            pos: r ? `${r.avatar.position.x.toFixed(2)},${r.avatar.position.z.toFixed(2)}` : '',
-            queue: visitQueue.get(id)?.length ?? 0,
-            bubble: a.bubbleTimer > 0 ? (a.bubbleText ?? '').slice(0, 30) : '',
-          };
-        });
-    }
-
-    // ================================================================
-    // ANIMATION LOOP UTAMA (60 FPS)
-    // ================================================================
     const tempVec = new THREE.Vector3();
 
-    const animate = () => {
-      animId = requestAnimationFrame(animate);
-      const dt = Math.min(clock.getDelta(), 0.1);
+    // ================================================================
+    // SIMULASI (satu langkah waktu) — dipisah dari render
+    // ================================================================
+    const step = (dt: number) => {
       globalTime += dt;
 
       // Update monitor animated canvas setiap ~0.25 detik
@@ -1420,19 +1432,7 @@ export function IsometricOfficeStage({
         lastStatus.clear();
       }
 
-      // Rapat selesai -> semua kembali ke meja
-      if (meetingEndsAt > 0 && globalTime >= meetingEndsAt) {
-        meetingEndsAt = 0;
-        for (const [id, anim] of animMap) {
-          const refs = meshMap.get(id);
-          if (!refs || (anim.state !== 'in_meeting' && anim.state !== 'walk_to_meeting')) continue;
-          anim.state = 'walk_from_meeting';
-          anim.stateTime = 0;
-          anim.walkPath = walkPath(currentPos(refs), { x: refs.sitPos.x, z: refs.sitPos.z });
-          anim.walkSeg = 0;
-          anim.walkT = 0;
-        }
-      }
+      updateMeeting();
 
       /** Live: hanya agen yang benar-benar santai boleh ikut rutinitas kopi/obrolan. */
       const ambientOk = (id: string) => {
@@ -1459,9 +1459,7 @@ export function IsometricOfficeStage({
             const destSpot = COFFEE_QUEUE_SPOTS[Math.min(qIdx, COFFEE_QUEUE_SPOTS.length - 1)]!;
             a.state = 'walk_to_coffee';
             a.stateTime = 0;
-            a.walkPath = walkPath({ x: refs.sitPos.x, z: refs.sitPos.z }, destSpot);
-            a.walkSeg = 0;
-            a.walkT = 0;
+            setWalk(luckyId, a, walkPath(deskPos(refs), destSpot));
             a.bubbleText = qIdx === 0
               ? 'Waktunya rehat kopi sebentar!'
               : pick(COFFEE_ROUTINE_DIALOGUES.waiting_in_queue);
@@ -1543,7 +1541,7 @@ export function IsometricOfficeStage({
         }
       }
 
-      // ---------- Update Setiap Agen (Loop Render 60 FPS) ----------
+      // ---------- Update Setiap Agen ----------
       for (const [agentId, anim] of animMap) {
         const refs = meshMap.get(agentId);
         if (!refs) continue;
@@ -1602,10 +1600,7 @@ export function IsometricOfficeStage({
         switch (anim.state) {
           case 'working': {
             // Duduk sempurna di kursi menghadap ke keyboard dan monitor
-            refs.avatar.position.set(refs.sitPos.x, refs.sitPos.y, refs.sitPos.z);
-            refs.avatar.rotation.y = refs.sitRotY;
-            refs.leftLegPivot.rotation.set(Math.PI / 2.2, 0, 0);
-            refs.rightLegPivot.rotation.set(Math.PI / 2.2, 0, 0);
+            sitAtDesk(refs);
             refs.cup.visible = false;
             refs.doc.visible = false;
 
@@ -1634,6 +1629,117 @@ export function IsometricOfficeStage({
             break;
           }
 
+          case 'meeting_called': {
+            // Menyimpan pekerjaan sebentar sebelum berangkat (jeda bertahap)
+            sitAtDesk(refs);
+            refs.leftArmPivot.rotation.set(-0.5, 0, 0.12);
+            refs.rightArmPivot.rotation.set(-0.5, 0, -0.12);
+            if (globalTime >= (anim.departAt ?? 0) && anim.meetingSeat !== undefined) {
+              walkToSeat(agentId, anim, refs);
+            }
+            break;
+          }
+
+          case 'meeting_sitting': {
+            const i = anim.meetingSeat;
+            if (i === undefined) { anim.state = 'walk_from_meeting'; setWalk(agentId, anim, walkPath(currentPos(refs), deskPos(refs))); break; }
+            const rig = board.rigs[i]!;
+            const yaw = board.seatYaw(i);
+            const appr = board.approachWorld(i);
+            refs.leftArmPivot.rotation.set(-0.2, 0, 0.1);
+            refs.rightArmPivot.rotation.set(-0.2, 0, -0.1);
+            if (anim.stateTime < 0.45) {
+              // Tarik kursi keluar
+              rig.pullTarget = 1;
+              refs.avatar.position.set(appr.x, 0, appr.z);
+              refs.avatar.rotation.y = yaw;
+              refs.leftLegPivot.rotation.set(0, 0, 0);
+              refs.rightLegPivot.rotation.set(0, 0, 0);
+            } else if (anim.stateTime < 0.85) {
+              // Melangkah ke kursi & duduk
+              const k = smoothstep((anim.stateTime - 0.45) / 0.4);
+              const seat = board.seatWorld(i, rig.pull);
+              refs.avatar.position.set(appr.x + (seat.x - appr.x) * k, seat.y * k, appr.z + (seat.z - appr.z) * k);
+              refs.avatar.rotation.y = yaw;
+              refs.leftLegPivot.rotation.set(SEATED_LEG * k, 0, 0);
+              refs.rightLegPivot.rotation.set(SEATED_LEG * k, 0, 0);
+            } else {
+              // Dorong kursi ke meja bersama agen
+              rig.pullTarget = 0;
+              const seat = board.seatWorld(i, rig.pull);
+              refs.avatar.position.copy(seat);
+              refs.avatar.rotation.y = yaw + rig.swivelAngle;
+              refs.leftLegPivot.rotation.set(SEATED_LEG, 0, 0);
+              refs.rightLegPivot.rotation.set(SEATED_LEG, 0, 0);
+              if (rig.pull <= 0.001) {
+                anim.state = 'in_meeting';
+                anim.stateTime = 0;
+              }
+            }
+            break;
+          }
+
+          case 'in_meeting': {
+            const i = anim.meetingSeat;
+            if (i !== undefined) {
+              const rig = board.rigs[i]!;
+              refs.avatar.position.copy(board.seatWorld(i, rig.pull));
+              refs.avatar.position.y += Math.sin(globalTime * 2.5 + (bData.offset || 0)) * 0.005;
+              refs.avatar.rotation.y = board.seatYaw(i) + rig.swivelAngle;
+            }
+            refs.leftLegPivot.rotation.set(SEATED_LEG, 0, 0);
+            refs.rightLegPivot.rotation.set(SEATED_LEG, 0, 0);
+            const talking = anim.bubbleTimer > 0;
+            refs.leftArmPivot.rotation.set(talking ? -0.6 + Math.sin(globalTime * 4) * 0.2 : -0.45, 0, 0.1);
+            refs.rightArmPivot.rotation.set(talking ? -0.7 + Math.cos(globalTime * 3.5) * 0.2 : -0.45, 0, -0.1);
+            if ((!meeting || meeting.phase === 'dispersing') && globalTime >= (anim.departAt ?? 0)) {
+              anim.state = 'meeting_standing';
+              anim.stateTime = 0;
+              anim.subT = -1;
+            }
+            break;
+          }
+
+          case 'meeting_standing': {
+            const i = anim.meetingSeat;
+            if (i === undefined) { anim.state = 'walk_from_meeting'; setWalk(agentId, anim, walkPath(currentPos(refs), deskPos(refs))); break; }
+            const rig = board.rigs[i]!;
+            const yaw = board.seatYaw(i);
+            const appr = board.approachWorld(i);
+            rig.swivelTarget = 0;
+            refs.leftArmPivot.rotation.set(-0.2, 0, 0.1);
+            refs.rightArmPivot.rotation.set(-0.2, 0, -0.1);
+            if ((anim.subT ?? -1) < 0) {
+              // Tarik kursi keluar bersama agen
+              rig.pullTarget = 1;
+              refs.avatar.position.copy(board.seatWorld(i, rig.pull));
+              refs.avatar.rotation.y = yaw + rig.swivelAngle;
+              refs.leftLegPivot.rotation.set(SEATED_LEG, 0, 0);
+              refs.rightLegPivot.rotation.set(SEATED_LEG, 0, 0);
+              if (rig.pull >= 0.999) anim.subT = anim.stateTime;
+            } else {
+              // Berdiri & mundur ke belakang kursi
+              const k = smoothstep((anim.stateTime - anim.subT!) / 0.4);
+              const seat = board.seatWorld(i, 1);
+              refs.avatar.position.set(seat.x + (appr.x - seat.x) * k, seat.y * (1 - k), seat.z + (appr.z - seat.z) * k);
+              refs.avatar.rotation.y = yaw;
+              refs.leftLegPivot.rotation.set(SEATED_LEG * (1 - k), 0, 0);
+              refs.rightLegPivot.rotation.set(SEATED_LEG * (1 - k), 0, 0);
+              if (k >= 1) {
+                rig.pullTarget = 0;
+                anim.stateTime = 0;
+                if (meeting && meeting.phase !== 'dispersing') {
+                  // Rapat baru dipanggil saat sedang bubar: duduk kembali.
+                  anim.state = 'meeting_sitting';
+                } else {
+                  anim.state = 'walk_from_meeting';
+                  setWalk(agentId, anim, walkPath(appr, deskPos(refs)));
+                }
+              }
+            }
+            break;
+          }
+
           case 'visiting': {
             // Berdiri di meja rekan sambil menjelaskan / menyerahkan dokumen
             refs.leftLegPivot.rotation.set(0, 0, 0);
@@ -1646,19 +1752,8 @@ export function IsometricOfficeStage({
               refs.doc.visible = false;
               anim.state = 'walk_from_visit';
               anim.stateTime = 0;
-              anim.walkPath = walkPath(currentPos(refs), { x: refs.sitPos.x, z: refs.sitPos.z });
-              anim.walkSeg = 0;
-              anim.walkT = 0;
+              setWalk(agentId, anim, walkPath(currentPos(refs), deskPos(refs)));
             }
-            break;
-          }
-
-          case 'in_meeting': {
-            refs.leftLegPivot.rotation.set(0, 0, 0);
-            refs.rightLegPivot.rotation.set(0, 0, 0);
-            const talking = anim.bubbleTimer > 0;
-            refs.leftArmPivot.rotation.set(talking ? -0.6 + Math.sin(globalTime * 4) * 0.2 : -0.15, 0, 0.1);
-            refs.rightArmPivot.rotation.set(talking ? -0.7 + Math.cos(globalTime * 3.5) * 0.2 : -0.15, 0, -0.1);
             break;
           }
 
@@ -1705,19 +1800,14 @@ export function IsometricOfficeStage({
                 if (wAnim && wRefs) {
                   const nextSpot = COFFEE_QUEUE_SPOTS[Math.min(newIdx, COFFEE_QUEUE_SPOTS.length - 1)]!;
                   wAnim.state = 'walk_to_coffee';
-                  const curPos = { x: wRefs.avatar.position.x, z: wRefs.avatar.position.z };
-                  wAnim.walkPath = [curPos, nextSpot];
-                  wAnim.walkSeg = 0;
-                  wAnim.walkT = 0;
+                  setWalk(waitingId, wAnim, [currentPos(wRefs), nextSpot]);
                 }
               });
 
               // Jalan kembali ke meja masing-masing via koridor aman
               anim.state = 'walk_to_desk';
               anim.stateTime = 0;
-              anim.walkPath = walkPath(COFFEE_QUEUE_SPOTS[0]!, { x: refs.sitPos.x, z: refs.sitPos.z });
-              anim.walkSeg = 0;
-              anim.walkT = 0;
+              setWalk(agentId, anim, walkPath(COFFEE_QUEUE_SPOTS[0]!, deskPos(refs)));
               anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.walking_with_coffee);
               anim.bubbleTimer = 3.0;
             }
@@ -1725,10 +1815,7 @@ export function IsometricOfficeStage({
           }
 
           case 'drinking': {
-            refs.avatar.position.set(refs.sitPos.x, refs.sitPos.y, refs.sitPos.z);
-            refs.avatar.rotation.y = refs.sitRotY;
-            refs.leftLegPivot.rotation.set(Math.PI / 2.2, 0, 0);
-            refs.rightLegPivot.rotation.set(Math.PI / 2.2, 0, 0);
+            sitAtDesk(refs);
             refs.cup.visible = true;
 
             // Siklus minum kopi: sesekali angkat cangkir ke bibir, selebihnya mengetik satu tangan
@@ -1747,12 +1834,9 @@ export function IsometricOfficeStage({
 
             // Kopi habis -> Berjalan ke tempat sampah via koridor aman
             if (anim.stateTime > anim.stateDuration) {
-              const sp = { x: refs.sitPos.x, z: refs.sitPos.z };
               anim.state = 'walk_to_trash';
               anim.stateTime = 0;
-              anim.walkPath = walkPath(sp, TRASH_STAND);
-              anim.walkSeg = 0;
-              anim.walkT = 0;
+              setWalk(agentId, anim, walkPath(deskPos(refs), TRASH_STAND));
               anim.bubbleText = 'Kopi habis! Saatnya buang ke tempat sampah.';
               anim.bubbleTimer = 2.5;
             }
@@ -1774,13 +1858,9 @@ export function IsometricOfficeStage({
             }
 
             if (anim.stateTime > anim.stateDuration) {
-              const sp = { x: refs.sitPos.x, z: refs.sitPos.z };
-              const path = walkPath(TRASH_STAND, sp);
               anim.state = 'walk_from_trash';
               anim.stateTime = 0;
-              anim.walkPath = path;
-              anim.walkSeg = 0;
-              anim.walkT = 0;
+              setWalk(agentId, anim, walkPath(TRASH_STAND, deskPos(refs)));
             }
             break;
           }
@@ -1805,6 +1885,24 @@ export function IsometricOfficeStage({
               break;
             }
 
+            // Door mutex: tunggu giliran melewati pintu ruang rapat
+            if (seg.gate && anim.gateSeg !== anim.walkSeg) {
+              if (!passGate(agentId, seg.gate)) {
+                const qi = Math.max(0, gateOf(seg.gate).waiting.indexOf(agentId));
+                const prev = anim.walkPath[anim.walkSeg - 1] ?? seg;
+                const ddx = seg.x - prev.x, ddz = seg.z - prev.z;
+                const dl = Math.hypot(ddx, ddz) || 1;
+                refs.avatar.position.set(seg.x - (ddx / dl) * 0.75 * qi, 0, seg.z - (ddz / dl) * 0.75 * qi);
+                refs.avatar.rotation.y = Math.atan2(next.x - seg.x, next.z - seg.z);
+                refs.leftLegPivot.rotation.set(0, 0, 0);
+                refs.rightLegPivot.rotation.set(0, 0, 0);
+                refs.leftArmPivot.rotation.set(-0.15, 0, 0.08);
+                refs.rightArmPivot.rotation.set(-0.15, 0, -0.08);
+                break;
+              }
+              anim.gateSeg = anim.walkSeg;
+            }
+
             const sLen = segLen(seg, next);
             if (sLen < 0.01) { anim.walkSeg++; anim.walkT = 0; break; }
 
@@ -1812,8 +1910,7 @@ export function IsometricOfficeStage({
 
             let t = anim.walkT;
             if (anim.walkT >= 1) {
-              // Tetap di UJUNG segmen yang baru selesai pada frame ini. Sebelumnya posisi dihitung
-              // dari awal segmen (t = 0) sehingga avatar "melompat balik" satu frame di tiap belokan.
+              // Tetap di UJUNG segmen yang baru selesai pada frame ini (tidak melompat balik di belokan).
               t = 1;
               anim.walkT = 0;
               anim.walkSeg++;
@@ -1853,14 +1950,18 @@ export function IsometricOfficeStage({
         }
       }
 
-      // Server LED Pulse
-      decorGroup.children.forEach((c) => {
-        if (c.userData?.isServerPulse) {
-          (c as THREE.PointLight).intensity = 2.8 + Math.sin(globalTime * 5 + c.userData.offset) * 1.8;
-        }
-      });
+      main.update(globalTime);
+      board.update(dt);
+    };
 
-      // Update Speech Bubbles Projection
+    // ================================================================
+    // RENDER (kamera aktif, auto-fade dinding, proyeksi speech bubble)
+    // ================================================================
+    const renderFrame = (dt: number) => {
+      cam.update(dt);
+      const camera = cam.active();
+      fader.update(camera, dt);
+
       const bc = bubbleRef.current;
       if (bc && container) {
         const cw = container.clientWidth;
@@ -1870,45 +1971,122 @@ export function IsometricOfficeStage({
           const el = bc.querySelector(`[data-agent="${agentId}"]`) as HTMLElement | null;
           if (!el) continue;
 
-          if (anim.bubbleText && anim.bubbleTimer > 0) {
-            const refs = meshMap.get(agentId);
-            if (!refs) continue;
-
+          const refs = meshMap.get(agentId);
+          let shown = false;
+          if (refs && anim.bubbleText && anim.bubbleTimer > 0 && refs.avatar.visible) {
             tempVec.setFromMatrixPosition(refs.avatar.matrixWorld);
             tempVec.y += 1.05;
             tempVec.project(camera);
-
-            const sx = (tempVec.x * 0.5 + 0.5) * cw;
-            const sy = (-tempVec.y * 0.5 + 0.5) * ch;
-
-            el.style.display = 'block';
-            el.style.left = `${sx}px`;
-            el.style.top = `${sy}px`;
-            el.style.opacity = String(Math.min(1, anim.bubbleTimer / 0.4));
-
-            const txtEl = el.querySelector('[data-text]') as HTMLElement | null;
-            if (txtEl) txtEl.textContent = anim.bubbleText;
-          } else {
-            el.style.display = 'none';
+            // Di belakang kamera Free Cam: jangan tampilkan bubble
+            if (tempVec.z >= -1 && tempVec.z <= 1) {
+              const sx = (tempVec.x * 0.5 + 0.5) * cw;
+              const sy = (-tempVec.y * 0.5 + 0.5) * ch;
+              el.style.display = 'block';
+              el.style.left = `${sx}px`;
+              el.style.top = `${sy}px`;
+              el.style.opacity = String(Math.min(1, anim.bubbleTimer / 0.4));
+              const txtEl = el.querySelector('[data-text]') as HTMLElement | null;
+              if (txtEl) txtEl.textContent = anim.bubbleText;
+              shown = true;
+            }
           }
+          if (!shown) el.style.display = 'none';
         }
       }
 
-      controls.update();
       renderer.render(scene, camera);
     };
+
+    const animate = () => {
+      animId = requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.1);
+      step(dt);
+      renderFrame(dt);
+    };
+
+    // ================================================================
+    // API UNTUK TOMBOL HUD
+    // ================================================================
+    const workspaceFocus = () => {
+      const v = main.group.localToWorld(new THREE.Vector3(0, 0, 0));
+      return v.setY(ISO_FOCUS_HEIGHT);
+    };
+    apiRef.current = {
+      focusRoom: (room) => cam.focus(room === 'workspace' ? workspaceFocus() : board.focusPoint()),
+      toggleCamera: () => cam.toggle(),
+      resetCamera: () => cam.reset(),
+      focusAgent: (agentId) => {
+        const refs = meshMap.get(agentId);
+        if (!refs) return;
+        cam.focus(new THREE.Vector3(refs.avatar.position.x, 0.8, refs.avatar.position.z));
+      },
+    };
+
+    // Hook diagnostik khusus dev server (tidak ikut ke build produksi).
+    const win = window as unknown as Record<string, unknown>;
+    if (import.meta.env.DEV) {
+      win.__officeStage = () =>
+        Array.from(animMap.entries()).map(([id, a]) => {
+          const r = meshMap.get(id);
+          return {
+            id,
+            state: a.state,
+            seg: `${a.walkSeg}/${a.walkPath.length}`,
+            pos: r ? `${r.avatar.position.x.toFixed(2)},${r.avatar.position.z.toFixed(2)}` : '',
+            rotDeg: r ? Math.round((r.avatar.rotation.y * 180) / Math.PI) : 0,
+            seat: a.meetingSeat !== undefined ? BOARDROOM_SEATS[a.meetingSeat]!.id : '',
+            queue: visitQueue.get(id)?.length ?? 0,
+            bubble: a.bubbleTimer > 0 ? (a.bubbleText ?? '').slice(0, 30) : '',
+          };
+        });
+      win.__officeStageDebug = {
+        /** Picu rapat seperti event `/rapat` dari server. */
+        meeting: (host = 'raka', text = 'Evaluasi sprint & rencana ruang rapat') => startMeeting(host, text),
+        /** Majukan simulasi N detik secara instan (render tidak ikut). */
+        fastForward: (seconds: number) => {
+          for (let s = 0; s < seconds; s += 0.05) step(0.05);
+        },
+        camera: (mode: CameraMode) => cam.setMode(mode),
+        zoom: (z: number) => { cam.iso.zoom = z; cam.iso.updateProjectionMatrix(); },
+        /** Putar kamera isometrik mengelilingi target (0° = arah bawaan tenggara). */
+        orbit: (deg: number) => {
+          const off = cam.iso.position.clone().sub(cam.controls.target);
+          off.applyAxisAngle(new THREE.Vector3(0, 1, 0), (deg * Math.PI) / 180);
+          cam.iso.position.copy(cam.controls.target).add(off);
+          cam.controls.update();
+        },
+        cameraState: () => ({
+          mode: cam.mode,
+          iso: cam.iso.position.toArray().map((n) => +n.toFixed(2)),
+          target: cam.controls.target.toArray().map((n) => +n.toFixed(2)),
+          zoom: +cam.iso.zoom.toFixed(2),
+          persp: cam.persp.position.toArray().map((n) => +n.toFixed(2)),
+        }),
+        focus: (room: 'workspace' | 'boardroom') => apiRef.current?.focusRoom(room),
+        look: (x: number, z: number) => cam.focus(new THREE.Vector3(x, ISO_FOCUS_HEIGHT, z), { dur: 0.1 }),
+        meetingState: () => (meeting ? { ...meeting, attendees: [...meeting.attendees] } : null),
+        path: (from: Pt, to: Pt) => walkPath(from, to),
+      };
+    }
+
     animate();
 
     return () => {
       disposed = true;
       cancelAnimationFrame(animId);
+      apiRef.current = null;
+      if (import.meta.env.DEV) {
+        delete win.__officeStage;
+        delete win.__officeStageDebug;
+      }
       window.removeEventListener('resize', handleResize);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
-      controls.dispose();
+      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      cam.dispose();
       // Lepaskan memori GPU (geometri, material, tekstur) agar remount/HMR tidak bocor.
       disposeObject(scene);
-      for (const tpl of [deskT, chairT, serverT, monsteraT, snakeT, coffeeBarT]) {
-        if (tpl) disposeObject(tpl);
+      for (const tpl of templates.values()) {
+        if (tpl.scene) disposeObject(tpl.scene);
       }
       scene.environment?.dispose();
       renderer.dispose();
@@ -1919,25 +2097,12 @@ export function IsometricOfficeStage({
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleResetCamera = () => {
-    if (controlsRef.current && cameraRef.current) {
-      cameraRef.current.position.set(18, 14, 20);
-      controlsRef.current.target.set(0, 1.05, 0);
-      controlsRef.current.update();
-    }
-  };
-
-  const handleFocusAgent = () => {
-    const pos = AGENT_3D_POSITIONS[selectedAgentId];
-    if (pos && controlsRef.current) {
-      controlsRef.current.target.set(pos.x, 0.8, pos.z);
-      controlsRef.current.update();
-    }
-  };
+  const t = (id: string, en: string) => (language === 'id' ? id : en);
+  const hudButton: React.CSSProperties = { padding: '4px 10px', minHeight: 28, fontSize: 12 };
 
   return (
     <section
-      aria-label={language === 'id' ? 'Panggung Ruang Kantor 3D Three.js' : '3D Three.js Office Stage'}
+      aria-label={t('Panggung Ruang Kantor 3D Three.js', '3D Three.js Office Stage')}
       style={{
         position: 'relative',
         display: 'flex',
@@ -1952,64 +2117,80 @@ export function IsometricOfficeStage({
       <div
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexWrap: 'wrap', gap: 8,
           padding: '10px 16px',
           borderBottom: '1px solid var(--color-rule)',
           background: 'var(--color-paper-2)',
           zIndex: 10,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <strong style={{ fontSize: 14 }}>
-            {language === 'id'
-              ? 'Ruang Kantor 3D (Three.js WebGL Diorama)'
-              : '3D Virtual Office (Three.js WebGL Diorama)'}
+            {t('Ruang Kantor 3D (Three.js WebGL Diorama)', '3D Virtual Office (Three.js WebGL Diorama)')}
           </strong>
           <span className="mono" style={{ fontSize: 12, color: 'var(--color-muted)' }}>
-            14×10m · 10 Kursi Karyawan
+            {t('Lantai 1 · Ruang Kerja 14×10 m + Ruang Rapat 8×8 m', 'Floor 1 · Workspace 14×10 m + Boardroom 8×8 m')}
           </span>
           {modelLoaded ? (
-            <span
-              className="chip mono"
-              style={{ fontSize: 11, color: 'var(--color-ok)', borderColor: 'var(--color-ok)' }}
-            >
+            <span className="chip mono" style={{ fontSize: 11, color: 'var(--color-ok)', borderColor: 'var(--color-ok)' }}>
               GLB Active
             </span>
           ) : loadError ? (
-            <span
-              className="chip mono"
-              style={{ fontSize: 11, color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}
-            >
+            <span className="chip mono" style={{ fontSize: 11, color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}>
               GLB Error
             </span>
           ) : (
-            <span
-              className="chip mono"
-              style={{ fontSize: 11, color: 'var(--color-warn)', borderColor: 'var(--color-warn)' }}
-            >
+            <span className="chip mono" style={{ fontSize: 11, color: 'var(--color-warn)', borderColor: 'var(--color-warn)' }}>
               Loading GLB...
             </span>
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button
             type="button"
-            onClick={handleResetCamera}
-            title={language === 'id' ? 'Reset sudut kamera' : 'Reset camera'}
-            style={{ padding: '4px 10px', minHeight: 28, fontSize: 12 }}
+            onClick={() => apiRef.current?.focusRoom('workspace')}
+            title={t('Arahkan kamera ke ruang kerja', 'Focus the workspace')}
+            style={hudButton}
           >
-            {language === 'id' ? 'Reset Kamera' : 'Reset Camera'}
+            {t('Fokus: Ruang Kerja', 'Focus: Workspace')}
           </button>
           <button
             type="button"
-            onClick={handleFocusAgent}
-            title={language === 'id' ? 'Fokus ke meja agen terpilih' : 'Focus selected agent'}
+            onClick={() => apiRef.current?.focusRoom('boardroom')}
+            title={t('Arahkan kamera ke ruang rapat', 'Focus the boardroom')}
+            style={hudButton}
+          >
+            {t('Fokus: Ruang Rapat', 'Focus: Boardroom')}
+          </button>
+          <button
+            type="button"
+            onClick={() => apiRef.current?.toggleCamera()}
+            aria-pressed={camMode === 'free'}
+            title={t('Ganti kamera isometrik ↔ Free Cam 3D', 'Toggle isometric ↔ Free Cam 3D')}
             style={{
-              padding: '4px 10px', minHeight: 28, fontSize: 12,
-              borderColor: 'var(--color-focus)', color: 'var(--color-focus)',
+              ...hudButton,
+              borderColor: camMode === 'free' ? 'var(--color-focus)' : undefined,
+              color: camMode === 'free' ? 'var(--color-focus)' : undefined,
             }}
           >
-            {language === 'id' ? 'Fokus Meja' : 'Focus Desk'}
+            {camMode === 'free' ? t('Kamera: Free Cam 3D', 'Camera: Free Cam 3D') : t('Kamera: Isometrik', 'Camera: Isometric')}
+          </button>
+          <button
+            type="button"
+            onClick={() => apiRef.current?.resetCamera()}
+            title={t('Reset sudut kamera', 'Reset camera')}
+            style={hudButton}
+          >
+            {t('Reset Kamera', 'Reset Camera')}
+          </button>
+          <button
+            type="button"
+            onClick={() => apiRef.current?.focusAgent(selectedAgentId)}
+            title={t('Fokus ke agen terpilih', 'Focus selected agent')}
+            style={{ ...hudButton, borderColor: 'var(--color-focus)', color: 'var(--color-focus)' }}
+          >
+            {t('Fokus Agen', 'Focus Agent')}
           </button>
         </div>
       </div>
@@ -2029,6 +2210,23 @@ export function IsometricOfficeStage({
             overflow: 'hidden',
           }}
         />
+        {camMode === 'free' && (
+          <div
+            className="mono"
+            style={{
+              position: 'absolute', right: 16, top: 12, zIndex: 10,
+              padding: '6px 10px', fontSize: 11,
+              background: 'rgba(15, 26, 31, 0.85)',
+              border: '1px solid var(--color-rule)', borderRadius: 6,
+              color: 'var(--color-ink-2)', pointerEvents: 'none',
+            }}
+          >
+            {t(
+              'W A S D gerak · Q naik · E turun · Shift cepat · seret mouse untuk melihat',
+              'W A S D move · Q up · E down · Shift fast · drag to look',
+            )}
+          </div>
+        )}
       </div>
 
       {/* Floating Zone Legend */}
