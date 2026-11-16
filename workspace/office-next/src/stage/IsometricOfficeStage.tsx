@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { type AgentStatus, type AgentView, type Lang, roleLabel } from '@office/shared';
 import { OFFICE_ZONES } from '../isometric/coords';
@@ -398,6 +399,7 @@ export function IsometricOfficeStage({
     // PEMUAT MODEL (sekali unduh per file, tiap pemakai mendapat klon)
     // ================================================================
     const gltfLoader = new GLTFLoader();
+    gltfLoader.setMeshoptDecoder(MeshoptDecoder);
     // Model yang selesai dimuat setelah komponen dilepas tidak boleh menyentuh scene lagi.
     let disposed = false;
     type Waiter = { onLoad: (g: THREE.Group) => void; onError?: (e: unknown) => void };
