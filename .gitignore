@@ -15,3 +15,6 @@ data/
 workspace/*
 !workspace/office-next/
 !workspace/README.md
+
+# Generator 3D privat (hanya lokal, jangan di-upload ke GitHub)
+workspace/office-next/tools/3d-generator/
