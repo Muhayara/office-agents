@@ -59,7 +59,6 @@ const COFFEE_QUEUE_SPOTS = [
   { x: -3.8, z: 0.7 }, // Slot 3: Antrean ketiga
 ];
 
-const CORRIDOR_Z     = 0.5;
 const WALK_SPEED     = 2.2;
 const COFFEE_MIN_S   = 10;
 const COFFEE_MAX_S   = 22;
@@ -115,7 +114,7 @@ interface ScheduledLine {
 }
 
 // ============================================================================
-// Fungsi Bantu Navigasi & Posisi Duduk
+// Navigasi Jalur Bebas Tabrakan (Collision-Free Waypoint Graph)
 // ============================================================================
 
 function rand(a: number, b: number) { return a + Math.random() * (b - a); }
@@ -127,35 +126,81 @@ function segLen(a: { x: number; z: number }, b: { x: number; z: number }) {
 }
 
 /**
- * Jalur berjalan cerdas menghindari tabrakan dengan meja pod.
- * Bergerak via lorong tengah (x=0) atau cross corridor (z=0.5).
+ * SISTEM NAVIGASI KORIDOR RESMI KANTOR (Anti Menembus Objek & Agen Lain)
+ *
+ * Jaringan Jalan Bebas Hambatan:
+ * - Lorong Utara (North Aisle): Z = -3.4 (di antara meja Raka/Fajar dan meja Pods)
+ * - Lorong Tengah (Central Avenue): X = 0.0 (lebar 2.5m, menghubungkan Utara ke Selatan)
+ * - Lorong Selatan (South Promenade): Z = 0.8 s/d 1.2 (di depan Pods menuju Pantry & Server)
+ * - Koridor Masuk Antrean Kopi: X = -3.8 (garis antrean vertikal lurus Z = 0.7 s/d 3.4)
+ * - Koridor Tempat Sampah: X = -5.0 (keluar masuk via Z = 1.2 tanpa menabrak Coffee Bar)
  */
 function walkPath(from: { x: number; z: number }, to: { x: number; z: number }) {
   const pts: Array<{ x: number; z: number }> = [{ ...from }];
 
-  // Keluar dari area kursi ke koridor aman
-  const fromCorridorZ = from.z < 0 ? CORRIDOR_Z : from.z;
-  if (Math.abs(from.z - fromCorridorZ) > 0.3) {
-    pts.push({ x: from.x, z: fromCorridorZ });
+  // 1. Tentukan titik keluar aman dari posisi awal (Exit Waypoint)
+  let exitPt = { ...from };
+
+  if (from.x <= -4.5 && from.z >= 3.0) {
+    // Keluar dari area Tempat Sampah: Mundur ke koridor depan (Z = 1.2) agar tidak menabrak bar kopi
+    pts.push({ x: -5.0, z: 1.2 });
+    pts.push({ x: -3.8, z: 1.2 });
+    exitPt = { x: -3.8, z: 1.2 };
+  } else if (from.z > 2.0 && Math.abs(from.x - (-3.8)) < 0.6) {
+    // Keluar dari area Coffee Machine / Antrean: Mundur lurus di garis antrean ke Z = 1.0
+    pts.push({ x: -3.8, z: 1.0 });
+    exitPt = { x: -3.8, z: 1.0 };
+  } else if (from.z < -1.5) {
+    // Agen baris belakang (Sari, Dimas, Bima, Gita, Raka, Fajar):
+    // Mundur ke Lorong Utara Z = -3.4 (TIDAK BOLEH maju menembus meja & orang di depannya!)
+    pts.push({ x: from.x, z: -3.4 });
+    pts.push({ x: 0.0, z: -3.4 }); // Masuk ke Lorong Tengah
+    exitPt = { x: 0.0, z: -3.4 };
+  } else if (from.z >= -1.5 && from.z <= 0.2) {
+    // Agen baris depan (Tari, Wulan, Satria, Laras):
+    // Mundur ke Lorong Selatan Z = 0.6
+    pts.push({ x: from.x, z: 0.6 });
+    pts.push({ x: 0.0, z: 0.8 }); // Masuk ke Lorong Tengah
+    exitPt = { x: 0.0, z: 0.8 };
   }
 
-  // Bergerak via sumbu X di koridor aman
-  if (Math.abs(from.x - to.x) > 0.3) {
-    pts.push({ x: to.x, z: fromCorridorZ });
-  }
+  // 2. Tentukan titik masuk aman ke posisi tujuan (Entry Waypoint)
+  const isToQueue = Math.abs(to.x - (-3.8)) < 0.4 && to.z >= 0.5 && to.z <= 3.6;
+  const isToTrash = to.x <= -4.6 && to.z >= 3.0;
+  const isToNorthDesk = to.z < -1.5;
+  const isToSouthDesk = to.z >= -1.5 && to.z <= 0.2;
 
-  // Masuk ke titik tujuan
-  if (Math.abs(fromCorridorZ - to.z) > 0.2) {
+  if (isToQueue) {
+    // Menuju Antrean Kopi: Bergerak lewat Lorong Tengah -> Belok ke X = -3.8 di Z = 1.0 -> Masuk antrean dari belakang
+    if (Math.abs(exitPt.x - 0.0) > 0.3) pts.push({ x: 0.0, z: Math.max(exitPt.z, 0.8) });
+    pts.push({ x: 0.0, z: 1.0 });
+    pts.push({ x: -3.8, z: 1.0 });
     pts.push({ x: to.x, z: to.z });
-  }
-
-  const last = pts[pts.length - 1]!;
-  if (Math.abs(last.x - to.x) > 0.05 || Math.abs(last.z - to.z) > 0.05) {
+  } else if (isToTrash) {
+    // Menuju Tempat Sampah: Lewat Lorong Tengah -> Z = 1.2 -> X = -5.0 -> Masuk ke depan tempat sampah
+    if (Math.abs(exitPt.x - 0.0) > 0.3) pts.push({ x: 0.0, z: Math.max(exitPt.z, 0.8) });
+    pts.push({ x: 0.0, z: 1.2 });
+    pts.push({ x: -5.0, z: 1.2 });
+    pts.push({ x: -5.0, z: 3.65 });
+  } else if (isToNorthDesk) {
+    // Menuju Meja Baris Utara: Harus lewat Lorong Tengah (X = 0) naik ke Z = -3.4, lalu belok ke meja dari belakang!
+    pts.push({ x: 0.0, z: 1.0 });
+    pts.push({ x: 0.0, z: -3.4 });
+    pts.push({ x: to.x, z: -3.4 });
+    pts.push({ x: to.x, z: to.z });
+  } else if (isToSouthDesk) {
+    // Menuju Meja Baris Selatan: Lewat Lorong Tengah turun ke Z = 0.6, lalu belok ke kursi dari belakang!
+    pts.push({ x: 0.0, z: 0.8 });
+    pts.push({ x: to.x, z: 0.6 });
+    pts.push({ x: to.x, z: to.z });
+  } else {
+    // Tujuan umum lain
     pts.push({ ...to });
   }
 
+  // Hapus titik-titik redundan yang berdekatan
   return pts.filter((p, i, a) =>
-    i === 0 || Math.abs(p.x - a[i - 1]!.x) > 0.05 || Math.abs(p.z - a[i - 1]!.z) > 0.05,
+    i === 0 || Math.abs(p.x - a[i - 1]!.x) > 0.06 || Math.abs(p.z - a[i - 1]!.z) > 0.06,
   );
 }
 
@@ -1060,6 +1105,32 @@ export function IsometricOfficeStage({
         }
       }
 
+      // ---------- Dynamic Collision Avoidance Antara Agen yang Sedang Berjalan ----------
+      const movingAgents: string[] = [];
+      for (const [id, a] of animMap) {
+        if (a.state.startsWith('walk')) movingAgents.push(id);
+      }
+      for (let i = 0; i < movingAgents.length; i++) {
+        for (let j = i + 1; j < movingAgents.length; j++) {
+          const rA = meshMap.get(movingAgents[i]!);
+          const rB = meshMap.get(movingAgents[j]!);
+          if (!rA || !rB) continue;
+          const dx = rA.avatar.position.x - rB.avatar.position.x;
+          const dz = rA.avatar.position.z - rB.avatar.position.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < 0.45 && distSq > 0.0001) {
+            const d = Math.sqrt(distSq);
+            const push = (0.67 - d) * 0.12;
+            const nx = (dx / d) * push;
+            const nz = (dz / d) * push;
+            rA.avatar.position.x += nx;
+            rA.avatar.position.z += nz;
+            rB.avatar.position.x -= nx;
+            rB.avatar.position.z -= nz;
+          }
+        }
+      }
+
       // ---------- Update Setiap Agen (Loop Render 60 FPS) ----------
       for (const [agentId, anim] of animMap) {
         const refs = meshMap.get(agentId);
@@ -1152,7 +1223,7 @@ export function IsometricOfficeStage({
                 }
               });
 
-              // Jalan kembali ke meja masing-masing
+              // Jalan kembali ke meja masing-masing via koridor aman
               anim.state = 'walk_to_desk';
               anim.stateTime = 0;
               anim.walkPath = walkPath(COFFEE_QUEUE_SPOTS[0]!, { x: refs.sitPos.x, z: refs.sitPos.z });
@@ -1185,7 +1256,7 @@ export function IsometricOfficeStage({
               refs.leftArmPivot.rotation.set(-0.95 + Math.sin(phase) * 0.12, 0, 0.18);
             }
 
-            // Kopi habis -> Berjalan ke tempat sampah
+            // Kopi habis -> Berjalan ke tempat sampah via koridor aman
             if (anim.stateTime > anim.stateDuration) {
               const sp = { x: refs.sitPos.x, z: refs.sitPos.z };
               anim.state = 'walk_to_trash';
