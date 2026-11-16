@@ -29,6 +29,8 @@ export interface CommitTaskResult {
   commitTitle?: string;
   findings: SecurityFinding[];
   error?: string;
+  /** Alasan auto-commit dilewati tanpa temuan keamanan. */
+  skipped?: 'not_git_repo' | 'no_files' | 'no_changes';
   status: GitStatusSnapshot;
 }
 
@@ -150,38 +152,45 @@ export class GitService {
   }
 
   /**
-   * Menentukan daftar path relatif terhadap repoRoot yang berubah untuk suatu tugas.
+   * Path relatif terhadap repoRoot dari daftar file tugas.
+   * Sengaja TIDAK ada fallback "semua perubahan di scope": itu bisa ikut meng-commit
+   * pekerjaan tugas lain atau file setengah jadi.
    */
-  private async resolveCandidatePaths(task: Task): Promise<string[]> {
+  private resolveCandidatePaths(task: Task): string[] {
     const wsRelToRoot = path
       .relative(this.repoRoot, this.workspaceDir)
       .replace(/\\/g, '/');
 
-    if (task.files && task.files.length > 0) {
-      const resolved: string[] = [];
-      for (const f of task.files) {
-        const clean = f.replace(/\\/g, '/').replace(/^\.\//, '');
-        const repoRel = clean.startsWith('workspace/')
-          ? clean
-          : path.posix.join(wsRelToRoot || 'workspace', clean);
-        const full = path.resolve(this.repoRoot, repoRel);
-        if (fs.existsSync(full)) {
-          resolved.push(repoRel);
-        }
+    const resolved: string[] = [];
+    for (const f of task.files ?? []) {
+      const clean = path.posix.normalize(f.replace(/\\/g, '/').replace(/^\.\//, ''));
+      if (clean.startsWith('..') || clean.startsWith('/') || /^[A-Za-z]:/.test(clean)) continue;
+      const repoRel = clean.startsWith('workspace/')
+        ? clean
+        : path.posix.join(wsRelToRoot || 'workspace', clean);
+      const full = path.resolve(this.repoRoot, repoRel);
+      if (fs.existsSync(full) && !resolved.includes(repoRel)) {
+        resolved.push(repoRel);
       }
-      if (resolved.length > 0) return resolved;
     }
+    return resolved;
+  }
 
-    // Fallback: cek git status --porcelain di dalam scope
+  /** Path yang diabaikan .gitignore (dan belum dilacak) tidak boleh di-commit paksa. */
+  private async findIgnoredPaths(paths: string[]): Promise<Set<string>> {
+    if (paths.length === 0) return new Set();
     try {
-      const scopePath = this.gitConfig.scope.replace(/\\/g, '/');
-      const { stdout } = await this.runGit(['status', '--porcelain', '-uall', '--', scopePath]);
-      return stdout
-        .split(/\r?\n/)
-        .map((line) => line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\/g, '/'))
-        .filter(Boolean);
-    } catch {
-      return [];
+      const { stdout } = await this.runGit(['check-ignore', '--', ...paths]);
+      return new Set(
+        stdout
+          .split(/\r?\n/)
+          .map((l) => l.trim().replace(/\\/g, '/'))
+          .filter(Boolean),
+      );
+    } catch (err) {
+      // exit code 1 = tidak ada yang diabaikan
+      if ((err as { code?: number }).code === 1) return new Set();
+      throw err;
     }
   }
 
@@ -195,17 +204,21 @@ export class GitService {
         blocked: false,
         findings: [],
         error: 'Repositori git belum diinisialisasi di repoRoot.',
+        skipped: 'not_git_repo',
         status: this.getStatus(),
       };
     }
 
-    const candidatePaths = await this.resolveCandidatePaths(task);
+    const candidatePaths = this.resolveCandidatePaths(task);
     if (candidatePaths.length === 0) {
       return {
         committed: false,
         pushed: false,
         blocked: false,
         findings: [],
+        skipped: 'no_files',
+        error:
+          'Tugas tidak mencantumkan file yang ada (isi "files" di post_report); auto-commit dilewati.',
         status: await this.refreshStatus(),
       };
     }
@@ -269,15 +282,36 @@ export class GitService {
       };
     }
 
-    // 3. Stage hanya file kandidat dan periksa apakah ada diff nyata
-    await this.runGit(['add', '-f', '--', ...candidatePaths]);
+    // 3. Buang file yang di-.gitignore (tanpa `git add -f`), lalu stage hanya file kandidat
+    const ignored = await this.findIgnoredPaths(candidatePaths);
+    for (const ign of ignored) {
+      allFindings.push({
+        rule: 'ignored-file-skipped',
+        severity: 'medium',
+        path: ign,
+        detail: 'File diabaikan .gitignore sehingga tidak ikut di-commit.',
+      });
+    }
+    const stagePaths = candidatePaths.filter((p) => !ignored.has(p));
+    if (stagePaths.length === 0) {
+      return {
+        committed: false,
+        pushed: false,
+        blocked: false,
+        findings: allFindings,
+        skipped: 'no_changes',
+        status: await this.refreshStatus(),
+      };
+    }
+
+    await this.runGit(['add', '--', ...stagePaths]);
 
     const { stdout: stagedOut } = await this.runGit([
       'diff',
       '--cached',
       '--name-only',
       '--',
-      ...candidatePaths,
+      ...stagePaths,
     ]);
     if (!stagedOut.trim()) {
       return {
@@ -285,6 +319,7 @@ export class GitService {
         pushed: false,
         blocked: false,
         findings: allFindings,
+        skipped: 'no_changes',
         status: await this.refreshStatus(),
       };
     }
@@ -307,7 +342,7 @@ export class GitService {
       '-m',
       commitTitle,
       '--',
-      ...candidatePaths,
+      ...stagePaths,
     ]);
 
     const { stdout: shaOut } = await this.runGit(['rev-parse', '--short', 'HEAD']);
@@ -324,7 +359,7 @@ export class GitService {
     // 5. Pemindaian sekali lagi sebelum push ke remote
     const prePushScan = runSecurityScan({
       repoRoot: this.repoRoot,
-      explicitPaths: candidatePaths,
+      explicitPaths: stagePaths,
     });
     if (prePushScan.hard.length > 0) {
       const reason = `Push diblokir setelah pemeriksaan pra-push (${prePushScan.hard.map((f) => f.rule).join(', ')}).`;

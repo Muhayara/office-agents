@@ -35,7 +35,7 @@ describe('@office/shared v1.1.0 & 10-role permissions (Komponen B)', () => {
     expect(FILE_WRITING_ROLES).toEqual(['writer', 'coder', 'gamedev', 'artist', 'designer']);
     expect(COMMAND_ROLES).toEqual(['coder', 'gamedev', 'artist', 'designer', 'visual_qa']);
     expect(SECURITY_SCAN_ROLES).toEqual(['security']);
-    expect(PLAYWRIGHT_AUTO_APPROVE_ROLES).toEqual(['visual_qa']);
+    expect(PLAYWRIGHT_AUTO_APPROVE_ROLES).toEqual([]);
   });
 
   it('allows gamedev, artist, and designer to write files while blocking security and visual_qa', async () => {

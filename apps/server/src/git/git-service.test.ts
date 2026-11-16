@@ -166,6 +166,41 @@ describe('GitService (Bagian C2 — Auto-Commit & Auto-Push)', () => {
     expect(blockedPkg.findings.map((f) => f.rule)).toContain('blocked-supply-chain-file');
   });
 
+  it('tidak memaksa commit file yang di-.gitignore (tanpa git add -f)', async () => {
+    const { repoRoot, workspaceDir } = setupTempGitRepoWithBareRemote();
+    fs.writeFileSync(path.join(workspaceDir, 'office-next', 'src', 'grid.ts'), 'export const A = 1;\n', 'utf8');
+    fs.mkdirSync(path.join(workspaceDir, 'office-next', 'dist'), { recursive: true });
+    fs.writeFileSync(path.join(workspaceDir, 'office-next', 'dist', 'bundle.js'), 'console.log(1)\n', 'utf8');
+
+    const service = new GitService({ repoRoot, workspaceDir });
+    const res = await service.commitAndPush({
+      task: makeTask({ files: ['office-next/src/grid.ts', 'office-next/dist/bundle.js'] }),
+      assignee: gitaConfig,
+    });
+
+    expect(res.committed).toBe(true);
+    expect(res.findings.map((f) => f.rule)).toContain('ignored-file-skipped');
+    const committedFiles = execFileSync('git', ['show', '--name-only', '--format=', 'HEAD'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    expect(committedFiles).toContain('workspace/office-next/src/grid.ts');
+    expect(committedFiles).not.toContain('dist/bundle.js');
+  });
+
+  it('tugas tanpa daftar file tidak meng-commit semua perubahan di scope', async () => {
+    const { repoRoot, workspaceDir } = setupTempGitRepoWithBareRemote();
+    fs.writeFileSync(path.join(workspaceDir, 'office-next', 'src', 'milik-tugas-lain.ts'), 'x\n', 'utf8');
+
+    const service = new GitService({ repoRoot, workspaceDir });
+    const res = await service.commitAndPush({ task: makeTask({ files: [] }), assignee: gitaConfig });
+
+    expect(res.committed).toBe(false);
+    expect(res.skipped).toBe('no_files');
+    const status = execFileSync('git', ['status', '--porcelain', '-uall'], { cwd: repoRoot, encoding: 'utf8' });
+    expect(status).toContain('milik-tugas-lain.ts');
+  });
+
   it('preserves local commit when push to remote fails', async () => {
     const { repoRoot, workspaceDir } = setupTempGitRepoWithBareRemote();
     execFileSync('git', ['remote', 'set-url', 'origin', 'P:/non-existent-remote-path.git'], {
