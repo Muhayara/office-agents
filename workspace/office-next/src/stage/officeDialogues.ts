@@ -20,8 +20,15 @@ export interface DialogueExchange {
   }>;
 }
 
-// Dialog saat siklus kopi (mengambil kopi, menikmati, membuang cangkir)
+// Dialog saat siklus kopi (mengantre, menyeduh kopi, menikmati, membuang cangkir)
 export const COFFEE_ROUTINE_DIALOGUES = {
+  waiting_in_queue: [
+    'Antre dulu, racikan espresso hari ini wangi banget...',
+    'Sabar menunggu giliran, demi segelas kafein segar!',
+    'Banyak yang butuh kafein hari ini, barista kita laris manis.',
+    'Santai sejenak di antrean sambil mikirin solusi algoritma.',
+    'Aroma Arabica gayo-nya udah kecium dari sini, mantap!',
+  ],
   brewing: [
     'Bikin espresso single shot dulu biar kompilasi gak error...',
     'Wangi banget roast Arabica gayo pantry hari ini!',
@@ -181,7 +188,7 @@ export const AGENT_SOLO_THOUGHTS: Record<string, string[]> = {
   ],
   satria: [
     'Menjalankan scanner deterministik terhadap file konfigurasi sensitif.',
-    'Firewall dan validasi payload payload server aktif berlapis.',
+    'Firewall dan validasi payload server aktif berlapis.',
   ],
   laras: [
     'Code review pull request: penamaan variabel bersih dan modular.',
