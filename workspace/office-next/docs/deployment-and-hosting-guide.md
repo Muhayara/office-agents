@@ -1,130 +1,124 @@
-# Panduan & Rencana Hosting Produksi (Office Agents 2.5D)
-> Disusun oleh: **Bima — Programmer** & **Satria — Keamanan**  
-> Status: **Dokumen Arsitektur Siap Pakai**
+# Panduan & Rencana Hosting (Office Agents 2.5D)
+> Revisi: 16 November 2026 — menggantikan rencana Railway/Docker sebelumnya.
+> Prinsip: **gratis dulu**, dan **tidak membuka backend ke internet** sampai benar-benar perlu.
 
 ---
 
-## 1. Arsitektur Teknis Sistem & Kebutuhan Runtime
+## 1. Ringkasan Keputusan
 
-Aplikasi **Office Agents 2.5D** dibangun dengan arsitektur modern monorepo:
-- **Frontend Diorama 3D:** React + Three.js r128 (PBR WebGL) yang dibundle via Vite. Menghidangkan file statis aset 3D (`.glb`) di direktori `/models/`.
-- **Backend Service:** Node.js (v20+) yang menjalankan server REST API (`/api/state`) dan WebSocket bi-directional (`/ws`) untuk telemetri status 10 agen, scanner keamanan, serta git service.
-- **Protokol:** Memerlukan dukungan **HTTPS** (`http/2` atau `http/1.1`) dan **WSS** (*Secure WebSocket*).
-
----
-
-## 2. Perbandingan Opsi Hosting
-
-| Kriteria | Opsi A: PaaS Container (Railway / Render) | Opsi B: VPS Mandiri (Hetzner / DigitalOcean) | Opsi C: Hybrid (Vercel + Railway) |
+| Fase | Apa yang dihosting | Biaya | Status |
 |---|---|---|---|
-| **Kemudahan Setup** | ⭐⭐⭐⭐⭐ (Sangat Mudah, Zero DevOps) | ⭐⭐⭐ (Perlu setup Nginx/Docker) | ⭐⭐⭐⭐ (Mudah) |
-| **Dukungan WebSocket** | Out-of-the-box (Otomatis WSS) | Penuh (via Caddy/Nginx reverse proxy) | Penuh (WebSocket diarahkan ke Railway) |
-| **Estimasi Biaya** | Gratis s/d ~$5/bulan (Pay-per-use) | ~$4 – $5/bulan (Flat, kapasitas besar) | Gratis (Vercel) + ~$5 (Railway) |
-| **CI/CD Otomatis** | Ya (Auto-build setiap `git push main`) | Via GitHub Actions SSH Deploy | Ya (Vercel & Railway GitHub Integrations) |
-| **Rekomendasi** | **Sangat Direkomendasikan untuk Rilis Cepat** | **Paling Hemat untuk Jangka Panjang** | **Alternatif Skala Global** |
+| **1** | Diorama 3D sebagai **demo statis** (simulasi template, tanpa backend) | Gratis | Siap dikerjakan |
+| **2** | Akses CEO ke **kantor live di PC sendiri** dari HP/laptop lain | Gratis (Tailscale) | Siap setelah hardening keamanan (sudah selesai) |
+| **3** | Seluruh sistem di server cloud 24/7 | Berbayar (VPS ±$4–5/bulan) | Ditunda |
+
+### Kenapa backend belum bisa di cloud gratis
+- Agen memanggil **9router lokal** (`127.0.0.1:20128`) yang memakai akun & kuota di PC ini.
+- Auto-push git memakai kredensial **Git Credential Manager** di PC ini.
+- `run_command` menjalankan proses di mesin tempat server berjalan — di cloud publik ini butuh sandbox container.
+- Database SQLite (`data/office.db`) butuh **disk permanen**. Layanan gratis seperti Render free mematikan instance setelah 15 menit tanpa trafik dan filesystem-nya hilang setiap restart/spin-down.
+
+### Kenapa Dockerfile versi lama tidak dipakai
+Dokumen sebelumnya memuat Dockerfile yang tidak akan berjalan:
+- `apps/server/tsconfig.json` memakai `noEmit: true` → tidak ada `apps/server/dist/index.js`; server dijalankan dengan `tsx`.
+- `@office/shared` mengekspor sumber `.ts`, bukan `dist`.
+- `node:20-alpine` tidak punya `node:sqlite` (perlu Node 22.5+).
+- Server tidak menyajikan file statis, dan env `PORT`/`CORS_ORIGIN` tidak pernah dibaca kode.
+- `workspace/office-next` tidak punya `package.json` sendiri.
 
 ---
 
-## 3. Rencana Eksekusi: Opsi A (Railway / Render — Paling Cepat & Direkomendasikan)
+## 2. Fase 1 — Demo Statis Gratis (Cloudflare Pages)
 
-### Mengapa Railway / Render?
-1. Mendukung WebSocket secara *native* tanpa perlu pusing konfigurasi SSL/TLS sertifikat.
-2. Setiap kali kamu menjalankan `git push origin main`, Railway otomatis mendeteksi perubahan, mengompilasi TypeScript, mem-build frontend, dan merilis versi terbaru tanpa downtime.
+Build demo (`--mode demo`) menanam `VITE_DEMO=1`: aplikasi **tidak melakukan panggilan jaringan apa pun**, langsung menampilkan simulasi template (antrean kopi, obrolan, gumaman) — aman dibagikan publik karena tidak ada data kantor.
 
-### Konfigurasi Dockerfile Multi-Stage Produksi
-Buat file `Dockerfile` di root repositori:
+### Langkah
+1. Push repo ke GitHub (repo private tetap bisa dipakai Cloudflare Pages).
+2. Cloudflare Dashboard → **Workers & Pages → Create → Pages → Connect to Git** → pilih repo.
+3. Pengaturan build:
+   | Kolom | Nilai |
+   |---|---|
+   | Framework preset | None |
+   | Build command | `npm run build:next:demo` |
+   | Build output directory | `workspace/office-next/dist` |
+   | Environment variable | `NODE_VERSION` = `22` |
+4. Deploy. Setiap push ke `main` akan membangun ulang otomatis.
 
-```dockerfile
-# Multi-stage Dockerfile for Office Agents 2.5D
-FROM node:20-alpine AS builder
+`workspace/office-next/public/_headers` ikut tersalin ke output dan memberi header keamanan dasar (`nosniff`, `X-Frame-Options`, `Referrer-Policy`) serta cache 7 hari untuk `/models/*`.
 
-WORKDIR /app
+### Batas yang perlu diingat
+- Cloudflare Pages free: 500 build/bulan, 1 build berjalan bersamaan (dokumentasi resmi). Batas file (±20.000 file, 25 MB per file) bersumber dari pihak ketiga — cek ulang di halaman limits resmi.
+- Ukuran build saat ini ±15 MB (65 file); GLB terbesar `Office_Bookshelf_Cabinet.glb` ±4,8 MB — masih jauh di bawah batas per file.
+- Alternatif setara: Netlify, Vercel. GitHub Pages gratis hanya untuk repo publik.
 
-# Salin dependencies manifest
-COPY package*.json ./
-COPY packages/shared/package*.json ./packages/shared/
-COPY apps/server/package*.json ./apps/server/
-COPY apps/web/package*.json ./apps/web/
-COPY workspace/office-next/package*.json ./workspace/office-next/
+### Build lokal di Windows gagal "remove …\Temp\esbuild-…: Access is denied"?
+Ini masalah lingkungan (biasanya antivirus mengunci file sementara esbuild), bukan kode. Build CI di Linux tidak terpengaruh. Untuk mengecek lokal:
+```powershell
+npx vite build workspace/office-next --mode demo --target esnext --minify false
+```
+atau kecualikan folder `%TEMP%` dari pemindaian real-time Windows Defender.
 
-# Install dependencies
-RUN npm ci
+---
 
-# Salin source code
-COPY . .
+## 3. Fase 2 — CEO Mengakses Kantor Live dari Mana Saja (Gratis)
 
-# Build paket shared, server, dan frontend office-next
-RUN npm run build
-RUN npx vite build workspace/office-next
+Server tetap di PC dan tetap bind ke `127.0.0.1`. Yang dibuka hanyalah jalur privat terenkripsi.
 
-# Stage 2: Production Runner
-FROM node:20-alpine AS runner
+### Prasyarat keamanan (sudah diterapkan di kode)
+- Login token CEO wajib (`OFFICE_TOKEN` di `.env`, atau otomatis di `data/.office-token`); token pengunjung opsional (`OFFICE_VIEWER_TOKEN`, view-only).
+- Cookie sesi `HttpOnly` + `SameSite=Strict` bertanda tangan HMAC; MCP wajib `Authorization: Bearer`.
+- Validasi `Host` & `Origin` (anti CSRF, cross-site WebSocket hijacking, DNS rebinding); tanpa CORS `*`.
+- Batas ukuran body, kebijakan `run_command` ketat, guard peran tolak-secara-default.
 
-WORKDIR /app
-ENV NODE_ENV=production
-ENV PORT=3000
+### Opsi A (disarankan): Tailscale — tanpa domain, tanpa port publik
+1. Pasang Tailscale di PC kantor dan di HP/laptop CEO, login dengan akun yang sama.
+2. Di PC kantor, sajikan dashboard ke tailnet saja (HTTPS otomatis `*.ts.net`):
+   ```powershell
+   tailscale serve --bg 5174   # diorama 3D (atau 5173 untuk Meja Dispatch)
+   ```
+   (Sintaks `tailscale serve` berubah antarversi — cek `tailscale serve --help`.)
+3. Tambahkan ke `.env` (ganti dengan nama mesin tailnet kamu):
+   ```dotenv
+   OFFICE_ALLOWED_HOSTS=pc-kantor.tailnet-xyz.ts.net
+   OFFICE_ALLOWED_ORIGINS=https://pc-kantor.tailnet-xyz.ts.net
+   OFFICE_COOKIE_SECURE=1
+   ```
+   `OFFICE_ALLOWED_HOSTS` dibaca server **dan** kedua `vite.config.ts` (hanya variabel itu, tidak terkirim ke browser).
+4. Restart `start.bat`, buka `https://pc-kantor.tailnet-xyz.ts.net` dari HP, login dengan token CEO.
 
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
-COPY --from=builder /app/apps/server/dist ./apps/server/dist
-COPY --from=builder /app/workspace/office-next/dist ./public-stage
+### Opsi B: Cloudflare Tunnel + Cloudflare Access (URL publik dengan login)
+- Butuh domain yang DNS-nya di Cloudflare (biasanya berbayar ±$10/tahun).
+- `cloudflared tunnel` → hostname `office.domainkamu.com` → `http://localhost:5174`.
+- Wajib pasang **Cloudflare Access** (gratis s.d. 50 pengguna) dengan kebijakan email OTP hanya untuk CEO, sehingga dua lapis login: Access + token kantor.
+- Isi `OFFICE_ALLOWED_HOSTS=office.domainkamu.com`, `OFFICE_ALLOWED_ORIGINS=https://office.domainkamu.com`, `OFFICE_COOKIE_SECURE=1`.
+- **Jangan** memakai Quick Tunnel `trycloudflare.com` untuk kantor live: URL acak tanpa lapisan Access.
 
-EXPOSE 3000
+---
 
-CMD ["node", "apps/server/dist/index.js"]
+## 4. Fase 3 — Cloud Penuh 24/7 (Ditunda, Berbayar)
+
+Baru masuk akal setelah semua ini siap:
+1. Gateway LLM yang dihosting (bukan 9router lokal) + secret di environment, bukan file.
+2. Disk permanen untuk `data/` (SQLite WAL) dan backup berkala.
+3. `run_command` dijalankan di container sandbox terpisah tanpa kredensial git.
+4. Deploy key GitHub khusus repo ini (bukan kredensial pribadi) untuk auto-push.
+5. Runtime Node 22+ (`node:sqlite`), server dijalankan dengan `tsx`, `OFFICE_BIND_HOST=0.0.0.0` di dalam container.
+
+Topologi VPS yang direkomendasikan tetap: **Caddy** (HTTPS otomatis) menyajikan `workspace/office-next/dist` dan me-reverse-proxy `/api` + `/ws` ke `127.0.0.1:7420`, dengan env:
+```dotenv
+OFFICE_TOKEN=<acak, minimal 24 karakter>
+OFFICE_ALLOWED_HOSTS=office.domainkamu.com
+OFFICE_ALLOWED_ORIGINS=https://office.domainkamu.com
+OFFICE_COOKIE_SECURE=1
 ```
 
 ---
 
-## 4. Rencana Eksekusi: Opsi B (VPS Mandiri — Hetzner / DigitalOcean / IDCloudHost)
+## 5. Checklist Sebelum Membuka Akses Apa Pun
 
-Jika ingin biaya tetap termurah (~$4/bulan) dengan resource RAM 2GB penuh:
-
-### Arsitektur di VPS:
-```
-Internet ──> Cloudflare DNS ──> Port 80/443 (Caddy Web Server)
-                                       │
-                   ┌───────────────────┴───────────────────┐
-                   ▼                                       ▼
-        Static 3D Diorama (/dist)             Node.js Backend & WebSocket (:3000)
-```
-
-### Konfigurasi `Caddyfile` (Reverse Proxy + Auto SSL):
-Caddy secara otomatis mengurus sertifikat SSL Let's Encrypt tanpa konfigurasi manual:
-
-```caddyfile
-office.domainkamu.com {
-    encode gzip zstd
-
-    # Route WebSocket
-    handle /ws {
-        reverse_proxy localhost:3000
-    }
-
-    # Route API
-    handle /api/* {
-        reverse_proxy localhost:3000
-    }
-
-    # Route Frontend Diorama 3D
-    handle {
-        root * /var/www/office-next/dist
-        file_server
-        try_files {path} /index.html
-    }
-}
-```
-
----
-
-## 5. Checklist Sebelum Rilis ke Publik (Pre-Flight Checklist)
-
-1. [x] **Typecheck & Unit Test:** `npm run typecheck` (0 errors) & `npm test` (26/26 passed).
-2. [x] **Aset 3D Statis:** Semua file `.glb` tersimpan di `workspace/office-next/public/models/`.
-3. [x] **Keamanan Secret:** Scanner keamanan deterministik memastikan tidak ada private key, API credentials, atau data sensitif yang bocor ke bundle frontend.
-4. [ ] **Domain & DNS:** Arahkan DNS Record (A Record atau CNAME) ke IP VPS atau Railway Domain.
-5. [ ] **Environment Variables:**
-   - `PORT=3000`
-   - `NODE_ENV=production`
-   - `CORS_ORIGIN=https://office.domainkamu.com`
+1. [x] `npm run typecheck` bersih & `npm test` lulus (64 test, termasuk simulasi serangan CSRF/DNS rebinding/MCP palsu).
+2. [x] Login token + cookie aman + validasi Host/Origin aktif.
+3. [ ] Token CEO dibuat acak (biarkan server membuat `data/.office-token`, atau isi `OFFICE_TOKEN` ≥ 24 karakter).
+4. [ ] Mode otonomi tetap **Semi** saat diakses dari luar (mode Penuh menyetujui `run_command` otomatis).
+5. [ ] `OFFICE_ALLOWED_HOSTS` / `OFFICE_ALLOWED_ORIGINS` hanya berisi host yang benar-benar dipakai.
+6. [ ] Folder `data/` tidak pernah ikut di-commit (sudah di `.gitignore`).

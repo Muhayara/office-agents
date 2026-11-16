@@ -29,6 +29,9 @@ echo - Web UI     : http://localhost:5173
 echo - Server     : http://127.0.0.1:7420
 echo - MCP Server : http://127.0.0.1:7421/mcp
 echo - 9router    : http://127.0.0.1:20128
+echo.
+echo Login CEO: salin token dari file data\.office-token
+echo            (atau nilai OFFICE_TOKEN di .env bila diisi)
 echo Untuk mematikan, jalankan stop.bat
 echo ======================================================
 pause

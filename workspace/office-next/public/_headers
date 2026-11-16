@@ -1,0 +1,10 @@
+# Header keamanan untuk hosting statis (Cloudflare Pages / Netlify membaca file ini).
+# Vite dev server mengabaikannya.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/models/*
+  Cache-Control: public, max-age=604800
