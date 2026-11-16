@@ -30,7 +30,11 @@ P:\gemini-lab\office\
 │       ├── public/models/      # Production 3D GLB Models (room shell, desk, chair, coffee bar, server racks, plants)
 │       ├── src/
 │       │   ├── stage/
-│       │   │   ├── IsometricOfficeStage.tsx # Main 3D WebGL Canvas, Scene, Lights, Avatar Rigs, Nav Graph
+│       │   │   ├── IsometricOfficeStage.tsx # Scene, lights, avatar rigs, agent & meeting state machines
+│       │   │   ├── layout.ts               # All coordinates: desks, pantry, room layers, boardroom seat table
+│       │   │   ├── navigation.ts           # Room-local nav + building router via door portals (door mutex gates)
+│       │   │   ├── rooms/                  # Layer builders: mainWorkspace, corridorEast, boardroom, assets (GLB/placeholder)
+│       │   │   ├── camera/                 # cameraRig (Isometric ↔ Free Cam 3D), wallFade (Sims-style auto-fade)
 │       │   │   └── officeDialogues.ts      # Template-based Indonesian dialogue lines (Zero API keys needed)
 │       │   ├── isometric/      # 2.5D coordinates and zone definitions
 │       │   ├── panels/         # Inspector panel: live status, approvals, work history (/api/runs)
@@ -59,7 +63,11 @@ P:\gemini-lab\office\
     - Cup lifecycle: brewed at bar -> held in hand -> sipped at desk -> disposed at trash bin (`X: -5.0, Z: 4.1`) -> return to desk.
   - **Collision-Free Pathfinding:** NavMesh corridor graph (North Aisle Z=-3.4, Central Avenue X=0.0, South Promenade Z=0.8-1.2). Back-row agents never clip through front-row desks. Dynamic avoidance steers walking agents around each other.
   - **Speech Bubbles:** Projected 3D head coordinates to 2D HTML glassmorphism overlays in Indonesian (zero API keys).
-  - **Live Binding (mode live):** avatar poses follow real `AgentStatus` (typing / raised hand for `waiting_approval` / head-scratch for `error` / empty chair for `offline` / relaxed for `idle`); `agent.say` shows as bubbles; agent→agent messages make the sender walk to the recipient's desk (carrying a document for review/handoff); `/rapat` or messages to `all` gather everyone at the round meeting table `(0.2, 2.2)`. Coffee & chit-chat only for idle agents. Demo mode keeps the full template simulation. Dev-only debug hook: `window.__officeStage()`.
+  - **Live Binding (mode live):** avatar poses follow real `AgentStatus` (typing / raised hand for `waiting_approval` / head-scratch for `error` / empty chair for `offline` / relaxed for `idle`); `agent.say` shows as bubbles; agent→agent messages make the sender walk to the recipient's desk (carrying a document for review/handoff). Coffee & chit-chat only for idle agents. Demo mode keeps the full template simulation.
+  - **Modular building (plan: `workspace/office-next/docs/modular_office_layers_plan.md`):** `BuildingRoot → Floor_1_Group → Room_MainWorkspace (0,0) / Corridor_East_Connector (8.10, 2.35) / Room_Boardroom_10p (13.5, 0)`. Room coordinates are local; read world positions through the scene graph. Every boardroom asset shows a procedural placeholder until its GLB exists in `public/models/`.
+  - **Boardroom meetings:** `/rapat` or messages to `all` → agents leave in staggered order (0.9 s, nearest to the door first), pass the door mutex at `(8.80 / 10.20, 2.35)`, pull out their assigned chair (5+5 seat table in `layout.ts`), sit, then the 24 s session starts only after everyone is seated (chairs swivel to the TV for 13 s; the TV shows the meeting topic). The round table `(0.2, 2.2)` is now a huddle prop.
+  - **Cameras:** Isometric (default) ↔ Free Cam 3D (WASD, Q up, E down, Shift, drag to look); HUD focus buttons for workspace/boardroom; auto-pan on meetings unless the CEO moved the camera in the last 8 s. Walls facing away from the camera fade (Sims-style).
+  - **Dev-only debug hooks:** `window.__officeStage()` and `window.__officeStageDebug` (`meeting()`, `fastForward(s)`, `camera()`, `focus()`, `look()`, `zoom()`, `orbit()`, `path()`, `meetingState()`).
 
 - **Security model (server):**
   - CEO token: `OFFICE_TOKEN` in `.env` (≥24 chars) or auto-generated in `data/.office-token`. Optional view-only `OFFICE_VIEWER_TOKEN`.
@@ -110,11 +118,6 @@ npm run dev:server
 ---
 
 ## 6. Immediate Next Tasks
-1. Generate the 5 remaining 3D density props using the prompts in `workspace/office-next/docs/office-density-expansion-plan.md`:
-   - `Office_Wall_AC_Unit.glb`
-   - `Office_Bookshelf_Cabinet.glb`
-   - `Office_Whiteboard_Scrum.glb`
-   - `Office_Water_Dispenser.glb`
-   - `Office_Meeting_Table_Round.glb`
-2. Integrate these `.glb` models into `decorGroup` in `IsometricOfficeStage.tsx`. (`Office_Meeting_Table_Round.glb` is already auto-loaded at `(0.2, 2.2)`, replacing a procedural placeholder, once the file exists in `public/models/`.)
+1. Remaining GLBs (all auto-load over their placeholders once placed in `public/models/`): `Office_Boardroom_Credenza.glb`, `Office_Conference_Table.glb`, `Office_Conference_Chair.glb` (must contain a `Chair_Swivel` node), `Office_Meeting_Table_Round.glb`. Prompts: `modular_office_layers_plan.md` §11 and `boardroom_audit_v2_solutions.md` §8–9.
+2. Shrink large GLBs before hosting (e.g. `Office_Bookshelf_Cabinet.glb` 5 MB, `Office_Boardroom_Shell.glb` 5.2 MB).
 3. Hosting Phase 1: static demo on Cloudflare Pages (`npm run build:next:demo`, output `workspace/office-next/dist`). Phase 2: Tailscale for live CEO access. See `deployment-and-hosting-guide.md`.
