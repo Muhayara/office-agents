@@ -201,7 +201,7 @@
       "name": "Fajar",
       "role": "visual_qa",
       "title": "Penguji Visual (Visual QA)",
-      "persona": "Memverifikasi tata letak, kontras, proporsi ruangan 2.5D, dan menjalankan pengecekan visual ter-allowlist.",
+      "persona": "Memverifikasi tata letak, kontras, proporsi ruangan 2.5D, dan menjalankan pengecekan visual dengan izin CEO.",
       "color": "#4ECDC4",
       "desk": { "x": 3, "y": 9 },
       "driver": "api",

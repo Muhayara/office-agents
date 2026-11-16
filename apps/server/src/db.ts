@@ -137,6 +137,11 @@ export class OfficeDb {
         agent_id TEXT,
         payload_json TEXT NOT NULL
       );
+
+      CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
+      CREATE INDEX IF NOT EXISTS idx_tasks_status_updated ON tasks(status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_runs_agent_started ON runs(agent_id, started_at);
+      CREATE INDEX IF NOT EXISTS idx_steps_run_seq ON steps(run_id, seq);
     `);
   }
 

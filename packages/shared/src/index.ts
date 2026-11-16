@@ -103,8 +103,12 @@ export const COMMAND_ROLES: readonly AgentRole[] = [
 /** Peran yang diizinkan memanggil `security_scan` dan memveto push. */
 export const SECURITY_SCAN_ROLES: readonly AgentRole[] = ['security'];
 
-/** Peran yang diizinkan menjalankan pemeriksaan visual Playwright ter-allowlist tanpa spam approval manual. */
-export const PLAYWRIGHT_AUTO_APPROVE_ROLES: readonly AgentRole[] = ['visual_qa'];
+/**
+ * Peran yang boleh menjalankan perintah tanpa approval CEO. Sengaja kosong:
+ * `npx playwright test` mengeksekusi config/test yang bisa ditulis agen lain,
+ * jadi persetujuan otomatis sama dengan eksekusi kode tanpa izin.
+ */
+export const PLAYWRIGHT_AUTO_APPROVE_ROLES: readonly AgentRole[] = [];
 
 /** Peran yang wajib ada di setiap kantor. */
 export const REQUIRED_ROLES: readonly AgentRole[] = ['manager', 'reviewer'];

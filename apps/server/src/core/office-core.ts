@@ -19,7 +19,6 @@ import {
   type MessageKind,
   type Mode,
   type OfficeConfig,
-  PLAYWRIGHT_AUTO_APPROVE_ROLES,
   type Project,
   SCHEMA_VERSION,
   SECURITY_SCAN_ROLES,
@@ -39,22 +38,96 @@ import {
 import { OfficeDb } from '../db';
 import { GitService } from '../git/git-service';
 import { runSecurityScan } from '../security/scanner';
+import { evaluateCommand, sanitizedChildEnv } from '../security/command-policy';
+import { nextZonedMidnight, normalizeTimeZone, zonedDayKey } from './time';
 
 const execFileAsync = promisify(execFile);
 
-const ALLOWED_COMMANDS = new Set([
-  'npm',
-  'npx',
-  'node',
-  'git',
-  'python',
-  'tsc',
-  'vitest',
-]);
-
 export type EventListener = (event: ServerEvent) => void;
 
+/** Tool yang mengubah state kantor/workspace (dipakai untuk menilai efek samping giliran gagal). */
+const SIDE_EFFECT_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
+  'send_message',
+  'create_task',
+  'claim_task',
+  'update_task',
+  'post_report',
+  'request_review',
+  'ask_human',
+  'escalate',
+  'write_file',
+  'edit_file',
+  'run_command',
+]);
+
+/** Ekstensi yang dilewati search_files (biner/aset besar). */
+const BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
+  '.glb', '.gltf', '.bin', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf',
+  '.zip', '.gz', '.mp3', '.mp4', '.wav', '.woff', '.woff2', '.ttf', '.otf', '.db', '.sqlite',
+]);
+
+const EVENTS_KEEP = 5000;
+const SNAPSHOT_TASK_LIMIT = 500;
+const WALK_ENTRY_LIMIT = 5000;
+
+interface TaskRow {
+  id: string;
+  project_id: string;
+  parent_id: string | null;
+  title: string;
+  details: string;
+  assignee: string;
+  reviewer: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  created_by: string;
+  files_json: string;
+  blocked_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function rowToTask(r: TaskRow): Task {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    parentId: r.parent_id ?? undefined,
+    title: r.title,
+    details: r.details,
+    assignee: r.assignee,
+    reviewer: r.reviewer ?? undefined,
+    status: r.status,
+    priority: r.priority,
+    createdBy: r.created_by,
+    files: JSON.parse(r.files_json || '[]'),
+    blockedReason: r.blocked_reason ?? undefined,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+export interface RunStepView {
+  seq: number;
+  kind: string;
+  name?: string;
+  input?: string;
+  output?: string;
+}
+
+export interface RunView {
+  id: string;
+  agentId: string;
+  taskId?: string;
+  model: string;
+  status: string;
+  startedAt: string;
+  endedAt?: string;
+  error?: string;
+  steps: RunStepView[];
+}
+
 interface PendingApprovalResolver {
+  agentId: string;
   resolve: (approved: boolean) => void;
   timer: NodeJS.Timeout;
 }
@@ -73,6 +146,10 @@ export class OfficeCore {
   private securityFindings: SecurityFinding[] = [];
   private stopAgentHandlers = new Map<string, () => void>();
   private wakeCallback?: () => void;
+  private readonly timeZone: string;
+  private toolCallCounts = new Map<string, number>();
+  private recentRequestTimes: number[] = [];
+  private emitsSincePrune = 0;
 
   constructor(options: {
     config: OfficeConfig;
@@ -82,6 +159,7 @@ export class OfficeCore {
   }) {
     this.config = options.config;
     this.db = options.db;
+    this.timeZone = normalizeTimeZone(this.config.office.timezone);
     this.workspaceDir = path.resolve(options.workspaceDir);
     const parentDir = path.resolve(this.workspaceDir, '..');
     this.repoRoot = options.repoRoot
@@ -139,14 +217,13 @@ export class OfficeCore {
     return `${prefix}_${Date.now().toString(36)}_${this.seqCounter}_${rand}`;
   }
 
-  public todayKey(): string {
-    return new Date().toISOString().slice(0, 10);
+  /** Hari kantor menurut `office.timezone` (kuota reset tengah malam waktu lokal). */
+  public todayKey(now = new Date()): string {
+    return zonedDayKey(now, this.timeZone);
   }
 
-  public nextResetIso(): string {
-    const d = new Date();
-    d.setUTCHours(24, 0, 0, 0);
-    return d.toISOString();
+  public nextResetIso(now = new Date()): string {
+    return nextZonedMidnight(now, this.timeZone).toISOString();
   }
 
   private bootstrapState(): void {
@@ -214,6 +291,30 @@ export class OfficeCore {
     this.db.db
       .prepare(`UPDATE runs SET status = 'aborted', ended_at = ? WHERE status = 'running'`)
       .run(now);
+
+    // Approval yang menunggu saat server mati tidak punya resolver lagi -> kedaluwarsa.
+    // security_block tetap pending: itu catatan yang harus dikonfirmasi CEO.
+    this.db.db
+      .prepare(
+        `UPDATE approvals SET status = 'expired', decided_at = ?, decided_by = 'system',
+           reason = 'Kedaluwarsa — server dimulai ulang'
+         WHERE status = 'pending' AND kind != 'security_block'`,
+      )
+      .run(now);
+
+    this.pruneHistory();
+  }
+
+  /** Batasi pertumbuhan tabel log: event terbaru saja, langkah run 30 hari terakhir. */
+  public pruneHistory(): void {
+    this.db.db
+      .prepare('DELETE FROM events WHERE id <= (SELECT MAX(id) FROM events) - ?')
+      .run(EVENTS_KEEP);
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    this.db.db
+      .prepare('DELETE FROM steps WHERE run_id IN (SELECT id FROM runs WHERE started_at < ?)')
+      .run(cutoff);
+    this.db.db.prepare('DELETE FROM runs WHERE started_at < ?').run(cutoff);
   }
 
   public onEvent(listener: EventListener): () => void {
@@ -226,6 +327,11 @@ export class OfficeCore {
     this.db.db
       .prepare('INSERT INTO events (ts, type, agent_id, payload_json) VALUES (?, ?, ?, ?)')
       .run(event.at, event.type, agentId ?? null, JSON.stringify(event));
+    this.emitsSincePrune += 1;
+    if (this.emitsSincePrune >= 500) {
+      this.emitsSincePrune = 0;
+      this.pruneHistory();
+    }
 
     for (const listener of this.listeners) {
       try {
@@ -273,6 +379,9 @@ export class OfficeCore {
   }
 
   public stopAgent(agentId: string): void {
+    if (!this.getAgentConfig(agentId)) {
+      throw new Error(`Agen "${agentId}" tidak terdaftar`);
+    }
     const stop = this.stopAgentHandlers.get(agentId);
     if (stop) {
       stop();
@@ -385,7 +494,50 @@ export class OfficeCore {
     if (cap > 0 && row.requests >= cap) {
       this.setAgentStatus(agentId, 'offline', `Kuota harian habis (${row.requests}/${cap})`);
     }
+    this.recentRequestTimes.push(Date.now());
     return usage;
+  }
+
+  /** Total request semua kursi hari ini (dibandingkan dengan limits.globalReqPerDay). */
+  public totalRequestsToday(): number {
+    const row = this.db.db
+      .prepare('SELECT COALESCE(SUM(requests), 0) AS total FROM usage WHERE day = ?')
+      .get(this.todayKey()) as { total: number };
+    return Number(row.total);
+  }
+
+  public isGlobalDailyCapReached(): boolean {
+    return this.totalRequestsToday() >= this.config.limits.globalReqPerDay;
+  }
+
+  private requestsInLastMinute(now = Date.now()): number {
+    const since = now - 60_000;
+    while (this.recentRequestTimes.length > 0 && this.recentRequestTimes[0]! < since) {
+      this.recentRequestTimes.shift();
+    }
+    return this.recentRequestTimes.length;
+  }
+
+  public isGlobalMinuteCapReached(): boolean {
+    return this.requestsInLastMinute() >= this.config.limits.globalReqPerMin;
+  }
+
+  /**
+   * Tunggu sampai ada slot di batas global per menit (limits.globalReqPerMin).
+   * Melempar error bila batas harian kantor (limits.globalReqPerDay) tercapai.
+   */
+  public async waitForRateSlot(signal?: AbortSignal): Promise<void> {
+    if (this.isGlobalDailyCapReached()) {
+      throw new Error(
+        `Batas harian kantor tercapai (${this.config.limits.globalReqPerDay} request); lanjut besok.`,
+      );
+    }
+    while (this.isGlobalMinuteCapReached()) {
+      if (signal?.aborted) throw new Error('Turn dibatalkan (AbortSignal)');
+      const oldest = this.recentRequestTimes[0] ?? Date.now();
+      const waitMs = Math.max(250, oldest + 60_000 - Date.now());
+      await new Promise((resolve) => setTimeout(resolve, Math.min(waitMs, 5000)));
+    }
   }
 
   public listAgents(): AgentView[] {
@@ -415,6 +567,19 @@ export class OfficeCore {
     const orderMap = new Map(this.config.agents.map((a, idx) => [a.id, idx]));
     rows.sort((a, b) => (orderMap.get(a.id) ?? 99) - (orderMap.get(b.id) ?? 99));
 
+    const usedToday = new Map(
+      (
+        this.db.db
+          .prepare('SELECT agent_id, requests FROM usage WHERE day = ?')
+          .all(this.todayKey()) as Array<{ agent_id: string; requests: number }>
+      ).map((u) => [u.agent_id, u.requests]),
+    );
+    const resetAt = this.nextResetIso();
+    const capFor = (agentId: string) => {
+      const cfg = this.getAgentConfig(agentId);
+      return cfg ? (cfg.driver === 'manual' ? 0 : cfg.dailyCap) : 80;
+    };
+
     return rows.map((r) => ({
       id: r.id,
       name: r.name,
@@ -427,7 +592,7 @@ export class OfficeCore {
       desk: { x: r.desk_x, y: r.desk_y },
       currentTaskId: r.current_task_id ?? undefined,
       currentTaskTitle: r.current_task_title ?? undefined,
-      quota: this.getQuota(r.id),
+      quota: { used: usedToday.get(r.id) ?? 0, cap: capFor(r.id), resetAt },
       lastSeenAt: r.last_seen_at ?? undefined,
       offlineReason: r.offline_reason ?? undefined,
     }));
@@ -464,8 +629,7 @@ export class OfficeCore {
     meta?: Record<string, unknown>;
   }): Message {
     const now = new Date().toISOString();
-    const managerId = managerOf(this.config).id;
-    const recipient = params.to === 'manager' ? managerId : params.to;
+    const recipient = this.resolveRecipient(params.to);
     const projectId = params.projectId ?? 'default';
     const kind: MessageKind =
       params.kind ?? (recipient === 'all' || params.body.startsWith('/rapat') || params.body.startsWith('/meeting') ? 'meeting' : 'chat');
@@ -535,6 +699,36 @@ export class OfficeCore {
 
     this.triggerWake();
     return message;
+  }
+
+  /**
+   * Normalisasi penerima: "manager" -> id manajer, nama ("Bima") -> id ("bima"),
+   * "ceo"/"all" apa adanya. Penerima tak dikenal ditolak agar pesan tidak hilang diam-diam.
+   */
+  public resolveRecipient(to: string): string {
+    const key = to.trim().toLowerCase();
+    if (key === 'manager') return managerOf(this.config).id;
+    if (key === 'ceo' || key === 'all') return key;
+    const agent = this.resolveAgent(key);
+    if (agent) return agent.id;
+    const options = ['ceo', 'all', 'manager', ...this.config.agents.map((a) => a.id)].join(', ');
+    throw new Error(`Penerima "${to}" tidak dikenal. Pilihan: ${options}`);
+  }
+
+  /** Tandai pesan terbaca setelah giliran agen benar-benar selesai diproses. */
+  public markMessagesRead(agentId: string, messageIds: string[]): void {
+    if (messageIds.length === 0) return;
+    const now = new Date().toISOString();
+    const stmt = this.db.db.prepare(
+      'UPDATE messages SET read_at = ? WHERE id = ? AND recipient = ? AND read_at IS NULL',
+    );
+    const changed: string[] = [];
+    for (const id of messageIds) {
+      if (Number(stmt.run(now, id, agentId).changes) > 0) changed.push(id);
+    }
+    if (changed.length > 0) {
+      this.emit({ type: 'message.read', agentId, messageIds: changed.slice(0, 100), at: now });
+    }
   }
 
   public readInbox(agentId: string, limit = 20, markRead = true): Message[] {
@@ -631,6 +825,17 @@ export class OfficeCore {
     createdBy?: string;
     projectId?: string;
   }): Task {
+    const assigneeCfg = this.resolveAgent(params.assignee);
+    if (!assigneeCfg || !assigneeCfg.enabled) {
+      throw new Error(
+        `Assignee "${params.assignee}" tidak dikenal atau nonaktif. Pilihan: ${this.config.agents
+          .filter((a) => a.enabled)
+          .map((a) => a.id)
+          .join(', ')}`,
+      );
+    }
+    params = { ...params, assignee: assigneeCfg.id };
+
     const now = new Date().toISOString();
     const id = this.nextId('t');
     const projectId = params.projectId ?? 'default';
@@ -677,42 +882,8 @@ export class OfficeCore {
   }
 
   public getTask(taskId: string): Task | undefined {
-    const r = this.db.db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as
-      | {
-          id: string;
-          project_id: string;
-          parent_id: string | null;
-          title: string;
-          details: string;
-          assignee: string;
-          reviewer: string | null;
-          status: TaskStatus;
-          priority: TaskPriority;
-          created_by: string;
-          files_json: string;
-          blocked_reason: string | null;
-          created_at: string;
-          updated_at: string;
-        }
-      | undefined;
-
-    if (!r) return undefined;
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      parentId: r.parent_id ?? undefined,
-      title: r.title,
-      details: r.details,
-      assignee: r.assignee,
-      reviewer: r.reviewer ?? undefined,
-      status: r.status,
-      priority: r.priority,
-      createdBy: r.created_by,
-      files: JSON.parse(r.files_json || '[]'),
-      blockedReason: r.blocked_reason ?? undefined,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-    };
+    const r = this.db.db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow | undefined;
+    return r ? rowToTask(r) : undefined;
   }
 
   public listTasks(filter?: {
@@ -736,10 +907,21 @@ export class OfficeCore {
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.db.db
-      .prepare(`SELECT id FROM tasks ${where} ORDER BY created_at ASC`)
-      .all(...args) as Array<{ id: string }>;
+      .prepare(`SELECT * FROM tasks ${where} ORDER BY created_at ASC`)
+      .all(...args) as unknown as TaskRow[];
+    return rows.map(rowToTask);
+  }
 
-    return rows.map((r) => this.getTask(r.id)!).filter(Boolean);
+  /** Tugas untuk snapshot UI: semua yang belum selesai + yang selesai paling baru. */
+  private listTasksForSnapshot(): Task[] {
+    const rows = this.db.db
+      .prepare(
+        `SELECT * FROM (
+           SELECT * FROM tasks ORDER BY (status = 'done') ASC, updated_at DESC LIMIT ?
+         ) ORDER BY created_at ASC`,
+      )
+      .all(SNAPSHOT_TASK_LIMIT) as unknown as TaskRow[];
+    return rows.map(rowToTask);
   }
 
   public updateTask(params: {
@@ -824,6 +1006,56 @@ export class OfficeCore {
     return row?.revisions_used ?? 0;
   }
 
+  public getTaskRevisionCount(taskId: string): number {
+    const row = this.db.db.prepare('SELECT revisions_used FROM tasks WHERE id = ?').get(taskId) as
+      | { revisions_used: number }
+      | undefined;
+    return row?.revisions_used ?? 0;
+  }
+
+  private requireTask(taskId: string): Task {
+    const task = this.getTask(taskId);
+    if (!task) throw new Error(`Tugas #${taskId} tidak ditemukan`);
+    return task;
+  }
+
+  /** Cari kursi lewat id atau nama (tanpa peka huruf besar/kecil), mis. "Bima" -> bima. */
+  public resolveAgent(idOrName: string): AgentConfig | undefined {
+    const key = idOrName.trim().toLowerCase();
+    if (!key) return undefined;
+    return (
+      this.config.agents.find((a) => a.id.toLowerCase() === key) ??
+      this.config.agents.find((a) => a.name.toLowerCase() === key)
+    );
+  }
+
+  /**
+   * Siapa boleh mengubah status tugas:
+   * - reviewer: semua transisi sah (ACC/REJECT);
+   * - security: boleh memblokir tugas apa pun (veto);
+   * - manager: boleh mengatur tugas, tapi tugas yang berisi file wajib lewat review sebelum done;
+   * - assignee: tugasnya sendiri, dengan aturan done yang sama;
+   * - selain itu ditolak.
+   */
+  private checkTaskStatusPermission(
+    actor: AgentConfig,
+    task: Task,
+    nextStatus: TaskStatus,
+  ): string | null {
+    if (actor.role === 'reviewer') return null;
+    if (actor.role === 'security' && nextStatus === 'blocked') return null;
+
+    const isManager = actor.role === 'manager';
+    const isAssignee = task.assignee === actor.id;
+    if (!isManager && !isAssignee) {
+      return `Tugas #${task.id} milik ${task.assignee}; hanya assignee, manajer, atau reviewer yang boleh mengubah statusnya.`;
+    }
+    if (nextStatus === 'done' && task.files.length > 0) {
+      return `Tugas #${task.id} berisi file; ajukan request_review ke reviewer, hanya reviewer yang boleh menandai done.`;
+    }
+    return null;
+  }
+
   public listApprovals(): Approval[] {
     const rows = this.db.db
       .prepare('SELECT * FROM approvals ORDER BY created_at DESC LIMIT 100')
@@ -856,10 +1088,16 @@ export class OfficeCore {
     agentId: string;
     kind: ApprovalKind;
     payload: ApprovalPayload;
+    /** Dibatalkan bila giliran agen dihentikan (stop/pause/timeout). */
+    signal?: AbortSignal;
   }): Promise<{ approved: boolean; reason?: string }> {
     const now = new Date().toISOString();
     const id = this.nextId('apr');
     const mode = this.getMode();
+
+    if (params.signal?.aborted) {
+      return { approved: false, reason: 'Giliran sudah dibatalkan' };
+    }
 
     if (mode === 'full') {
       // Always record approval row even in full mode, as required by tools.ts contract
@@ -919,43 +1157,80 @@ export class OfficeCore {
     this.emit({ type: 'approval.requested', approval, at: now });
 
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
+      let settled = false;
+      const finish = (result: { approved: boolean; reason?: string }) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        params.signal?.removeEventListener('abort', onAbort);
         this.pendingApprovals.delete(id);
-        const expiredAt = new Date().toISOString();
-        this.db.db
-          .prepare(
-            `UPDATE approvals SET status = 'expired', decided_at = ?, decided_by = 'system', reason = 'Kedaluwarsa' WHERE id = ?`,
-          )
-          .run(expiredAt, id);
-        this.emit({
-          type: 'approval.resolved',
-          id,
-          approved: false,
-          decidedBy: 'system',
-          reason: 'Kedaluwarsa — perintah ditolak',
-          at: expiredAt,
-        });
-        resolve({ approved: false, reason: 'Kedaluwarsa — perintah ditolak' });
+        resolve(result);
+      };
+
+      const timer = setTimeout(() => {
+        this.expireApproval(id, 'Kedaluwarsa — perintah ditolak');
+        finish({ approved: false, reason: 'Kedaluwarsa — perintah ditolak' });
       }, this.config.limits.approvalTimeoutMs);
 
+      // Giliran dihentikan saat menunggu izin -> izin ikut dibatalkan, perintah tidak akan jalan.
+      const onAbort = () => {
+        this.expireApproval(id, 'Dibatalkan — giliran agen dihentikan');
+        finish({ approved: false, reason: 'Dibatalkan — giliran agen dihentikan' });
+      };
+      params.signal?.addEventListener('abort', onAbort, { once: true });
+
       this.pendingApprovals.set(id, {
+        agentId: params.agentId,
         resolve: (approved: boolean) => {
           const row = this.db.db
             .prepare('SELECT reason FROM approvals WHERE id = ?')
             .get(id) as { reason: string | null } | undefined;
-          resolve({ approved, reason: row?.reason ?? undefined });
+          finish({ approved, reason: row?.reason ?? undefined });
         },
         timer,
       });
     });
   }
 
+  /** Menandai approval pending sebagai kedaluwarsa (tanpa memutuskan approval yang sudah final). */
+  private expireApproval(id: string, reason: string): void {
+    const at = new Date().toISOString();
+    const res = this.db.db
+      .prepare(
+        `UPDATE approvals SET status = 'expired', decided_at = ?, decided_by = 'system', reason = ?
+         WHERE id = ? AND status = 'pending'`,
+      )
+      .run(at, reason, id);
+    if (Number(res.changes) > 0) {
+      this.emit({ type: 'approval.resolved', id, approved: false, decidedBy: 'system', reason, at });
+    }
+  }
+
+  /** Apakah agen sedang menunggu keputusan CEO (dipakai watchdog giliran). */
+  public hasPendingApprovalFor(agentId: string): boolean {
+    for (const pending of this.pendingApprovals.values()) {
+      if (pending.agentId === agentId) return true;
+    }
+    return false;
+  }
+
   public respondApproval(id: string, approved: boolean, reason?: string, decidedBy = 'ceo'): void {
     const now = new Date().toISOString();
+    const row = this.db.db.prepare('SELECT status FROM approvals WHERE id = ?').get(id) as
+      | { status: Approval['status'] }
+      | undefined;
+    if (!row) {
+      throw new Error(`Approval #${id} tidak ditemukan`);
+    }
+    if (row.status !== 'pending') {
+      // Jejak audit approval final (disetujui/ditolak/kedaluwarsa) tidak boleh ditimpa.
+      throw new Error(`Approval #${id} sudah diputuskan (${row.status})`);
+    }
+
     const status = approved ? 'approved' : 'denied';
     this.db.db
       .prepare(
-        `UPDATE approvals SET status = ?, decided_at = ?, decided_by = ?, reason = ? WHERE id = ?`,
+        `UPDATE approvals SET status = ?, decided_at = ?, decided_by = ?, reason = ? WHERE id = ? AND status = 'pending'`,
       )
       .run(status, now, decidedBy, reason ?? null, id);
 
@@ -990,6 +1265,7 @@ export class OfficeCore {
     agentId: string,
     toolName: ToolName,
     rawInput: unknown,
+    options: { signal?: AbortSignal } = {},
   ): Promise<{ ok: boolean; output: string; finished?: boolean }> {
     const validated = validateToolInput(toolName, rawInput ?? {});
     if (!validated.ok) {
@@ -998,10 +1274,18 @@ export class OfficeCore {
     const input = validated.data as Record<string, unknown>;
     const agentCfg = this.getAgentConfig(agentId);
 
+    // Tolak-secara-default: hanya kursi terdaftar & aktif yang boleh memakai tool.
+    // Tanpa ini, agentId palsu (mis. dari MCP ?agent=x) melewati semua guard peran.
+    if (!agentCfg || !agentCfg.enabled) {
+      return {
+        ok: false,
+        output: `Agen "${agentId}" tidak terdaftar atau nonaktif; tool ${toolName} ditolak.`,
+      };
+    }
+
     // Role guard for file writing
     if (
       (toolName === 'write_file' || toolName === 'edit_file') &&
-      agentCfg &&
       !FILE_WRITING_ROLES.includes(agentCfg.role)
     ) {
       return {
@@ -1011,11 +1295,7 @@ export class OfficeCore {
     }
 
     // Role guard for command execution
-    if (
-      toolName === 'run_command' &&
-      agentCfg &&
-      !COMMAND_ROLES.includes(agentCfg.role)
-    ) {
+    if (toolName === 'run_command' && !COMMAND_ROLES.includes(agentCfg.role)) {
       return {
         ok: false,
         output: `Peran ${agentCfg.role} tidak diizinkan menjalankan run_command. Hanya peran (${COMMAND_ROLES.join(', ')}) yang diizinkan.`,
@@ -1023,17 +1303,27 @@ export class OfficeCore {
     }
 
     // Role guard for security_scan
-    if (
-      toolName === 'security_scan' &&
-      agentCfg &&
-      !SECURITY_SCAN_ROLES.includes(agentCfg.role)
-    ) {
+    if (toolName === 'security_scan' && !SECURITY_SCAN_ROLES.includes(agentCfg.role)) {
       return {
         ok: false,
         output: `Tool security_scan hanya dapat dijalankan oleh peran (${SECURITY_SCAN_ROLES.join(', ')}).`,
       };
     }
 
+    const result = await this.runTool(agentId, agentCfg, toolName, input, options);
+    if (result.ok && SIDE_EFFECT_TOOLS.has(toolName)) {
+      this.toolCallCounts.set(agentId, this.getToolCallCount(agentId) + 1);
+    }
+    return result;
+  }
+
+  private async runTool(
+    agentId: string,
+    agentCfg: AgentConfig,
+    toolName: ToolName,
+    input: Record<string, unknown>,
+    options: { signal?: AbortSignal },
+  ): Promise<{ ok: boolean; output: string; finished?: boolean }> {
     try {
       switch (toolName) {
         case 'send_message': {
@@ -1086,9 +1376,15 @@ export class OfficeCore {
         }
 
         case 'claim_task': {
-          const taskId = String(input.taskId);
+          const task = this.requireTask(String(input.taskId));
+          if (task.assignee !== agentId) {
+            return {
+              ok: false,
+              output: `Tugas #${task.id} milik ${task.assignee}; hanya assignee yang boleh mengambilnya.`,
+            };
+          }
           const updated = this.updateTask({
-            taskId,
+            taskId: task.id,
             status: 'in_progress',
             actor: agentId,
           });
@@ -1099,39 +1395,66 @@ export class OfficeCore {
         }
 
         case 'update_task': {
-          const taskId = String(input.taskId);
           const status = input.status as TaskStatus;
           const note = input.note ? String(input.note) : undefined;
-          const existing = this.getTask(taskId);
+          const existing = this.requireTask(String(input.taskId));
+          const denied = this.checkTaskStatusPermission(agentCfg, existing, status);
+          if (denied) return { ok: false, output: denied };
+
+          const isReject =
+            agentCfg.role === 'reviewer' &&
+            existing.status === 'review' &&
+            (status === 'in_progress' || status === 'blocked');
+
           const updated = this.updateTask({
-            taskId,
+            taskId: existing.id,
             status,
             note,
             actor: agentId,
-            force: true,
           });
-          if (note && existing) {
+
+          if (note) {
             const target =
-              agentCfg?.role === 'reviewer'
+              agentCfg.role === 'reviewer'
                 ? status === 'done'
                   ? managerOf(this.config).id
                   : existing.assignee
                 : managerOf(this.config).id;
-            this.sendMessage({
-              sender: agentId,
-              to: target,
-              kind: agentCfg?.role === 'reviewer' ? 'review' : 'handoff',
-              body: `Tugas #${taskId} -> ${status}: ${note}`,
-            });
+            if (target !== agentId) {
+              this.sendMessage({
+                sender: agentId,
+                to: target,
+                kind: agentCfg.role === 'reviewer' ? 'review' : 'handoff',
+                body: `Tugas #${existing.id} -> ${status}: ${note}`,
+              });
+            }
           }
 
-          if (
-            agentCfg?.role === 'reviewer' &&
-            (status === 'done' ||
-              (existing?.status === 'review' &&
-                (status === 'in_progress' || status === 'blocked')))
-          ) {
-            await this.handleTaskGitCommit(updated, status !== 'done');
+          if (isReject) {
+            const revisions = this.incrementTaskRevision(existing.id);
+            const limit = this.config.limits.revisionCycleLimit;
+            if (revisions >= limit) {
+              const blocked =
+                updated.status === 'blocked'
+                  ? updated
+                  : this.updateTask({
+                      taskId: existing.id,
+                      status: 'blocked',
+                      note: `Ditolak ${revisions}x (batas ${limit}); butuh keputusan CEO.`,
+                      actor: 'system',
+                    });
+              this.sendMessage({
+                sender: agentId,
+                to: 'ceo',
+                kind: 'system',
+                body: `ESKALASI: tugas #${blocked.id} "${blocked.title}" sudah ${revisions}x ditolak review (batas ${limit}).`,
+              });
+            }
+          }
+
+          // Commit & push hanya saat ACC reviewer; hasil REJECT tidak boleh masuk ke main.
+          if (agentCfg.role === 'reviewer' && status === 'done') {
+            await this.handleTaskGitCommit(updated, this.getTaskRevisionCount(updated.id) > 0);
           }
 
           return {
@@ -1161,51 +1484,74 @@ export class OfficeCore {
         }
 
         case 'post_report': {
-          const taskId = String(input.taskId);
           const summary = String(input.summary);
           const files = (input.files as string[] | undefined) ?? [];
-          const existing = this.getTask(taskId);
-          if (existing) {
-            this.updateTask({
-              taskId,
-              status: existing.status === 'todo' ? 'in_progress' : existing.status,
-              files,
-              actor: agentId,
-              force: true,
-            });
+          const existing = this.requireTask(String(input.taskId));
+          if (existing.assignee !== agentId) {
+            return {
+              ok: false,
+              output: `Hanya assignee (${existing.assignee}) yang boleh melapor untuk tugas #${existing.id}.`,
+            };
           }
+          if (existing.status === 'done') {
+            return {
+              ok: false,
+              output: `Tugas #${existing.id} sudah selesai; buat tugas baru untuk perubahan lanjutan.`,
+            };
+          }
+          this.updateTask({
+            taskId: existing.id,
+            status: existing.status === 'todo' ? 'in_progress' : existing.status,
+            files,
+            actor: agentId,
+          });
           const managerId = managerOf(this.config).id;
           this.sendMessage({
             sender: agentId,
             to: managerId,
             kind: 'handoff',
-            body: `Laporan tugas #${taskId}: ${summary}${files.length > 0 ? ` (File: ${files.join(', ')})` : ''}`,
+            body: `Laporan tugas #${existing.id}: ${summary}${files.length > 0 ? ` (File: ${files.join(', ')})` : ''}`,
           });
           return {
             ok: true,
-            output: `Laporan tugas #${taskId} dikirim ke ${managerId}.`,
+            output: `Laporan tugas #${existing.id} dikirim ke ${managerId}.`,
           };
         }
 
         case 'request_review': {
-          const taskId = String(input.taskId);
-          const to = String(input.to);
+          const existing = this.requireTask(String(input.taskId));
+          const reviewerCfg = this.resolveAgent(String(input.to));
+          if (existing.assignee !== agentId) {
+            return {
+              ok: false,
+              output: `Hanya assignee (${existing.assignee}) yang boleh meminta review tugas #${existing.id}.`,
+            };
+          }
+          if (!reviewerCfg || reviewerCfg.role !== 'reviewer') {
+            const reviewers = this.config.agents.filter((a) => a.role === 'reviewer').map((a) => a.id);
+            return {
+              ok: false,
+              output: `Review hanya bisa diminta ke peran reviewer (${reviewers.join(', ')}).`,
+            };
+          }
+          if (existing.status === 'todo') {
+            this.updateTask({ taskId: existing.id, status: 'in_progress', actor: agentId });
+          }
           const updated = this.updateTask({
-            taskId,
+            taskId: existing.id,
             status: 'review',
-            reviewer: to,
+            reviewer: reviewerCfg.id,
             actor: agentId,
-            force: true,
           });
           this.sendMessage({
             sender: agentId,
-            to,
+            to: reviewerCfg.id,
             kind: 'review',
             body: `Mohon review tugas #${updated.id} "${updated.title}". File: ${updated.files.join(', ') || '(cek git_diff)'}. Detail: ${updated.details}`,
           });
           return {
             ok: true,
-            output: `Permintaan review untuk tugas #${updated.id} dikirim ke ${to}.`,
+            output: `Permintaan review untuk tugas #${updated.id} dikirim ke ${reviewerCfg.id}.`,
           };
         }
 
@@ -1213,12 +1559,14 @@ export class OfficeCore {
           const question = String(input.question);
           const taskId = input.taskId ? String(input.taskId) : undefined;
           if (taskId) {
+            const task = this.requireTask(taskId);
+            const denied = this.checkTaskStatusPermission(agentCfg, task, 'blocked');
+            if (denied) return { ok: false, output: denied };
             this.updateTask({
               taskId,
               status: 'blocked',
               note: `Menunggu jawaban CEO: ${question}`,
               actor: agentId,
-              force: true,
             });
           }
           this.sendMessage({
@@ -1235,24 +1583,25 @@ export class OfficeCore {
         }
 
         case 'escalate': {
-          const taskId = String(input.taskId);
           const reason = String(input.reason);
+          const task = this.requireTask(String(input.taskId));
+          const denied = this.checkTaskStatusPermission(agentCfg, task, 'blocked');
+          if (denied) return { ok: false, output: denied };
           this.updateTask({
-            taskId,
+            taskId: task.id,
             status: 'blocked',
             note: `Eskalasi: ${reason}`,
             actor: agentId,
-            force: true,
           });
           this.sendMessage({
             sender: agentId,
             to: 'ceo',
             kind: 'system',
-            body: `ESKALASI tugas #${taskId}: ${reason}`,
+            body: `ESKALASI tugas #${task.id}: ${reason}`,
           });
           return {
             ok: true,
-            output: `Tugas #${taskId} dieskalasi ke CEO.`,
+            output: `Tugas #${task.id} dieskalasi ke CEO.`,
             finished: true,
           };
         }
@@ -1331,20 +1680,23 @@ export class OfficeCore {
           const query = String(input.query);
           const maxResults = Number(input.maxResults ?? 50);
           const files = this.walkWorkspaceDir(this.workspaceDir, 5).filter(
-            (f) => !f.endsWith('/'),
+            (f) => !f.endsWith('/') && !BINARY_EXTENSIONS.has(path.extname(f).toLowerCase()),
           );
           const matches: string[] = [];
-          for (const rel of files) {
+          // Asinkron & dibatasi agar pencarian besar tidak membekukan event loop server.
+          for (const rel of files.slice(0, 3000)) {
             if (matches.length >= maxResults) break;
             const full = this.resolveWorkspacePath(rel);
             try {
-              const text = fs.readFileSync(full, 'utf8');
+              const stat = await fs.promises.stat(full);
+              if (stat.size > 1024 * 1024) continue;
+              const text = await fs.promises.readFile(full, 'utf8');
               const lines = text.split(/\r?\n/);
-              lines.forEach((line, idx) => {
-                if (matches.length < maxResults && line.includes(query)) {
-                  matches.push(`${rel}:${idx + 1}: ${line.trim().slice(0, 160)}`);
+              for (let idx = 0; idx < lines.length && matches.length < maxResults; idx += 1) {
+                if (lines[idx]!.includes(query)) {
+                  matches.push(`${rel}:${idx + 1}: ${lines[idx]!.trim().slice(0, 160)}`);
                 }
-              });
+              }
             } catch {
               // ignore binary/unreadable files
             }
@@ -1382,41 +1734,33 @@ export class OfficeCore {
         }
 
         case 'run_command': {
-          const command = String(input.command);
-          const args = (input.args as string[] | undefined) ?? [];
           const cwdRel = input.cwd ? String(input.cwd) : '.';
           const reason = input.reason ? String(input.reason) : 'Eksekusi perintah di workspace';
 
-          if (!ALLOWED_COMMANDS.has(command.toLowerCase())) {
-            return {
-              ok: false,
-              output: `Perintah "${command}" tidak termasuk dalam allowlist (${Array.from(ALLOWED_COMMANDS).join(', ')}).`,
-            };
+          const policy = evaluateCommand(
+            String(input.command),
+            (input.args as string[] | undefined) ?? [],
+          );
+          if (!policy.ok) {
+            return { ok: false, output: `Perintah ditolak kebijakan keamanan: ${policy.reason}` };
           }
+          const { command, args } = policy;
+          const execCwd = this.resolveWorkspacePath(cwdRel);
 
-          const isPlaywrightVisualCheck =
-            agentCfg !== undefined &&
-            PLAYWRIGHT_AUTO_APPROVE_ROLES.includes(agentCfg.role) &&
-            command.toLowerCase() === 'npx' &&
-            args[0] === 'playwright' &&
-            args[1] === 'test' &&
-            args.every((a) => /^[a-zA-Z0-9_./=-]+$/.test(a));
-
-          const decision = isPlaywrightVisualCheck
-            ? { approved: true, reason: 'Auto-approved narrow Playwright check for visual_qa' }
-            : await this.requestApproval({
-                agentId,
-                kind: 'run_command',
-                payload: {
-                  command,
-                  args,
-                  cwd: cwdRel,
-                  reason,
-                  risk: 'Menjalankan proses lokal di dalam folder workspace/',
-                },
-              });
-
-          this.setAgentStatus(agentId, 'working', `Menjalankan ${command}`);
+          // Tidak ada lagi persetujuan otomatis per peran: perintah apa pun bisa menjalankan
+          // kode yang ditulis agen lain (mis. config/test Playwright), jadi CEO harus melihatnya.
+          const decision = await this.requestApproval({
+            agentId,
+            kind: 'run_command',
+            payload: {
+              command,
+              args,
+              cwd: cwdRel,
+              reason,
+              risk: 'Menjalankan proses lokal di dalam folder workspace/ (bisa mengeksekusi kode proyek)',
+            },
+            signal: options.signal,
+          });
 
           if (!decision.approved) {
             return {
@@ -1424,14 +1768,20 @@ export class OfficeCore {
               output: `DITOLAK oleh CEO${decision.reason ? `: ${decision.reason}` : ''}`,
             };
           }
+          if (options.signal?.aborted) {
+            return { ok: false, output: 'Giliran dibatalkan; perintah tidak dijalankan.' };
+          }
 
-          const execCwd = this.resolveWorkspacePath(cwdRel);
+          this.setAgentStatus(agentId, 'working', `Menjalankan ${command}`);
           try {
             const { stdout, stderr } = await execFileAsync(command, args, {
               cwd: execCwd,
-              timeout: 30000,
+              timeout: policy.timeoutMs,
               windowsHide: true,
-              shell: process.platform === 'win32' && (command === 'npm' || command === 'npx'),
+              shell: policy.useShell,
+              env: sanitizedChildEnv(process.env, [this.config.gateway.apiKeyEnv]),
+              maxBuffer: 4 * 1024 * 1024,
+              signal: options.signal,
             });
             const out = [stdout.trim(), stderr.trim()].filter(Boolean).join('\n');
             return { ok: true, output: (out || '(selesai dengan kode 0)').slice(0, 8000) };
@@ -1484,22 +1834,81 @@ export class OfficeCore {
     }
   }
 
-  public walkWorkspaceDir(baseDir: string, maxDepth: number, currentDepth = 1): string[] {
-    if (currentDepth > maxDepth || !fs.existsSync(baseDir)) return [];
+  public walkWorkspaceDir(
+    baseDir: string,
+    maxDepth: number,
+    currentDepth = 1,
+    results: string[] = [],
+  ): string[] {
+    if (currentDepth > maxDepth || !fs.existsSync(baseDir)) return results;
     const entries = fs.readdirSync(baseDir, { withFileTypes: true });
-    const results: string[] = [];
     for (const entry of entries) {
+      if (results.length >= WALK_ENTRY_LIMIT) break;
       if (entry.name === '.git' || entry.name === 'node_modules') continue;
       const full = path.join(baseDir, entry.name);
       const rel = path.relative(this.workspaceDir, full).replace(/\\/g, '/');
       if (entry.isDirectory()) {
         results.push(`${rel}/`);
-        results.push(...this.walkWorkspaceDir(full, maxDepth, currentDepth + 1));
+        this.walkWorkspaceDir(full, maxDepth, currentDepth + 1, results);
       } else {
         results.push(rel);
       }
     }
     return results;
+  }
+
+  /** Riwayat giliran agen (run + langkah tool) untuk panel inspektur CEO. */
+  public listRuns(filter: { agentId?: string; limit?: number } = {}): RunView[] {
+    const limit = Math.min(Math.max(filter.limit ?? 10, 1), 50);
+    const runs = (
+      filter.agentId
+        ? this.db.db
+            .prepare('SELECT * FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT ?')
+            .all(filter.agentId, limit)
+        : this.db.db.prepare('SELECT * FROM runs ORDER BY started_at DESC LIMIT ?').all(limit)
+    ) as Array<{
+      id: string;
+      agent_id: string;
+      task_id: string | null;
+      model: string;
+      status: string;
+      started_at: string;
+      ended_at: string | null;
+      error: string | null;
+    }>;
+    const stepStmt = this.db.db.prepare(
+      'SELECT seq, kind, name, input_json, output_json FROM steps WHERE run_id = ? ORDER BY seq ASC LIMIT 40',
+    );
+    const clip = (v: string | null) => (v ? v.slice(0, 600) : undefined);
+    return runs.map((r) => ({
+      id: r.id,
+      agentId: r.agent_id,
+      taskId: r.task_id ?? undefined,
+      model: formatPublicModelName(r.model),
+      status: r.status,
+      startedAt: r.started_at,
+      endedAt: r.ended_at ?? undefined,
+      error: r.error ?? undefined,
+      steps: (
+        stepStmt.all(r.id) as Array<{
+          seq: number;
+          kind: string;
+          name: string | null;
+          input_json: string | null;
+          output_json: string | null;
+        }>
+      ).map((st) => ({
+        seq: st.seq,
+        kind: st.kind,
+        name: st.name ?? undefined,
+        input: clip(st.input_json),
+        output: clip(st.output_json),
+      })),
+    }));
+  }
+
+  public getToolCallCount(agentId: string): number {
+    return this.toolCallCounts.get(agentId) ?? 0;
   }
 
   public handleClientCommand(cmd: ClientCommand): void {
@@ -1579,7 +1988,7 @@ export class OfficeCore {
       },
       projects: this.listProjects(),
       agents: this.listAgents(),
-      tasks: this.listTasks(),
+      tasks: this.listTasksForSnapshot(),
       approvals: this.listApprovals(),
       messages: this.listMessages(150),
       usage: usageRows.map((u) => ({
@@ -1653,6 +2062,25 @@ export class OfficeCore {
           createdAt: now,
         },
         at: now,
+      });
+      return;
+    }
+
+    // Kegagalan non-keamanan dulu hilang diam-diam; sekarang manajer/CEO diberi tahu.
+    const managerId = managerOf(this.config).id;
+    if (result.skipped === 'no_files') {
+      this.sendMessage({
+        sender: 'system',
+        to: managerId,
+        kind: 'system',
+        body: `Tugas #${task.id} ("${task.title}") di-ACC tetapi tidak di-commit: ${result.error ?? 'tidak ada daftar file'}. Minta ${task.assignee} melaporkan ulang daftar file lewat tugas revisi.`,
+      });
+    } else if (result.committed && !result.pushed && result.error) {
+      this.sendMessage({
+        sender: 'system',
+        to: 'ceo',
+        kind: 'system',
+        body: `[GIT] ${result.error}`,
       });
     }
   }

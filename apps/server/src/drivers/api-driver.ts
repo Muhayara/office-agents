@@ -210,6 +210,8 @@ export class ApiDriver implements AgentDriver {
 
       this.core.setAgentStatus(agent.id, 'thinking', `Langkah ${step}/${maxSteps}`);
 
+      // Batas global kantor (limits.globalReqPerMin / globalReqPerDay) berlaku untuk semua kursi.
+      await this.core.waitForRateSlot(signal);
       const callResult = await this.callWithFallbacks(agent, messages, signal);
       modelUsed = callResult.modelUsed;
       const { parsed } = callResult;
@@ -250,7 +252,9 @@ export class ApiDriver implements AgentDriver {
           }
 
           this.core.setAgentStatus(agent.id, 'working', `Menjalankan ${tc.name}`);
-          const execResult = await this.core.executeTool(agent.id, tc.name as ToolName, parsedArgs);
+          const execResult = await this.core.executeTool(agent.id, tc.name as ToolName, parsedArgs, {
+            signal,
+          });
           anyToolExecuted = true;
           steps.push({
             seq: steps.length + 1,
@@ -296,7 +300,7 @@ export class ApiDriver implements AgentDriver {
         let turnFinished = false;
         for (const mc of mappedCalls) {
           this.core.setAgentStatus(agent.id, 'working', `Menjalankan ${mc.name}`);
-          const execResult = await this.core.executeTool(agent.id, mc.name, mc.input);
+          const execResult = await this.core.executeTool(agent.id, mc.name, mc.input, { signal });
           anyToolExecuted = true;
           steps.push({
             seq: steps.length + 1,
@@ -330,9 +334,10 @@ export class ApiDriver implements AgentDriver {
         steps.push({ seq: steps.length + 1, kind: 'text', output: parsed.text });
         this.core.agentSay(agent.id, parsed.text, 'neutral');
         if (!anyToolExecuted) {
+          // Balas ke pengirim manusia/agen terakhir; catatan "system" tidak bisa dibalas.
           const lastSender =
-            unreadMessages[unreadMessages.length - 1]?.sender ??
-            (agent.role === 'manager' ? 'ceo' : managerOf(this.core.config).id);
+            [...unreadMessages].reverse().find((m) => m.sender !== 'system' && m.sender !== agent.id)
+              ?.sender ?? (agent.role === 'manager' ? 'ceo' : managerOf(this.core.config).id);
           this.core.sendMessage({
             sender: agent.id,
             to: lastSender,
