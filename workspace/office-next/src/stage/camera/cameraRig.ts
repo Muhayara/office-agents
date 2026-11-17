@@ -3,9 +3,12 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 /**
  * Sistem Dual Kamera (plan §3):
- * - Mode 1 `iso`: OrthographicCamera + OrbitControls (bawaan, posisi awal (18, 14, 20)).
+ * - Mode 1 `iso`: OrthographicCamera + OrbitControls (bawaan, memandang dari Tenggara).
+ *   Posisi "home" dibingkai otomatis dari kotak gedung lewat `setHomeBox()`.
  * - Mode 2 `free`: PerspectiveCamera FOV 50°, seret mouse untuk melihat,
  *   W/A/S/D maju-kiri-mundur-kanan, Q naik, E turun, Shift = cepat, roda mouse = maju/mundur.
+ *   Free Cam mulai melayang di atas dinding (tampilan rumah boneka); turun di bawah tinggi
+ *   dinding di dalam gedung = mode jalan kaki dengan semua dinding utuh (lihat WallFader).
  */
 export type CameraMode = 'iso' | 'free';
 
@@ -15,7 +18,13 @@ const ISO_DEFAULT_TARGET = new THREE.Vector3(0, 1.05, 0);
 /** Auto-pan tidak menimpa kamera bila CEO menggesernya dalam rentang ini. */
 const MANUAL_GRACE_MS = 8000;
 const FREE_SPEED = 3.5;
-const FREE_BOUNDS = { minX: -14, maxX: 26, minY: 0.3, maxY: 16, minZ: -12, maxZ: 16 };
+/** Mencakup seluruh Jalan Utama 38 m (dunia X -7..31) dengan ruang gerak di sekelilingnya. */
+const FREE_BOUNDS = { minX: -12, maxX: 36, minY: 0.3, maxY: 16, minZ: -10, maxZ: 20 };
+/** Ketinggian awal Free Cam: di atas dinding 3,2 m supaya isi ruangan langsung terlihat. */
+const FREE_START_HEIGHT = 6.0;
+const FREE_START_DISTANCE = 11;
+/** Ruang kosong di tepi layar saat membingkai gedung (1.06 = 6%). */
+const HOME_MARGIN = 1.06;
 
 interface Tween {
   t: number;
@@ -60,12 +69,19 @@ export class CameraRig {
   private lastX = 0;
   private lastY = 0;
   private lastManualAt = -Infinity;
+  /** true sampai CEO atau sistem menggerakkan kamera: bingkai home masih boleh disesuaikan. */
+  private pristine = true;
+  private aspect: number;
+  private homeTarget = ISO_DEFAULT_TARGET.clone();
+  /** Setengah lebar & tinggi gedung di layar (satuan dunia) untuk menghitung zoom home. */
+  private homeHalf: { w: number; h: number } | null = null;
   private tween: Tween | null = null;
   private fwd = new THREE.Vector3();
   private right = new THREE.Vector3();
 
   constructor(dom: HTMLElement, aspect: number) {
     this.dom = dom;
+    this.aspect = aspect;
     const vh = ISO_VIEW_HEIGHT;
     this.iso = new THREE.OrthographicCamera((-vh * aspect) / 2, (vh * aspect) / 2, vh / 2, -vh / 2, 0.1, 1000);
     this.iso.position.copy(ISO_DEFAULT_TARGET).add(ISO_OFFSET);
@@ -105,9 +121,11 @@ export class CameraRig {
       // Mulai dari sudut pandang isometrik saat ini, turun ke ketinggian manusia.
       const target = this.controls.target.clone();
       const dir = this.iso.position.clone().sub(target).setY(0).normalize();
-      this.persp.position.copy(target).addScaledVector(dir, 7).setY(2.6);
+      this.persp.position.copy(target).addScaledVector(dir, FREE_START_DISTANCE).setY(FREE_START_HEIGHT);
+      this.clampFree();
       this.lookAt(target.clone().setY(1.0));
     }
+    this.pristine = false;
     this.mode = mode;
     this.controls.enabled = mode === 'iso';
     this.keys.clear();
@@ -121,6 +139,7 @@ export class CameraRig {
   /** Geser fokus ke titik dunia. `auto` = dipicu sistem (dibatalkan bila CEO baru menggeser kamera). */
   focus(point: THREE.Vector3, opts: { auto?: boolean; dur?: number } = {}) {
     if (opts.auto && (this.mode !== 'iso' || performance.now() - this.lastManualAt < MANUAL_GRACE_MS)) return;
+    this.pristine = false;
     const dur = opts.dur ?? 1.1;
     if (this.mode === 'iso') {
       const toTarget = point.clone();
@@ -146,16 +165,69 @@ export class CameraRig {
 
   reset() {
     this.setMode('iso');
+    this.applyHome();
+    this.pristine = true;
+  }
+
+  /**
+   * Tentukan bingkai "home" kamera isometrik dari kotak dunia yang harus terlihat utuh
+   * (klaster ruangan yang sudah dibangun). Target dan zoom dihitung dari proyeksi kotak itu
+   * ke bidang layar, jadi tahap berikutnya cukup memperbesar kotaknya.
+   */
+  setHomeBox(box: THREE.Box3) {
+    const fwd = ISO_OFFSET.clone().normalize().negate();
+    const right = new THREE.Vector3().crossVectors(fwd, THREE.Object3D.DEFAULT_UP).normalize();
+    const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
+    let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+    const p = new THREE.Vector3();
+    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+      p.set(x, y, z);
+      const u = p.dot(right);
+      const v = p.dot(up);
+      uMin = Math.min(uMin, u); uMax = Math.max(uMax, u);
+      vMin = Math.min(vMin, v); vMax = Math.max(vMax, v);
+    }
+    const uC = (uMin + uMax) / 2;
+    const vC = (vMin + vMax) / 2;
+    // Titik pada sumbu pandang yang berada di ketinggian fokus (agar orbit berputar di lantai).
+    const depth = (ISO_DEFAULT_TARGET.y - vC * up.y) / fwd.y;
+    this.homeTarget.copy(right).multiplyScalar(uC).addScaledVector(up, vC).addScaledVector(fwd, depth);
+    this.homeHalf = { w: (uMax - uMin) / 2, h: (vMax - vMin) / 2 };
+    if (this.pristine && this.mode === 'iso') this.applyHome();
+  }
+
+  /** Letakkan Free Cam di sebuah posisi sambil menatap sebuah titik (dibatasi FREE_BOUNDS). */
+  placeFree(position: THREE.Vector3, lookAt: THREE.Vector3) {
     this.tween = null;
-    this.controls.target.copy(ISO_DEFAULT_TARGET);
-    this.iso.position.copy(ISO_DEFAULT_TARGET).add(ISO_OFFSET);
-    this.iso.zoom = 1;
+    this.persp.position.copy(position);
+    this.clampFree();
+    this.lookAt(lookAt);
+  }
+
+  /** Titik fokus home (pusat klaster ruangan) untuk auto-pan kembali setelah rapat. */
+  home() {
+    return this.homeTarget.clone();
+  }
+
+  private homeZoom() {
+    if (!this.homeHalf) return 1;
+    const fitW = (ISO_VIEW_HEIGHT * this.aspect) / 2 / (this.homeHalf.w * HOME_MARGIN);
+    const fitH = ISO_VIEW_HEIGHT / 2 / (this.homeHalf.h * HOME_MARGIN);
+    return Math.max(this.controls.minZoom, Math.min(1, fitW, fitH));
+  }
+
+  private applyHome() {
+    this.tween = null;
+    this.controls.target.copy(this.homeTarget);
+    this.iso.position.copy(this.homeTarget).add(ISO_OFFSET);
+    this.iso.zoom = this.homeZoom();
     this.iso.updateProjectionMatrix();
     this.controls.update();
   }
 
   resize(w: number, h: number) {
     const a = w / h;
+    this.aspect = a;
     const vh = ISO_VIEW_HEIGHT;
     this.iso.left = (-vh * a) / 2;
     this.iso.right = (vh * a) / 2;
@@ -164,6 +236,8 @@ export class CameraRig {
     this.iso.updateProjectionMatrix();
     this.persp.aspect = a;
     this.persp.updateProjectionMatrix();
+    // Kamera belum disentuh: bingkai ulang supaya gedung tetap utuh di ukuran layar baru.
+    if (this.pristine && this.mode === 'iso') this.applyHome();
   }
 
   update(dt: number) {
@@ -236,6 +310,7 @@ export class CameraRig {
 
   private markManual() {
     this.lastManualAt = performance.now();
+    this.pristine = false;
   }
 
   private onControlsStart = () => {

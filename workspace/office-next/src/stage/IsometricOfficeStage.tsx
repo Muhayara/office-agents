@@ -20,16 +20,22 @@ import {
   AGENT_3D_POSITIONS,
   BOARDROOM,
   BOARDROOM_SEATS,
+  COFFEE_FACE_ROT,
   COFFEE_QUEUE_SPOTS,
-  CORRIDOR_EAST,
+  CORRIDOR_BUS,
   DOOR_MUTEX_GAP_S,
   MEETING_DEPART_GAP_S,
   MEETING_GATHER_TIMEOUT_S,
   MEETING_PRESENT_S,
   MEETING_SEAT_ASSIGNMENT,
   MEETING_SESSION_S,
+  ROOM_BOARDROOM,
+  ROOM_FOYER,
   ROOM_MAIN,
+  TRASH_FACE_ROT,
   TRASH_STAND,
+  WALL_HEIGHT,
+  WALL_THICKNESS,
   WALK_SPEED,
   sitWorld,
   type Pt,
@@ -38,8 +44,9 @@ import {
   BOARDROOM_DOOR_GATE,
   FLOOR1_PORTALS,
   boardroomPath,
-  corridorPath,
+  busPath,
   createBuildingNav,
+  foyerPath,
   mainRoomPath,
   pathLength,
   segLen,
@@ -47,10 +54,11 @@ import {
   type NavPt,
 } from './navigation';
 import { CameraRig, ISO_FOCUS_HEIGHT, type CameraMode } from './camera/cameraRig';
-import { WallFader } from './camera/wallFade';
+import { WallFader, type WalkZone } from './camera/wallFade';
 import { disposeObject, enableShadow, type ModelLoader } from './rooms/assets';
 import { buildMainWorkspace } from './rooms/mainWorkspace';
-import { buildCorridorEast } from './rooms/corridorEast';
+import { buildMainCorridor } from './rooms/mainCorridor';
+import { buildMeetingFoyer } from './rooms/meetingFoyer';
 import { buildBoardroom } from './rooms/boardroom';
 
 // ============================================================================
@@ -59,8 +67,11 @@ import { buildBoardroom } from './rooms/boardroom';
 
 export type { CameraMode };
 
+/** Ruangan Lantai 1 yang bisa difokus kamera. */
+export type StageRoom = 'workspace' | 'boardroom' | 'foyer' | 'bus';
+
 export interface StageApi {
-  focusRoom: (room: 'workspace' | 'boardroom') => void;
+  focusRoom: (room: StageRoom) => void;
   toggleCamera: () => void;
   resetCamera: () => void;
   focusAgent: (agentId: string) => void;
@@ -88,8 +99,7 @@ const CONVO_MAX_S    = 24;
 const THOUGHT_MIN_S  = 8;
 const THOUGHT_MAX_S  = 18;
 const VISIT_STAY_S   = 3.5;
-/** Pusat bayangan matahari: tengah gedung (ruang kerja + koridor + ruang rapat). */
-const SUN_TARGET = new THREE.Vector3(5.25, 0, 0);
+/** Arah datang matahari (dari tenggara atas). Target & frustum bayangan dipaskan ke tapak gedung. */
 const SUN_OFFSET = new THREE.Vector3(12, 24, 16);
 const SEATED_LEG = Math.PI / 2.2;
 
@@ -379,18 +389,10 @@ export function IsometricOfficeStage({
     const hemi = new THREE.HemisphereLight(0xdcf3ff, 0x1c2b33, 1.8);
     scene.add(hemi);
 
-    // Bayangan matahari dipusatkan di tengah gedung agar ruang rapat ikut tercakup.
+    // Frustum bayangan dipaskan ke tapak gedung setelah ruangan dirakit (fitSunTo di bawah).
     const sun = new THREE.DirectionalLight(0xfff7ed, 3.2);
-    sun.position.copy(SUN_TARGET).add(SUN_OFFSET);
-    sun.target.position.copy(SUN_TARGET);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near = 0.5;
-    sun.shadow.camera.far = 70;
-    sun.shadow.camera.left = -16;
-    sun.shadow.camera.right = 16;
-    sun.shadow.camera.top = 16;
-    sun.shadow.camera.bottom = -16;
     sun.shadow.bias = -0.0003;
     sun.shadow.normalBias = 0.02;
     scene.add(sun, sun.target);
@@ -460,19 +462,84 @@ export function IsometricOfficeStage({
       onShellLoaded: () => {},
       onShellError: (e) => onLoadErrorChangeRef.current?.(String(e)),
     });
-    const corridor = buildCorridorEast(load);
+    const bus = buildMainCorridor(fader);
+    const foyer = buildMeetingFoyer(load, fader);
+    // Karpet seluruh lantai disamakan dengan karpet ruang rapat begitu GLB-nya dimuat.
     const board = buildBoardroom(load, fader, (mat) => {
       main.setCarpetMaterial(mat);
-      corridor.setCarpetMaterial(mat);
+      foyer.setCarpetMaterial(mat);
+      bus.setCarpetMaterial(mat);
     });
-    floor1.add(main.group, corridor.group, board.group);
+    floor1.add(main.group, bus.group, foyer.group, board.group);
 
     // Avatar berada di level lantai karena berpindah antar-ruangan.
     const avatarsGroup = new THREE.Group();
     avatarsGroup.name = 'AgentAvatars';
     floor1.add(avatarsGroup);
     building.updateMatrixWorld(true);
+    main.bindWalls();
     board.bindWalls();
+    foyer.bindWalls();
+    bus.bindWalls();
+
+    // ---- Tapak dunia tiap ruangan (ruangan tidak diputar, jadi cukup dua sudutnya) ----
+    const worldZone = (g: THREE.Object3D, minX: number, maxX: number, minZ: number, maxZ: number): WalkZone => {
+      const a = g.localToWorld(new THREE.Vector3(minX, 0, minZ));
+      const b = g.localToWorld(new THREE.Vector3(maxX, 0, maxZ));
+      return { minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x), minZ: Math.min(a.z, b.z), maxZ: Math.max(a.z, b.z) };
+    };
+    const zones = {
+      main: worldZone(main.group, -ROOM_MAIN.halfX, ROOM_MAIN.halfX, -ROOM_MAIN.halfZ, ROOM_MAIN.halfZ),
+      board: worldZone(board.group, -ROOM_BOARDROOM.half, ROOM_BOARDROOM.half, -ROOM_BOARDROOM.half, ROOM_BOARDROOM.half),
+      foyer: worldZone(foyer.group, -ROOM_FOYER.halfX, ROOM_FOYER.halfX, -ROOM_FOYER.halfZ, ROOM_FOYER.halfZ),
+      // Termasuk tebal dinding kaca selatan yang berdiri di luar lebar 2,4 m.
+      bus: worldZone(bus.group, -CORRIDOR_BUS.halfLength, CORRIDOR_BUS.halfLength, -CORRIDOR_BUS.halfWidth, CORRIDOR_BUS.halfWidth + WALL_THICKNESS),
+    };
+    // Free Cam di dalam tapak ini & di bawah tinggi dinding = mode jalan kaki (dinding utuh).
+    fader.setWalkZones(Object.values(zones), WALL_HEIGHT);
+
+    const zoneBox = (list: WalkZone[]) => {
+      const box = new THREE.Box3();
+      for (const z of list) {
+        box.expandByPoint(new THREE.Vector3(z.minX, 0, z.minZ));
+        box.expandByPoint(new THREE.Vector3(z.maxX, WALL_HEIGHT, z.maxZ));
+      }
+      return box;
+    };
+
+    // ---- Bayangan matahari: frustum dipaskan ke seluruh tapak yang sudah dibangun ----
+    {
+      const box = zoneBox(Object.values(zones));
+      const center = box.getCenter(new THREE.Vector3()).setY(0);
+      sun.position.copy(center).add(SUN_OFFSET);
+      sun.target.position.copy(center);
+      sun.target.updateMatrixWorld();
+      const view = new THREE.Matrix4().lookAt(sun.position, center, THREE.Object3D.DEFAULT_UP).setPosition(sun.position).invert();
+      const lo = new THREE.Vector3(Infinity, Infinity, Infinity);
+      const hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+      const p = new THREE.Vector3();
+      for (const x of [box.min.x, box.max.x]) for (const y of [-0.3, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+        p.set(x, y, z).applyMatrix4(view);
+        lo.min(p);
+        hi.max(p);
+      }
+      const pad = 0.5;
+      const sc = sun.shadow.camera;
+      sc.left = lo.x - pad;
+      sc.right = hi.x + pad;
+      sc.bottom = lo.y - pad;
+      sc.top = hi.y + pad;
+      sc.near = Math.max(0.5, -hi.z - 2);
+      sc.far = -lo.z + 2;
+      sc.updateProjectionMatrix();
+    }
+
+    // ---- Bingkai awal kamera: klaster inti (ruang kerja + ruang rapat + foyer + ruas bus di depannya) ----
+    {
+      const core = zoneBox([zones.main, zones.board, zones.foyer]);
+      core.max.z = Math.max(core.max.z, zones.bus.maxZ);
+      cam.setHomeBox(core);
+    }
 
     // ================================================================
     // NAVIGASI GEDUNG (graf lokal per ruangan + portal pintu)
@@ -496,13 +563,19 @@ export function IsometricOfficeStage({
           ...roomTransform(board.group),
         },
         {
-          id: 'corridor',
+          id: 'foyer',
+          bounds: { minX: -ROOM_FOYER.halfX, maxX: ROOM_FOYER.halfX, minZ: -ROOM_FOYER.halfZ, maxZ: ROOM_FOYER.halfZ },
+          pathLocal: foyerPath,
+          ...roomTransform(foyer.group),
+        },
+        {
+          id: 'bus',
           bounds: {
-            minX: -CORRIDOR_EAST.halfLength, maxX: CORRIDOR_EAST.halfLength,
-            minZ: -CORRIDOR_EAST.halfWidth, maxZ: CORRIDOR_EAST.halfWidth,
+            minX: -CORRIDOR_BUS.halfLength, maxX: CORRIDOR_BUS.halfLength,
+            minZ: -CORRIDOR_BUS.halfWidth, maxZ: CORRIDOR_BUS.halfWidth,
           },
-          pathLocal: corridorPath,
-          ...roomTransform(corridor.group),
+          pathLocal: busPath,
+          ...roomTransform(bus.group),
         },
         {
           id: 'main',
@@ -512,10 +585,13 @@ export function IsometricOfficeStage({
         },
       ],
       [
-        { id: 'main-corridor', a: { room: 'main', portal: FLOOR1_PORTALS.mainEast }, b: { room: 'corridor', portal: FLOOR1_PORTALS.corridorWest } },
+        // Ruang kerja punya 2 pintu ke Jalan Utama: router memilih rute total terpendek.
+        { id: 'main-bus-west', a: { room: 'main', portal: FLOOR1_PORTALS.mainSouthWest }, b: { room: 'bus', portal: FLOOR1_PORTALS.busWestDoor } },
+        { id: 'main-bus-east', a: { room: 'main', portal: FLOOR1_PORTALS.mainSouthEast }, b: { room: 'bus', portal: FLOOR1_PORTALS.busEastDoor } },
+        { id: 'bus-foyer', a: { room: 'bus', portal: FLOOR1_PORTALS.busFoyerDoor }, b: { room: 'foyer', portal: FLOOR1_PORTALS.foyerSouth } },
         {
-          id: 'corridor-boardroom',
-          a: { room: 'corridor', portal: FLOOR1_PORTALS.corridorEastQueue },
+          id: 'foyer-boardroom',
+          a: { room: 'foyer', portal: FLOOR1_PORTALS.foyerNorth },
           b: { room: 'boardroom', portal: FLOOR1_PORTALS.boardroomDoorInside },
           gate: BOARDROOM_DOOR_GATE,
         },
@@ -1081,16 +1157,22 @@ export function IsometricOfficeStage({
     };
 
     const refreshScreen = () => {
-      if (!meeting || meeting.phase === 'dispersing') { board.setScreen(null); return; }
+      if (!meeting || meeting.phase === 'dispersing') {
+        board.setScreen(null);
+        foyer.setStatus(null);
+        return;
+      }
       const seated = meeting.attendees.filter((id) => animMap.get(id)?.state === 'in_meeting').length;
       const role = agentRole(meeting.host);
-      board.setScreen({
-        phase: meeting.phase === 'session' ? 'session' : 'gathering',
+      const info = {
+        phase: meeting.phase === 'session' ? 'session' as const : 'gathering' as const,
         topic: meeting.topic,
         host: role ? `${agentName(meeting.host)} · ${role}` : agentName(meeting.host),
         seated,
         total: meeting.attendees.length,
-      });
+      };
+      board.setScreen(info);
+      foyer.setStatus(info);
     };
 
     const walkToSeat = (id: string, anim: AgentAnim, refs: AgentMeshRefs) => {
@@ -1228,7 +1310,7 @@ export function IsometricOfficeStage({
       } else {
         if (meeting.focusBackAt > 0 && globalTime >= meeting.focusBackAt) {
           meeting.focusBackAt = 0;
-          cam.focus(new THREE.Vector3(0, ISO_FOCUS_HEIGHT, 0), { auto: true });
+          cam.focus(cam.home(), { auto: true });
         }
         const busy = meeting.attendees.some((id) => {
           const a = animMap.get(id);
@@ -1261,7 +1343,7 @@ export function IsometricOfficeStage({
             anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.brewing);
             anim.bubbleTimer = 3.5;
             refs.avatar.position.set(COFFEE_QUEUE_SPOTS[0]!.x, 0, COFFEE_QUEUE_SPOTS[0]!.z);
-            refs.avatar.rotation.y = Math.PI; // Menghadap mesin barista
+            refs.avatar.rotation.y = COFFEE_FACE_ROT; // Menghadap mesin barista
             refs.leftLegPivot.rotation.set(0, 0, 0);
             refs.rightLegPivot.rotation.set(0, 0, 0);
           } else if (qIdx > 0) {
@@ -1272,7 +1354,7 @@ export function IsometricOfficeStage({
             anim.bubbleTimer = 3.0;
             const spot = COFFEE_QUEUE_SPOTS[Math.min(qIdx, COFFEE_QUEUE_SPOTS.length - 1)]!;
             refs.avatar.position.set(spot.x, 0, spot.z);
-            refs.avatar.rotation.y = Math.PI; // Menghadap ke arah depan antrean
+            refs.avatar.rotation.y = COFFEE_FACE_ROT; // Menghadap ke arah depan antrean
             refs.leftLegPivot.rotation.set(0, 0, 0);
             refs.rightLegPivot.rotation.set(0, 0, 0);
           }
@@ -1296,7 +1378,7 @@ export function IsometricOfficeStage({
           anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.disposing);
           anim.bubbleTimer = 2.5;
           refs.avatar.position.set(TRASH_STAND.x, 0, TRASH_STAND.z);
-          refs.avatar.rotation.y = 0; // Menghadap tong sampah (+Z)
+          refs.avatar.rotation.y = TRASH_FACE_ROT; // Menghadap tong sampah
           refs.leftLegPivot.rotation.set(0, 0, 0);
           refs.rightLegPivot.rotation.set(0, 0, 0);
           break;
@@ -1781,7 +1863,7 @@ export function IsometricOfficeStage({
             const qIdx = coffeeQueue.indexOf(agentId);
             const spot = COFFEE_QUEUE_SPOTS[Math.min(qIdx, COFFEE_QUEUE_SPOTS.length - 1)]!;
             refs.avatar.position.set(spot.x, 0, spot.z);
-            refs.avatar.rotation.y = Math.PI;
+            refs.avatar.rotation.y = COFFEE_FACE_ROT;
             refs.leftLegPivot.rotation.set(0, 0, 0);
             refs.rightLegPivot.rotation.set(0, 0, 0);
 
@@ -1795,7 +1877,7 @@ export function IsometricOfficeStage({
           case 'brewing': {
             // Berdiri di depan mesin barista (Slot 0)
             refs.avatar.position.set(COFFEE_QUEUE_SPOTS[0]!.x, 0, COFFEE_QUEUE_SPOTS[0]!.z);
-            refs.avatar.rotation.y = Math.PI;
+            refs.avatar.rotation.y = COFFEE_FACE_ROT;
             refs.leftLegPivot.rotation.set(0, 0, 0);
             refs.rightLegPivot.rotation.set(0, 0, 0);
 
@@ -1865,7 +1947,7 @@ export function IsometricOfficeStage({
           case 'disposing': {
             // Berdiri di depan tempat sampah
             refs.avatar.position.set(TRASH_STAND.x, 0, TRASH_STAND.z);
-            refs.avatar.rotation.y = 0;
+            refs.avatar.rotation.y = TRASH_FACE_ROT;
             refs.leftLegPivot.rotation.set(0, 0, 0);
             refs.rightLegPivot.rotation.set(0, 0, 0);
 
@@ -2030,8 +2112,14 @@ export function IsometricOfficeStage({
       const v = main.group.localToWorld(new THREE.Vector3(0, 0, 0));
       return v.setY(ISO_FOCUS_HEIGHT);
     };
+    const roomFocus: Record<StageRoom, () => THREE.Vector3> = {
+      workspace: workspaceFocus,
+      boardroom: board.focusPoint,
+      foyer: foyer.focusPoint,
+      bus: bus.focusPoint,
+    };
     apiRef.current = {
-      focusRoom: (room) => cam.focus(room === 'workspace' ? workspaceFocus() : board.focusPoint()),
+      focusRoom: (room) => cam.focus(roomFocus[room]()),
       toggleCamera: () => cam.toggle(),
       resetCamera: () => cam.reset(),
       focusAgent: (agentId) => {
@@ -2082,7 +2170,17 @@ export function IsometricOfficeStage({
           zoom: +cam.iso.zoom.toFixed(2),
           persp: cam.persp.position.toArray().map((n) => +n.toFixed(2)),
         }),
-        focus: (room: 'workspace' | 'boardroom') => apiRef.current?.focusRoom(room),
+        focus: (room: StageRoom) => apiRef.current?.focusRoom(room),
+        /** Pindahkan Free Cam ke posisi tertentu sambil menatap sebuah titik (uji mode jalan kaki). */
+        freeAt: (pos: [number, number, number], lookAt: [number, number, number]) => {
+          cam.setMode('free');
+          cam.placeFree(new THREE.Vector3(...pos), new THREE.Vector3(...lookAt));
+        },
+        /** Ruangan navigasi tempat sebuah titik dunia berada. */
+        roomAt: (p: Pt) => nav.roomAt(p),
+        /** Akses langsung ke scene & matahari untuk inspeksi (mis. mencari objek lewat nama). */
+        scene,
+        sun,
         look: (x: number, z: number) => cam.focus(new THREE.Vector3(x, ISO_FOCUS_HEIGHT, z), { dur: 0.1 }),
         meetingState: () => (meeting ? { ...meeting, attendees: [...meeting.attendees] } : null),
         path: (from: Pt, to: Pt) => walkPath(from, to),
@@ -2160,8 +2258,8 @@ export function IsometricOfficeStage({
             }}
           >
             {t(
-              'W A S D gerak · Q naik · E turun · Shift cepat · seret mouse untuk melihat',
-              'W A S D move · Q up · E down · Shift fast · drag to look',
+              'W A S D gerak · Q naik · E turun · Shift cepat · seret mouse untuk melihat · turun di bawah dinding = jalan kaki (dinding utuh)',
+              'W A S D move · Q up · E down · Shift fast · drag to look · drop below the walls = walk mode (solid walls)',
             )}
           </div>
         )}

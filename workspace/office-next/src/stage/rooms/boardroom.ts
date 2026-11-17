@@ -1,5 +1,14 @@
 import * as THREE from 'three';
-import { BOARDROOM, BOARDROOM_SEATS, ROOM_BOARDROOM, type BoardroomSeat, type Pt } from '../layout';
+import {
+  BOARDROOM,
+  BOARDROOM_SEATS,
+  DOOR_HEIGHT,
+  ROOM_BOARDROOM,
+  WALL_HEIGHT,
+  WALL_THICKNESS,
+  type BoardroomSeat,
+  type Pt,
+} from '../layout';
 import type { WallFader } from '../camera/wallFade';
 import {
   box,
@@ -9,14 +18,22 @@ import {
   meterBox,
   mountAsset,
   std,
+  stdLin,
   type ModelLoader,
 } from './assets';
+import { boardroomWallMats, buildSolidWallX } from './walls';
 
 /**
- * LAYER INDUK RUANGAN 2: Room_Boardroom_10p (plan §4–6), pusat dunia (13.5, 0).
+ * LAYER INDUK RUANGAN 2: Room_Boardroom_10p (plan §4–6), pusat dunia (11.0, -1.0).
  * Semua aset memakai placeholder prosedural dengan dimensi kontrak prompt, lalu otomatis
  * diganti GLB begitu file-nya ada di public/models.
+ *
+ * Tahap 1 (bus): ruangan menempel sisi timur ruang kerja. Portal pintu barat bawaan GLB
+ * ditutup dinding pengisi, dan akses pindah ke pintu selatan tengah menuju Meeting Foyer.
  */
+
+/** Bagian GLB yang digantikan dinding selatan berpintu / dinding pengisi pintu barat. */
+const HIDDEN_SHELL_PARTS = /^(Doorway_Portal|Curb_South|Curb_Corner_Cap_SE)/;
 
 export interface SeatRig {
   seat: BoardroomSeat;
@@ -97,17 +114,39 @@ export function buildBoardroom(
     return group.localToWorld(new THREE.Vector3(x, 0, z));
   };
 
+  // ---- Dinding selatan penuh + pintu tengah berkusen ke Meeting Foyer (Tahap 1) ----
+  // Mulai dari X = -3.74 (tepi EndCap_WestWall_South) agar tidak menumpuk dengan dinding barat.
+  const wallMats = boardroomWallMats();
+  const southWall = buildSolidWallX({
+    name: 'South_Wall',
+    xMin: -3.74,
+    xMax: ROOM_BOARDROOM.half,
+    z: BOARDROOM.southWallZ,
+    doors: [BOARDROOM.southDoor],
+    mats: wallMats,
+    bodyHeight: WALL_HEIGHT - 0.02,
+    cap: { width: 0.26, yMin: WALL_HEIGHT - 0.02, yMax: WALL_HEIGHT },
+    base: { height: 0.28, north: 0.025, south: 0.025 },
+  });
+  architecture.add(southWall);
+
   // Dinding penuh untuk Auto-Fade: North_Wall & West_Wall_Acoustic (nama grup sama di GLB).
   let wallNorth: THREE.Object3D | undefined;
   let wallWest: THREE.Object3D | undefined;
+  let westPlug: THREE.Object3D | undefined;
   let wallsBound = false;
   const registerWalls = () => {
     if (!wallsBound) return;
     group.updateWorldMatrix(true, true);
     const n = new THREE.Vector3(0, 0, 1).transformDirection(group.matrixWorld);
     const w = new THREE.Vector3(1, 0, 0).transformDirection(group.matrixWorld);
-    fader.register('board_north', [wallNorth, acSlot].filter((o): o is THREE.Object3D => !!o), n, local(0, BOARDROOM.wallInner));
-    fader.register('board_west', [wallWest, tvMount].filter((o): o is THREE.Object3D => !!o), w, local(BOARDROOM.wallInner, 0));
+    const s = new THREE.Vector3(0, 0, -1).transformDirection(group.matrixWorld);
+    const roots = (...o: Array<THREE.Object3D | undefined>) => o.filter((x): x is THREE.Object3D => !!x);
+    fader.register('board_north', roots(wallNorth, acSlot), n, local(0, BOARDROOM.wallInner));
+    // Dinding bersama dengan ruang kerja: selalu memudar di tampilan rumah boneka supaya pod
+    // timur tidak tertutup. TV sengaja tidak ikut didaftarkan (benda dinding tetap terlihat).
+    fader.register('board_west', roots(wallWest, westPlug), w, local(BOARDROOM.wallInner, 0), { interior: true });
+    fader.register('board_south', [southWall], s, local(0, BOARDROOM.southWallZ - WALL_THICKNESS / 2), { interior: true });
   };
 
   const shellPh = shellPlaceholder();
@@ -116,6 +155,25 @@ export function buildBoardroom(
   mountAsset(architecture, '/models/Office_Boardroom_Shell.glb', shellPh, load, (shell) => {
     wallNorth = shell.getObjectByName('North_Wall') ?? undefined;
     wallWest = shell.getObjectByName('West_Wall_Acoustic') ?? undefined;
+    shell.traverse((obj) => { if (HIDDEN_SHELL_PARTS.test(obj.name)) obj.visible = false; });
+    // Dinding bersama tidak melempar bayangan ke ruang kerja (ikut memudar di isometrik).
+    if (wallWest) enableShadow(wallWest, false, true);
+
+    // Tutup portal pintu barat: badan dinding + baseboard yang menyambung bagian GLB di kiri-kanannya.
+    const { zMin, zMax } = BOARDROOM.westDoorPlug;
+    const zMid = (zMin + zMax) / 2;
+    const plug = new THREE.Group();
+    plug.name = 'West_Door_Plug';
+    const plugBody = box(WALL_THICKNESS, DOOR_HEIGHT, zMax - zMin, wallMats.body, [-3.88, DOOR_HEIGHT / 2, zMid], 'West_Door_Plug_Body');
+    plugBody.castShadow = false;
+    const timberRef = shell.getObjectByName('WW_Baseboard_Pier') as THREE.Mesh | undefined;
+    const timber = timberRef?.isMesh && !Array.isArray(timberRef.material)
+      ? timberRef.material
+      : stdLin([0.022, 0.011, 0.006], 0.58, 0);
+    plug.add(plugBody, meterBox(0.025, 0.28, 1.54, timber, [-3.7475, 0.14, 2.35], 'West_Door_Plug_Baseboard'));
+    architecture.add(plug);
+    westPlug = plug;
+
     const carpetMesh = shell.getObjectByName('Floor_Carpet_AcousticCharcoal') as THREE.Mesh | undefined;
     if (carpetMesh) {
       carpetMesh.castShadow = false;
@@ -152,7 +210,6 @@ export function buildBoardroom(
       }
     }
     screen.mesh.visible = screen.hasMeeting;
-    fader.refresh('board_west');
   });
   tvMount.add(screen.mesh);
 
@@ -416,15 +473,10 @@ function shellPlaceholder() {
   north.add(coveStrip);
   g.add(north);
 
-  // West_Wall_Acoustic (X = -3.88) dengan portal pintu Z 1.65..3.05 + dinding slat walnut
+  // West_Wall_Acoustic (X = -3.88): dinding penuh tanpa pintu (bersama dengan ruang kerja) + slat walnut
   const west = new THREE.Group();
   west.name = 'West_Wall_Acoustic';
-  const { zMin, zMax } = BOARDROOM.door;
-  const segN0 = BOARDROOM.wallInner, segN1 = zMin;
-  west.add(box(0.24, 3.2, segN1 - segN0, slate, [-3.88, 1.6, (segN0 + segN1) / 2], 'West_Wall_North'));
-  west.add(box(0.24, 3.2, 4.0 - zMax, slate, [-3.88, 1.6, (zMax + 4.0) / 2], 'West_Wall_South_Pier'));
-  west.add(box(0.24, 0.65, zMax - zMin, slate, [-3.88, 2.875, (zMin + zMax) / 2], 'Door_Lintel'));
-  for (const z of [zMin + 0.025, zMax - 0.025]) west.add(box(0.28, 2.55, 0.05, alu, [-3.88, 1.275, z], 'Door_Jamb'));
+  west.add(box(0.24, 3.2, 4.0 - BOARDROOM.wallInner, slate, [-3.88, 1.6, (BOARDROOM.wallInner + 4.0) / 2], 'West_Wall_Body'));
   west.add(box(0.28, 0.06, 0.3, alu, [-3.88, 3.2, 0], 'West_Top_Cap'));
   west.add(box(0.02, 2.9, 5.26, felt, [-3.75, 1.5, -1.13], 'Acoustic_Felt'));
   const slats = new THREE.InstancedMesh(new THREE.BoxGeometry(0.025, 2.86, 0.07), walnut, SLAT_COUNT);
@@ -434,18 +486,16 @@ function shellPlaceholder() {
     m.makeTranslation(-3.727, 1.5, -3.62 + i * (4.98 / (SLAT_COUNT - 1)));
     slats.setMatrixAt(i, m);
   }
-  slats.castShadow = true;
   slats.receiveShadow = true;
   west.add(slats);
+  enableShadow(west, false, true);
   g.add(west);
 
-  // Cutaway_Curbs: sisi Selatan & Timur terbuka untuk kamera
+  // Cutaway_Curbs: hanya sisi Timur yang masih terbuka (sisi Selatan kini dinding berpintu)
   const curbs = new THREE.Group();
   curbs.name = 'Cutaway_Curbs';
-  curbs.add(box(8.0, 0.13, 0.24, curb, [0, 0.065, 3.88], 'Curb_South'));
-  curbs.add(box(0.24, 0.13, 7.76, curb, [3.88, 0.065, -0.12], 'Curb_East'));
+  curbs.add(box(0.24, 0.13, 7.5, curb, [3.88, 0.065, 0.01], 'Curb_East'));
   curbs.add(box(0.26, 0.5, 0.26, curb, [3.88, 0.25, -3.88], 'Corner_Cap_NE'));
-  curbs.add(box(0.26, 0.5, 0.26, curb, [-3.88, 0.25, 3.88], 'Corner_Cap_SW'));
   g.add(curbs);
   return g;
 }

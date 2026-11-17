@@ -33,7 +33,7 @@ P:\gemini-lab\office\
 │       │   │   ├── IsometricOfficeStage.tsx # Scene, lights, avatar rigs, agent & meeting state machines
 │       │   │   ├── layout.ts               # All coordinates: desks, pantry, room layers, boardroom seat table
 │       │   │   ├── navigation.ts           # Room-local nav + building router via door portals (door mutex gates)
-│       │   │   ├── rooms/                  # Layer builders: mainWorkspace, corridorEast, boardroom, assets (GLB/placeholder)
+│       │   │   ├── rooms/                  # Layer builders: mainWorkspace, mainCorridor (Jalan Utama/bus), meetingFoyer, boardroom, walls (procedural walls/doors), assets (GLB/placeholder)
 │       │   │   ├── camera/                 # cameraRig (Isometric ↔ Free Cam 3D), wallFade (Sims-style auto-fade)
 │       │   │   └── officeDialogues.ts      # Template-based Indonesian dialogue lines (Zero API keys needed)
 │       │   ├── isometric/      # 2.5D coordinates and zone definitions
@@ -41,6 +41,8 @@ P:\gemini-lab\office\
 │       │   ├── state/liveOffice.ts # Session helpers, server-event reducer, stage events (say/visit/meeting)
 │       │   └── App.tsx         # UI shell: demo / login / live modes, WebSocket with reconnect
 │       ├── docs/
+│       │   ├── blueprint-lantai-1-v6.2.html     # Floor 1 master plan (38 × 18.4 m, 16 zones, build stages 1–6)
+│       │   ├── tahap-1-bus-architecture.md      # Stage 1 spec + §6 corrections, final coordinates, verification
 │       │   ├── office-density-expansion-plan.md # 3D prompts for Claude Sonnet 3.5/5.5 (AC, Bookshelf, etc.)
 │       │   └── deployment-and-hosting-guide.md  # Phased hosting plan (free static demo, Tailscale, later VPS)
 │       └── tools/3d-generator/ # Standalone HTML generators used to produce .glb files
@@ -57,17 +59,19 @@ P:\gemini-lab\office\
   - **Professional Benching Pod Layout:** Symmetrical 4-desk islands (2x2 facing desks across monitors) + North wall executive desks (Raka & Fajar) with a wide 2.5m central corridor.
   - **Monitor Screen Fix:** 6-sided `BoxGeometry` material array: only front face (+Z) has animated glowing code; back and sides are dark matte plastic casing.
   - **Avatar Rig & Typing:** Seated avatars face directly towards desks (`sitRotY = posInfo.rotY + Math.PI`). Arms articulate and tap keys on keyboards.
-  - **Coffee Routine & Multi-Agent Queue:**
-    - Slot 0: Brewing at espresso machine (`X: -3.8, Z: 3.4`).
-    - Slot 1, 2, 3: Orderly queue line spaced 0.9m behind Slot 0. When Slot 0 leaves with cup, the line automatically steps forward.
-    - Cup lifecycle: brewed at bar -> held in hand -> sipped at desk -> disposed at trash bin (`X: -5.0, Z: 4.1`) -> return to desk.
-  - **Collision-Free Pathfinding:** NavMesh corridor graph (North Aisle Z=-3.4, Central Avenue X=0.0, South Promenade Z=0.8-1.2). Back-row agents never clip through front-row desks. Dynamic avoidance steers walking agents around each other.
+  - **Coffee Routine & Multi-Agent Queue** (temporary pantry in the SW corner of the workspace until Stage 2 Pantry / Café):
+    - Slot 0: Brewing at espresso machine (`X: -5.8, Z: 3.6`, facing south to the bar at `(-5.8, 4.33)`).
+    - Slot 1, 2, 3: Orderly queue line spaced 0.9m north of Slot 0. When Slot 0 leaves with cup, the line automatically steps forward.
+    - Cup lifecycle: brewed at bar -> held in hand -> sipped at desk -> disposed at trash bin (`X: -2.4, Z: 4.46`, east of the SW door) -> return to desk.
+  - **Collision-Free Pathfinding:** NavMesh corridor graph (North Aisle Z=-3.4, Central Avenue X=0.0, South Promenade Z=0.8-1.2). Back-row agents never clip through front-row desks. Dynamic avoidance steers walking agents around each other. The building router tries every door route between rooms and takes the shortest total walk (the workspace has 2 doors onto the bus).
   - **Speech Bubbles:** Projected 3D head coordinates to 2D HTML glassmorphism overlays in Indonesian (zero API keys).
   - **Live Binding (mode live):** avatar poses follow real `AgentStatus` (typing / raised hand for `waiting_approval` / head-scratch for `error` / empty chair for `offline` / relaxed for `idle`); `agent.say` shows as bubbles; agent→agent messages make the sender walk to the recipient's desk (carrying a document for review/handoff). Coffee & chit-chat only for idle agents. Demo mode keeps the full template simulation.
-  - **Modular building (plan: `workspace/office-next/docs/modular_office_layers_plan.md`):** `BuildingRoot → Floor_1_Group → Room_MainWorkspace (0,0) / Corridor_East_Connector (8.10, 2.35) / Room_Boardroom_10p (13.5, 0)`. Room coordinates are local; read world positions through the scene graph. Every boardroom asset shows a procedural placeholder until its GLB exists in `public/models/`.
-  - **Boardroom meetings:** `/rapat` or messages to `all` → agents leave in staggered order (0.9 s, nearest to the door first), pass the door mutex at `(8.80 / 10.20, 2.35)`, pull out their assigned chair (5+5 seat table in `layout.ts`), sit, then the 24 s session starts only after everyone is seated (chairs swivel to the TV for 13 s; the TV shows the meeting topic). The round table `(0.2, 2.2)` is now a huddle prop.
-  - **Cameras:** Isometric (default) ↔ Free Cam 3D (WASD, Q up, E down, Shift, drag to look); HUD focus buttons for workspace/boardroom; auto-pan on meetings unless the CEO moved the camera in the last 8 s. Walls facing away from the camera fade (Sims-style).
-  - **Dev-only debug hooks:** `window.__officeStage()` and `window.__officeStageDebug` (`meeting()`, `fastForward(s)`, `camera()`, `focus()`, `look()`, `zoom()`, `orbit()`, `path()`, `meetingState()`).
+  - **Floor 1 bus topology (Stage 1 of `blueprint-lantai-1-v6.2.html`, details in `tahap-1-bus-architecture.md` §6):** `BuildingRoot → Floor_1_Group → Room_MainWorkspace (0,0) / Corridor_MainBus (12, 6.2) / Room_MeetingFoyer (11, 4) / Room_Boardroom_10p (11, -1)`. World = blueprint metres − (7, 5); site spans X -7..31, Z -5..13.4. The workspace has a south wall with 2 doors (X -3.5 and +3.5) onto the 38 × 2.4 m Jalan Utama; the boardroom sits right next to the workspace (shared wall at X 7) and is entered through the open foyer (center door X 11). Room coordinates are local; read world positions through the scene graph. Every boardroom asset shows a procedural placeholder until its GLB exists in `public/models/`.
+  - **Building out later stages:** unbuilt bus frontage is closed by temporary dark-framed glass walls per room segment (`BUS_FRONTAGE_SOUTH/NORTH` in `layout.ts`). When a Stage 2–6 room is built, set its segment `built: true` and give the room its own doored wall (`rooms/walls.ts` → `buildSolidWallX`).
+  - **Boardroom meetings:** `/rapat` or messages to `all` → agents leave in staggered order (0.9 s, nearest to the door first), walk out the nearest workspace south door, along the bus, straight through the foyer, pass the door mutex at `(11.0, 3.4 / 1.35)`, pull out their assigned chair (5+5 seat table in `layout.ts`), sit, then the 24 s session starts only after everyone is seated (chairs swivel to the TV for 13 s; the TV and the foyer status sign show the meeting topic). Full gathering takes about 26 s. The round table `(0.2, 2.2)` is now a huddle prop.
+  - **Cameras:** Isometric (default, auto-framed to the core cluster via `setHomeBox`) ↔ Free Cam 3D (WASD, Q up, E down, Shift, drag to look; starts hovering above the walls); HUD focus buttons for workspace/boardroom (`focusRoom` also accepts `foyer`/`bus`); auto-pan on meetings unless the CEO moved the camera in the last 8 s.
+  - **Wall Auto-Fade:** dollhouse view (isometric, or Free Cam above 3.2 m / outside the site): perimeter walls fade when the camera is behind them, interior walls between two rooms (`interior: true`, e.g. the shared TV wall and all south walls facing the bus) always fade. Free Cam inside the site below 3.2 m = walk mode, every wall stays solid.
+  - **Dev-only debug hooks:** `window.__officeStage()` and `window.__officeStageDebug` (`meeting()`, `fastForward(s)`, `camera()`, `focus()`, `look()`, `zoom()`, `orbit()`, `path()`, `roomAt()`, `freeAt(pos, lookAt)`, `meetingState()`, `scene`, `sun`).
 
 - **Security model (server):**
   - CEO token: `OFFICE_TOKEN` in `.env` (≥24 chars) or auto-generated in `data/.office-token`. Optional view-only `OFFICE_VIEWER_TOKEN`.
@@ -93,6 +97,9 @@ npm run dev:next
 # Build office-next (live) / static demo without backend (for free hosting)
 npm run build:next
 npm run build:next:demo
+# On this PC esbuild may fail with "remove ...\Temp\esbuild-...: Access is denied" (chunks > 1 MB go
+# through a temp file that something locks, likely the antivirus). Point TEMP/TMP to drive P: first:
+#   New-Item -ItemType Directory -Force .esbuild-tmp; $env:TEMP = "$PWD\.esbuild-tmp"; $env:TMP = $env:TEMP
 
 # Run backend server (port 7420, MCP 7421)
 npm run dev:server
@@ -118,6 +125,6 @@ npm run dev:server
 ---
 
 ## 6. Immediate Next Tasks
-1. Remaining GLBs (all auto-load over their placeholders once placed in `public/models/`): `Office_Boardroom_Credenza.glb`, `Office_Conference_Table.glb`, `Office_Conference_Chair.glb` (must contain a `Chair_Swivel` node), `Office_Meeting_Table_Round.glb`. Prompts: `modular_office_layers_plan.md` §11 and `boardroom_audit_v2_solutions.md` §8–9.
-2. Shrink large GLBs before hosting (e.g. `Office_Bookshelf_Cabinet.glb` 5 MB, `Office_Boardroom_Shell.glb` 5.2 MB).
+1. **Floor 1 Stage 2** (`blueprint-lantai-1-v6.2.html`): Pantry / Café (blueprint x 11–16 m → world X 4..9, south of the bus) taking over the coffee bar, water dispenser and trash bin from the workspace, plus Ruang Manajer (world X -7..-1). Analyse the stage plan against code/GLB measurements before coding (see the corrections in `tahap-1-bus-architecture.md` §6). Place the new coffee bar on a north or west wall so the brewing agent stays visible from the SE camera.
+2. Remaining GLB: `Office_Meeting_Table_Round.glb` (huddle table; auto-loads over its placeholder once placed in `public/models/`). `Office_Glass_Corridor.glb` is no longer used by the scene since Stage 1.
 3. Hosting Phase 1: static demo on Cloudflare Pages (`npm run build:next:demo`, output `workspace/office-next/dist`). Phase 2: Tailscale for live CEO access. See `deployment-and-hosting-guide.md`.

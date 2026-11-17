@@ -214,7 +214,7 @@ export function App() {
             {t('Kantor 3D', '3D Office')}
           </strong>
           <span className="mono" style={{ fontSize: 12, color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>
-            {t('Lantai 1 · Ruang Kerja + Ruang Rapat', 'Floor 1 · Workspace + Boardroom')}
+            {t('Lantai 1 · Ruang Kerja · Jalan Utama · Ruang Rapat', 'Floor 1 · Workspace · Main Corridor · Boardroom')}
           </span>
           {connectionChip && (
             <span className="chip mono" style={{ color: connectionChip.color, borderColor: connectionChip.color }}>

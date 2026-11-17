@@ -8,7 +8,16 @@
  * Waypoint boleh membawa `gate`: agen harus mendapat slot pintu (door mutex) sebelum
  * melanjutkan dari titik itu.
  */
-import { AGENT_3D_POSITIONS, BOARDROOM, CORRIDOR_EAST, type DeskSpot, type Pt } from './layout';
+import {
+  AGENT_3D_POSITIONS,
+  BOARDROOM,
+  COFFEE_QUEUE_SPOTS,
+  CORRIDOR_BUS,
+  ROOM_FOYER,
+  ROOM_MAIN,
+  type DeskSpot,
+  type Pt,
+} from './layout';
 
 export type NavPt = Pt & { gate?: string };
 
@@ -44,14 +53,16 @@ function dedupe(pts: NavPt[]): NavPt[] {
  * Jaringan jalan ruang kerja:
  * - Lorong Utara (North Aisle): Z = -3.4 (di antara meja Raka/Fajar dan meja pod)
  * - Lorong Tengah (Central Avenue): X = 0.0 (menghubungkan Utara ke Selatan)
- * - Promenade Selatan: Z = 0.8 (di depan pod menuju pantry, meja diskusi & pintu timur)
- * - Garis antrean kopi: X = -3.8 dan koridor tempat sampah: X = -5.0
+ * - Promenade Selatan: Z = 0.8 (di depan pod menuju pantry, meja diskusi & 2 pintu selatan)
+ * - Garis antrean kopi: X = COFFEE_QUEUE_SPOTS[0].x (sudut barat daya)
+ * - Pintu selatan (X = -3.5 & +3.5) dan tempat sampah dicapai lurus dari promenade.
  *
  * Setiap titik punya "jalan keluar" ke jaringan; rute = keluar -> koridor -> masuk.
  */
 const NORTH_AISLE_Z = -3.4;
 const PROMENADE_Z = 0.8;
 const AVENUE_X = 0.0;
+const QUEUE_X = COFFEE_QUEUE_SPOTS[0]!.x;
 /** Meja eksekutif di dinding utara (Raka & Fajar). */
 const EXEC_DESKS: Pt[] = Object.values(AGENT_3D_POSITIONS)
   .filter((p) => p.z < -3.0)
@@ -59,9 +70,7 @@ const EXEC_DESKS: Pt[] = Object.values(AGENT_3D_POSITIONS)
 
 function mainToNetwork(p: Pt): Pt[] {
   // Antrean / mesin kopi: mundur lurus di garis antrean ke promenade
-  if (p.z > 1.6 && Math.abs(p.x - -3.8) < 0.6) return [{ x: -3.8, z: PROMENADE_Z }];
-  // Tempat sampah: lewat koridor X = -5.0 agar tidak menabrak bar kopi
-  if (p.x <= -4.5 && p.z >= 3.0) return [{ x: -5.0, z: PROMENADE_Z }];
+  if (p.z > 1.6 && Math.abs(p.x - QUEUE_X) < 0.6) return [{ x: QUEUE_X, z: PROMENADE_Z }];
   // Kursi eksekutif di depan dinding utara: keluar lewat celah samping meja (tidak menembus meja).
   // Celah dihitung dari posisi meja, bukan dari posisi agen, agar titik di celah itu sendiri
   // tidak terus "digeser" ke timur.
@@ -74,7 +83,7 @@ function mainToNetwork(p: Pt): Pt[] {
   if (Math.abs(p.x - AVENUE_X) < 0.4) return [];
   // Baris belakang pod & depan meja eksekutif: mundur ke Lorong Utara
   if (p.z < -1.5) return [{ x: p.x, z: NORTH_AISLE_Z }];
-  // Baris depan pod, area diskusi, sisi selatan, dan pintu timur: ke promenade
+  // Baris depan pod, area diskusi, tempat sampah, dan pintu selatan: lurus ke promenade
   return [{ x: p.x, z: PROMENADE_Z }];
 }
 
@@ -100,34 +109,48 @@ export function visitSpotFor(p: DeskSpot): Pt {
 }
 
 // ============================================================================
-// Corridor_East_Connector — lurus di sumbu tengah koridor
+// Corridor_MainBus — lurus di sumbu tengah Jalan Utama (lokal z = 0, dunia Z = 6.2)
 // ============================================================================
-export function corridorPath(from: Pt, to: Pt): NavPt[] {
+export function busPath(from: Pt, to: Pt): NavPt[] {
   return dedupe([{ ...from }, { x: from.x, z: 0 }, { x: to.x, z: 0 }, { ...to }]);
 }
 
 // ============================================================================
-// Room_Boardroom_10p — promenade selatan, lorong utara, lorong barat (zona presenter)
+// Room_MeetingFoyer — jalur tengah terbuka (lokal x = 0, dunia X = 11.0)
 // ============================================================================
-type Lane = 'N' | 'S' | 'W';
+export function foyerPath(from: Pt, to: Pt): NavPt[] {
+  return dedupe([{ ...from }, { x: 0, z: from.z }, { x: 0, z: to.z }, { ...to }]);
+}
+
+// ============================================================================
+// Room_Boardroom_10p — promenade selatan, lorong utara, lorong barat & timur
+// ============================================================================
+type Lane = 'N' | 'S' | 'W' | 'E';
 
 function boardroomLane(p: Pt): { pts: Pt[]; lane: Lane } {
-  const { south, north, west } = BOARDROOM.lanes;
-  if (Math.abs(p.x - west) < 0.35 && p.z < south && p.z > north) return { pts: [], lane: 'W' };
+  const { south, north, west, east } = BOARDROOM.lanes;
+  const between = p.z < south && p.z > north;
+  if (between && Math.abs(p.x - west) < 0.35) return { pts: [], lane: 'W' };
+  if (between && Math.abs(p.x - east) < 0.35) return { pts: [], lane: 'E' };
   if (p.z < BOARDROOM.tableCenter.z) return { pts: [{ x: p.x, z: north }], lane: 'N' };
   return { pts: [{ x: p.x, z: south }], lane: 'S' };
 }
 
+/**
+ * Pintu ruang rapat ada di tengah sisi selatan, jadi peserta menyebar mengitari meja:
+ * dari dua lorong penghubung (barat / timur) dipakai yang rutenya lebih pendek.
+ */
 export function boardroomPath(from: Pt, to: Pt): NavPt[] {
   const ea = boardroomLane(from);
   const eb = boardroomLane(to);
   const a = ea.pts[ea.pts.length - 1] ?? from;
   const b = eb.pts[0] ?? to;
-  const west = BOARDROOM.lanes.west;
-  const middle = ea.lane === eb.lane && ea.lane !== 'W'
-    ? []
-    : [{ x: west, z: a.z }, { x: west, z: b.z }];
-  return dedupe([{ ...from }, ...ea.pts, ...middle, ...[...eb.pts].reverse(), { ...to }]);
+  const build = (middle: Pt[]) => dedupe([{ ...from }, ...ea.pts, ...middle, ...[...eb.pts].reverse(), { ...to }]);
+  if (ea.lane === eb.lane && (ea.lane === 'N' || ea.lane === 'S')) return build([]);
+  const via = (x: number) => build([{ x, z: a.z }, { x, z: b.z }]);
+  const viaWest = via(BOARDROOM.lanes.west);
+  const viaEast = via(BOARDROOM.lanes.east);
+  return pathLength(viaEast) < pathLength(viaWest) - 0.01 ? viaEast : viaWest;
 }
 
 // ============================================================================
@@ -180,30 +203,33 @@ export function createBuildingNav(rooms: NavRoom[], connectors: NavConnector[]):
     return best.id;
   };
 
-  /** BFS urutan konektor dari ruangan A ke B. */
-  const hops = (from: string, to: string): Array<{ c: NavConnector; fromRoom: string; toRoom: string }> => {
-    const prev = new Map<string, { c: NavConnector; fromRoom: string }>();
-    const queue = [from];
-    const seen = new Set([from]);
-    while (queue.length > 0) {
-      const cur = queue.shift()!;
-      if (cur === to) break;
+  type Hop = { c: NavConnector; fromRoom: string; toRoom: string };
+
+  /**
+   * Semua urutan konektor dari ruangan A ke B tanpa mengulang ruangan. Dua ruangan boleh
+   * dihubungkan lebih dari satu pintu (ruang kerja punya 2 pintu ke Jalan Utama), jadi
+   * rute dipilih belakangan berdasarkan panjang jalan sebenarnya, bukan jumlah lompatan.
+   */
+  const routeCache = new Map<string, Hop[][]>();
+  const routes = (from: string, to: string): Hop[][] => {
+    const key = `${from}>${to}`;
+    const cached = routeCache.get(key);
+    if (cached) return cached;
+    const out: Hop[][] = [];
+    const walk = (cur: string, seen: Set<string>, trail: Hop[]) => {
+      if (cur === to) { out.push([...trail]); return; }
       for (const c of connectors) {
         const next = c.a.room === cur ? c.b.room : c.b.room === cur ? c.a.room : null;
         if (!next || seen.has(next)) continue;
         seen.add(next);
-        prev.set(next, { c, fromRoom: cur });
-        queue.push(next);
+        trail.push({ c, fromRoom: cur, toRoom: next });
+        walk(next, seen, trail);
+        trail.pop();
+        seen.delete(next);
       }
-    }
-    const out: Array<{ c: NavConnector; fromRoom: string; toRoom: string }> = [];
-    let cur = to;
-    while (cur !== from) {
-      const p = prev.get(cur);
-      if (!p) return [];
-      out.unshift({ c: p.c, fromRoom: p.fromRoom, toRoom: cur });
-      cur = p.fromRoom;
-    }
+    };
+    walk(from, new Set([from]), []);
+    routeCache.set(key, out);
     return out;
   };
 
@@ -216,38 +242,61 @@ export function createBuildingNav(rooms: NavRoom[], connectors: NavConnector[]):
     if (ra === rb) {
       return dedupe([{ ...fromWorld }, ...legWorld(byId.get(ra)!, fromWorld, toWorld).slice(1, -1), { ...toWorld }]);
     }
-    const route = hops(ra, rb);
-    if (route.length === 0) return [{ ...fromWorld }, { ...toWorld }];
-
-    const pts: NavPt[] = [{ ...fromWorld }];
-    let cur = fromWorld;
-    for (const hop of route) {
-      const room = byId.get(hop.fromRoom)!;
-      const next = byId.get(hop.toRoom)!;
-      const exitSide = hop.c.a.room === hop.fromRoom ? hop.c.a : hop.c.b;
-      const entrySide = hop.c.a.room === hop.fromRoom ? hop.c.b : hop.c.a;
-      const exitWorld = room.toWorld(exitSide.portal);
-      const leg = legWorld(room, cur, exitWorld).slice(1);
-      const last = leg[leg.length - 1];
-      if (last && hop.c.gate) last.gate = hop.c.gate;
-      pts.push(...leg);
-      const entryWorld = next.toWorld(entrySide.portal);
-      pts.push({ ...entryWorld });
-      cur = entryWorld;
-    }
     const lastRoom = byId.get(rb)!;
-    pts.push(...legWorld(lastRoom, cur, toWorld).slice(1, -1), { ...toWorld });
-    return dedupe(pts);
+    const along = (route: Hop[]): NavPt[] => {
+      const pts: NavPt[] = [{ ...fromWorld }];
+      let cur = fromWorld;
+      for (const hop of route) {
+        const room = byId.get(hop.fromRoom)!;
+        const next = byId.get(hop.toRoom)!;
+        const exitSide = hop.c.a.room === hop.fromRoom ? hop.c.a : hop.c.b;
+        const entrySide = hop.c.a.room === hop.fromRoom ? hop.c.b : hop.c.a;
+        const exitWorld = room.toWorld(exitSide.portal);
+        const leg = legWorld(room, cur, exitWorld).slice(1);
+        const last = leg[leg.length - 1];
+        if (last && hop.c.gate) last.gate = hop.c.gate;
+        pts.push(...leg);
+        const entryWorld = next.toWorld(entrySide.portal);
+        pts.push({ ...entryWorld });
+        cur = entryWorld;
+      }
+      pts.push(...legWorld(lastRoom, cur, toWorld).slice(1, -1), { ...toWorld });
+      return dedupe(pts);
+    };
+
+    let best: NavPt[] | null = null;
+    let bestLen = Infinity;
+    for (const route of routes(ra, rb)) {
+      const pts = along(route);
+      const len = pathLength(pts);
+      if (len < bestLen - 1e-6) { best = pts; bestLen = len; }
+    }
+    return best ?? [{ ...fromWorld }, { ...toWorld }];
   };
 
   return { path, roomAt };
 }
 
-/** Konstanta portal (lokal masing-masing ruangan) untuk konektor gedung lantai 1. */
+/** X pusat sebuah bukaan pintu. */
+const mid = (d: { xMin: number; xMax: number }) => (d.xMin + d.xMax) / 2;
+/** X dunia → X lokal Jalan Utama. */
+const busX = (worldX: number) => worldX - CORRIDOR_BUS.origin.x;
+const [DOOR_SW, DOOR_SE] = ROOM_MAIN.southDoors as readonly [{ xMin: number; xMax: number }, { xMin: number; xMax: number }];
+const FOYER_DOOR_X = mid(ROOM_FOYER.southDoor);
+
+/**
+ * Konstanta portal (lokal masing-masing ruangan) untuk konektor gedung Lantai 1:
+ * Ruang Kerja (2 pintu selatan) ↔ Jalan Utama ↔ Meeting Foyer ↔ Ruang Rapat.
+ */
 export const FLOOR1_PORTALS = {
-  mainEast: { x: 6.0, z: 2.35 },
-  corridorWest: { x: -CORRIDOR_EAST.halfLength, z: 0 },
-  corridorEastQueue: CORRIDOR_EAST.doorQueue,
+  mainSouthWest: { x: mid(DOOR_SW), z: ROOM_MAIN.southDoorInsideZ },
+  mainSouthEast: { x: mid(DOOR_SE), z: ROOM_MAIN.southDoorInsideZ },
+  busWestDoor: { x: busX(ROOM_MAIN.origin.x + mid(DOOR_SW)), z: 0 },
+  busEastDoor: { x: busX(ROOM_MAIN.origin.x + mid(DOOR_SE)), z: 0 },
+  busFoyerDoor: { x: busX(ROOM_FOYER.origin.x + FOYER_DOOR_X), z: 0 },
+  foyerSouth: { x: FOYER_DOOR_X, z: 0.6 },
+  /** Titik antre door mutex arah masuk: tepat di luar pintu ruang rapat. */
+  foyerNorth: { x: FOYER_DOOR_X, z: -0.6 },
   boardroomDoorInside: BOARDROOM.doorInside,
 } as const;
 

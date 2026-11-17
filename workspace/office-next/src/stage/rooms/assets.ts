@@ -37,6 +37,24 @@ export function std(color: number, roughness = 0.6, metalness = 0.1, extra: THRE
   return new THREE.MeshStandardMaterial({ color, roughness, metalness, ...extra });
 }
 
+/**
+ * Material standar dari warna LINEAR (sama dengan baseColorFactor glTF), supaya dinding
+ * prosedural sewarna persis dengan dinding bawaan GLB.
+ */
+export function stdLin(
+  rgb: readonly [number, number, number],
+  roughness = 0.6,
+  metalness = 0.1,
+  extra: THREE.MeshStandardMaterialParameters = {},
+) {
+  return new THREE.MeshStandardMaterial({
+    color: new THREE.Color().setRGB(rgb[0], rgb[1], rgb[2]),
+    roughness,
+    metalness,
+    ...extra,
+  });
+}
+
 export function box(
   w: number, h: number, d: number,
   mat: THREE.Material,
@@ -162,33 +180,6 @@ export function mountAsset(
     },
     () => { /* GLB belum dibuat: tetap memakai placeholder */ },
   );
-}
-
-/**
- * Memotong mesh kotak (rel / ambang lantai) yang melintang di celah pintu menjadi dua
- * segmen, sehingga kaki agen tidak menembus rel saat melewati pintu.
- * Mesh asli disembunyikan; segmen baru memakai material yang sama.
- */
-export function splitMeshAlongZ(mesh: THREE.Mesh, gapMin: number, gapMax: number, parent: THREE.Object3D) {
-  mesh.updateWorldMatrix(true, false);
-  const bb = new THREE.Box3().setFromObject(mesh);
-  if (bb.isEmpty() || bb.min.z >= gapMin || bb.max.z <= gapMax) return;
-  mesh.visible = false;
-  const material = mesh.material as THREE.Material;
-  const w = bb.max.x - bb.min.x;
-  const h = bb.max.y - bb.min.y;
-  const cx = (bb.min.x + bb.max.x) / 2;
-  const cy = (bb.min.y + bb.max.y) / 2;
-  const segs: Array<[number, number]> = [[bb.min.z, gapMin], [gapMax, bb.max.z]];
-  segs.forEach(([z0, z1], i) => {
-    const seg = new THREE.Mesh(new THREE.BoxGeometry(w, h, z1 - z0), material);
-    const world = new THREE.Vector3(cx, cy, (z0 + z1) / 2);
-    seg.position.copy(parent.worldToLocal(world));
-    seg.name = `${mesh.name}_Split_${i}`;
-    seg.castShadow = mesh.castShadow;
-    seg.receiveShadow = mesh.receiveShadow;
-    parent.add(seg);
-  });
 }
 
 /** CanvasTexture sRGB siap pakai untuk material layar / karpet. */

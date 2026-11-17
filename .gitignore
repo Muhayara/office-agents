@@ -11,6 +11,10 @@ data/
 *.sqlite
 *.db
 
+# Hasil uji browser (Playwright MCP) & folder TEMP pengganti untuk build esbuild
+.playwright-mcp/
+.esbuild-tmp/
+
 # workspace: abaikan semuanya kecuali proyek yang dibangun agen
 workspace/*
 !workspace/office-next/

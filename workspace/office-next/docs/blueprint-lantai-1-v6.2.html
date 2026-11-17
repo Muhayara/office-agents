@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Virtual Office — Lantai 1 V6.2</title>
+<style>
+:root{color-scheme:dark;--bg:#091321;--panel:#111f32;--line:#2a4059;--text:#edf5ff;--muted:#9fb3ca;--road:#48c9b4;--locked:#d5a64d}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% 0%,#1b3550 0,#091321 60%);color:var(--text);font:14px/1.5 system-ui,Segoe UI,sans-serif}
+main{max-width:1500px;margin:auto;padding:22px}.head{display:flex;justify-content:space-between;gap:15px;align-items:flex-start;flex-wrap:wrap}h1{font-size:clamp(22px,3vw,34px);margin:0 0 4px}.sub{margin:0;color:var(--muted)}.tag{border:1px solid #816b42;border-radius:99px;color:#f1d18e;padding:7px 12px;font-size:11px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:15px;margin-top:18px}.panel{background:#111f32ed;border:1px solid var(--line);border-radius:15px;padding:15px;box-shadow:0 15px 38px #0003}.planwrap{overflow:auto}.plan{width:100%;height:auto;display:block}
+.zone{cursor:pointer}.zone:hover{filter:brightness(1.35)}.zone.selected rect.roombox{stroke:#fff;stroke-width:2.2}.zone.from rect.roombox{stroke:#48c9b4;stroke-width:2.2}.zone.to rect.roombox{stroke:#f1d18e;stroke-width:2.2}.zone text{fill:#f5f8ff;text-anchor:middle;pointer-events:none;font-weight:650}.zone .small{fill:#d3e0ef;font-size:3.8px;font-weight:450}.zone .locked{fill:#ffe1a1;font-size:3.4px;letter-spacing:.4px}.zone .phase{fill:#8adfd1;font-size:3.1px;font-weight:600;letter-spacing:.3px}
+h2{font-size:15px;margin:0 0 10px}.detailname{font-size:19px;font-weight:750;margin:4px 0}.muted{color:var(--muted)}.pill{display:inline-block;border:1px solid var(--line);border-radius:8px;padding:3px 8px;font-size:11px;margin:3px 4px 3px 0}.pill.phasepill{border-color:#2f6c74;color:#8be7da}
+ul,ol{padding-left:18px}.legend{display:flex;gap:13px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-top:12px}.sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}.stat{background:#0a1728;border:1px solid var(--line);border-radius:10px;padding:10px}.stat b{display:block;font-size:17px}.stat small{color:var(--muted)}
+.lower{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:15px}.list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.item{background:#0a1728;border:1px solid var(--line);border-radius:9px;padding:8px;cursor:pointer}.item:hover{border-color:var(--road)}.item b{display:block}.item small{color:var(--muted)}
+.controls{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}button{background:#1c3651;border:1px solid #3b5a78;color:var(--text);border-radius:8px;padding:7px 11px;cursor:pointer;font-size:12px}button:hover{background:#294b6d}button.active{border-color:var(--road);background:#1b4956}
+.note{font-size:12px;color:var(--muted)}.routebox{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:12px}
+@media(max-width:960px){.layout,.lower{grid-template-columns:1fr}.plan{min-width:700px}}@media(max-width:520px){main{padding:12px}.list{grid-template-columns:1fr}}
+</style></head>
+<body><main>
+<header class="head"><div><h1>Virtual Office · Lantai 1</h1><p class="sub">Plan V6.2 · Ruang Kerja &amp; Ruang Rapat berdekatan · topologi bus Barat–Timur · bangun bertahap satu per satu</p></div><span class="tag">INTERIOR EKSISTING DIJAGA (BISA DIGESER) · WALL AUTO-FADE</span></header>
+<section class="layout">
+<div class="panel"><div class="planwrap">
+<svg class="plan" viewBox="-10 -16 400 218" aria-label="Denah kantor virtual lantai satu V6.2">
+<defs><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="#293b51" stroke-width=".45"/></pattern></defs>
+<rect x="0" y="0" width="380" height="184" fill="url(#grid)" stroke="#8198b4" stroke-width="1.2"/>
+<text x="190" y="-7" fill="#a9bdd4" font-size="5" text-anchor="middle">UTARA ↑ · TAPAK 38 × 18,4 m (699,2 m²)</text>
+<g id="zones"></g>
+<g id="roads"></g>
+<g id="doors"></g>
+<g id="route"></g>
+<text x="190" y="195" fill="#9fb3ca" font-size="4" text-anchor="middle">Skala 1 unit SVG = 0,1 m · 1 kotak grid = 1 m · Klik 1 ruangan untuk detail, atau aktifkan Mode Cek Jalur</text>
+</svg></div>
+<div class="legend"><span><i class="sw" style="background:#a77c3d"></i>Aset eksisting (Tahap 0)</span><span><i class="sw" style="background:#287d87"></i>Ruang baru (bertahap)</span><span><i class="sw" style="background:#48c9b4"></i>Jalan utama &amp; jalur foyer</span><span><i class="sw" style="background:#4c6688"></i>Hub / utilitas</span><span><i class="sw" style="background:#32765f"></i>Taman / hiasan</span></div>
+<div class="controls">
+  <button id="modeRoute">Mode Cek Jalur: OFF</button>
+  <button class="preset" data-from="work" data-to="meeting">Jalur: Kerja → R. Rapat</button>
+  <button class="preset" data-from="work" data-to="pantry">Jalur: Kerja → Pantry</button>
+  <button class="preset" data-from="workshop" data-to="collab">Jalur: Workshop → Pods</button>
+  <button id="showRoadmap">Urutan Build (Fase 1–6)</button>
+  <button id="clear">Reset</button>
+</div>
+</div>
+<aside class="panel"><h2>Detail Ruangan &amp; Rencana Build</h2>
+<div id="detail"><span class="muted">Klik ruangan pada denah untuk melihat ukuran, tujuan, isi, pintu, serta fase pengerjaan 3D-nya.</span></div>
+<div class="routebox" id="routeInfo" style="display:none">
+  <div class="muted">Simulasi Jalur Agen (BFS Terpendek)</div>
+  <div style="margin:4px 0">Dari: <b id="rFrom" style="color:#48c9b4">—</b> → Ke: <b id="rTo" style="color:#f1d18e">—</b></div>
+  <ol id="rSteps" class="muted" style="margin:6px 0"></ol>
+  <div id="rMeta" class="note"></div>
+</div>
+<div class="stats"><div class="stat"><b>38 × 18,4 m</b><small>Tapak Lantai 1</small></div><div class="stat"><b>7,5 m</b><small>Jarak bus Kerja → Rapat</small></div><div class="stat"><b>16 Zona</b><small>Semua punya akses jalan</small></div><div class="stat"><b>2 → 16</b><small>Bangun bertahap per ruang</small></div></div>
+</aside></section>
+<section class="lower">
+<div class="panel"><h2>Revisi V6.2 (Berdekatan &amp; Efisien)</h2><ul>
+<li><b>Ruang Kerja &amp; Ruang Rapat Berdekatan:</b> Ruang Rapat (8 × 8 m) digeser ke samping Ruang Kerja (x: 14–22 m) dengan tetap mempertahankan ukuran dan interior eksisting. Agen dari Ruang Kerja (pintu 10,5 m) hanya berjalan <b>7,5 m di Jalan Utama</b> menuju Meeting Foyer (18 m)—jauh lebih dekat dibanding 23,5 m di V6.1.</li>
+<li><b>Ruang Kerja (14 × 10 m, x: 0–14 m):</b> Ditambah <b>dinding selatan + 2 pintu</b> ke Jalan Utama (x = 3,5 m &amp; 10,5 m). Coffee Bar &amp; 2 Server Rack dipindah saat Pantry &amp; Server/IT selesai dibangun.</li>
+<li><b>Meeting Foyer (8 × 2 m, x: 14–22 m):</b> Pintu tengah dari Jalan Utama (x = 18 m) mengarah lurus ke Ruang Rapat lewat jalur tengah terbuka 2,4 m <b>tanpa tembok atau kaca penyekat</b>, sehingga sayap kiri &amp; kanan bebas diisi hiasan atau meja minuman rapat panjang.</li>
+<li><b>Zona Kolaborasi &amp; Hub Timur (x: 22–38 m):</b> Collaboration Commons (22–32 m) + Studio (22–28 m) &amp; Information Wall (28–33 m), serta Workshop (32–38 m) + Collaboration Pods (33–38 m). Rute ruang bersebelahan langsung lewat pintu penghubung.</li>
+<li><b>Dinding Utuh + Auto-Fade &amp; Bertahap:</b> Semua dinding tidak dipotong permanen (memakai Wall Auto-Fade) dan ruangan dibangun bertahap satu per satu (Tahap 1–6).</li>
+</ul></div>
+<div class="panel"><h2>Daftar Ruangan &amp; Urutan Pengerjaan · klik detail</h2><div class="list" id="list"></div></div>
+</section></main>
+<script>
+const data=[
+{id:"work",n:"Ruang Kerja",x:0,y:0,w:140,h:100,c:"#a77c3d",lock:true,fase:"Tahap 0 + Tahap 1 (dinding selatan)",dim:"14 × 10 m · 140 m²",doors:[[35,100],[105,100]],via:"Langsung ke Jalan Utama (2 pintu selatan: 3,5 m & 10,5 m)",goal:"Pusat kerja utama 10+ agen, tepat di sebelah Ruang Rapat & seberang Pantry.",items:["10 meja agen eksisting (ukuran & isi dipertahankan)","Dinding selatan baru + 2 pintu (Tahap 1)","Coffee Bar pindah ke Pantry & Server Rack pindah ke Server/IT setelah ruangannya jadi"]},
+{id:"meeting",n:"Ruang Rapat",x:140,y:0,w:80,h:80,c:"#a77c3d",lock:true,fase:"Tahap 0 + Tahap 1 (geser berdekatan)",dim:"8 × 8 m · 64 m²",doors:[[180,80]],parent:"foyer",via:"Lewat pintu tengah selatan (18 m) → Jalur tengah terbuka Meeting Foyer → Jalan Utama",goal:"Digeser persis di sebelah Ruang Kerja agar perjalanan agen ke rapat hanya ~7,5 m di Jalan Utama.",items:["Meja konferensi 10 kursi eksisting","TV 85 inci & kredenza eksisting","Akses terbuka lurus dari tengah Meeting Foyer (18 m)"]},
+{id:"foyer",n:"Meeting Foyer",x:140,y:80,w:80,h:20,c:"#4c6688",fase:"Tahap 1",dim:"8 × 2 m · 16 m²",doors:[[180,100]],via:"Pintu tengah dari Jalan Utama (18 m) → jalur tengah terbuka 2,4 m ke Ruang Rapat",goal:"Ruang transisi terbuka tepat di depan Ruang Rapat tanpa tembok/kaca penyekat antara jalur tengah dan sayap kiri/kanan.",items:["Jalur jalan tengah terbuka 2,4 m (x: 16,8–19,2 m, tanpa sekat)","Sayap kiri & kanan terbuka: tanaman hias, papan jadwal, atau meja minuman/hidangan rapat panjang"]},
+{id:"studio",n:"Studio / Content",x:220,y:0,w:60,h:40,c:"#287d87",fase:"Tahap 6",dim:"6 × 4 m · 24 m²",doors:[[250,40]],parent:"commons",via:"Lewat pintu selatan (25 m) → Collaboration Commons → Jalan Utama",goal:"Zona produksi konten visual, screenshot/video render & asset.",items:["Backdrop & green screen","Lampu studio virtual","Meja produksi"]},
+{id:"display",n:"Information Wall",x:280,y:0,w:50,h:40,c:"#4c6688",fase:"Tahap 5",dim:"5 × 4 m · 20 m²",doors:[[300,40]],parent:"commons",via:"Lewat pintu selatan (30 m) → Collaboration Commons → Jalan Utama",goal:"Papan status proyek, metrik CI/CD, & leaderboard agen.",items:["Layar dashboard raksasa","Papan pengumuman tim","Status git & deployment"]},
+{id:"collab",n:"Collaboration Pods",x:330,y:0,w:50,h:40,c:"#287d87",fase:"Tahap 5",dim:"5 × 4 m · 20 m²",doors:[[355,40]],parent:"workshop",via:"Lewat pintu selatan (35,5 m) → Workshop → Jalan Utama",goal:"Diskusi cepat 2–4 agen tanpa harus memesan Ruang Rapat besar.",items:["2 booth diskusi mini","Whiteboard digital"]},
+{id:"commons",n:"Collaboration Commons",x:220,y:40,w:100,h:60,c:"#287d87",fase:"Tahap 4",dim:"10 × 6 m · 60 m²",doors:[[270,100]],via:"Langsung ke Jalan Utama (pintu tengah 27 m); terhubung langsung ke Studio & Info Wall",goal:"Area kerja kelompok terbuka sekaligus jalur hub menuju Studio & Information Wall.",items:["Meja kolaborasi modular","Kursi fleksibel","Pintu langsung ke Studio (25 m) & Information Wall (30 m)"]},
+{id:"workshop",n:"Workshop / Training",x:320,y:40,w:60,h:60,c:"#287d87",fase:"Tahap 5",dim:"6 × 6 m · 36 m²",doors:[[350,100]],via:"Langsung ke Jalan Utama (pintu 35 m); terhubung langsung ke Collaboration Pods",goal:"Area briefing, review produk, demo visual & akses langsung menuju Collaboration Pods.",items:["Layar presentasi","Kursi briefing","Pintu langsung ke Collaboration Pods (35,5 m)"]},
+{id:"manager",n:"Ruang Manajer",x:0,y:124,w:60,h:60,c:"#287d87",fase:"Tahap 2",dim:"6 × 6 m · 36 m²",doors:[[30,124]],via:"Langsung ke Jalan Utama (pintu tengah utara 3 m)",goal:"Ruang kerja privat Manajer (Raka) & review 1-on-1 dengan CEO, dekat dengan Ruang Kerja & Ruang Rapat.",items:["Meja eksekutif Raka","2 kursi tamu","Display KPI & progres tugas"]},
+{id:"lobby",n:"Lobi & Resepsionis",x:60,y:124,w:50,h:60,c:"#287d87",fase:"Tahap 3",dim:"5 × 6 m · 30 m²",doors:[[85,124]],via:"Langsung ke Jalan Utama (pintu tengah utara 8,5 m)",goal:"Pintu masuk gedung & titik spawn agen saat baru hadir/aktif.",items:["Meja resepsionis","Signage Office Agents 3D","Titik spawn & tunggu tamu"]},
+{id:"pantry",n:"Pantry / Café",x:110,y:124,w:50,h:60,c:"#287d87",fase:"Tahap 2",dim:"5 × 6 m · 30 m²",doors:[[135,124]],via:"Langsung ke Jalan Utama (pintu tengah utara 13,5 m)",goal:"Tepat di seberang pintu Ruang Kerja & dekat Foyer Ruang Rapat agar alur ngopi hidup & dekat.",items:["Coffee Bar (pindahan dari Ruang Kerja)","Water Dispenser & Trash Bin (pindahan)","Meja bar & kursi tinggi"]},
+{id:"lounge",n:"Lounge",x:160,y:124,w:50,h:60,c:"#287d87",fase:"Tahap 3",dim:"5 × 6 m · 30 m²",doors:[[185,124]],via:"Langsung ke Jalan Utama (pintu tengah utara 18,5 m)",goal:"Tempat duduk santai agen tepat di seberang Ruang Rapat.",items:["Sofa sudut","Meja kopi rendah","Tanaman indoor"]},
+{id:"focus",n:"Focus Pods",x:210,y:124,w:40,h:60,c:"#287d87",fase:"Tahap 6",dim:"4 × 6 m · 24 m²",doors:[[230,124]],via:"Langsung ke Jalan Utama (pintu tengah utara 23 m)",goal:"Bilik kedap suara untuk agen yang menjalankan tugas debugging/coding berat.",items:["2 booth pod akustik","Lampu indikator sibuk"]},
+{id:"server",n:"Server / IT",x:250,y:124,w:40,h:60,c:"#4c6688",fase:"Tahap 3",dim:"4 × 6 m · 24 m²",doors:[[270,124]],via:"Langsung ke Jalan Utama (pintu tengah utara 27 m)",goal:"Ruang utilitas teknis khusus infrastruktur, deployment & keamanan.",items:["2× Server Rack 42U (pindahan dari Ruang Kerja)","Lampu LED status & monitoring IT"]},
+{id:"garden",n:"Digital Garden",x:290,y:124,w:50,h:60,c:"#32765f",fase:"Tahap 4",dim:"5 × 6 m · 30 m²",doors:[[315,124]],via:"Langsung ke Jalan Utama (pintu tengah utara 31,5 m)",goal:"Area hijau penyegar visual di sisi tenggara.",items:["Vertical garden wall","Bangku taman kayu","Monstera & Snake Plant"]},
+{id:"access",n:"Digital Access Hub",x:340,y:124,w:40,h:60,c:"#4c6688",fase:"Tahap 6",dim:"4 × 6 m · 24 m²",doors:[[360,124]],via:"Langsung ke Jalan Utama (pintu tengah utara 36 m)",goal:"Hub perluasan masa depan (tangga/lift menuju Lantai 2 & tambahan agen baru).",items:["Portal akses lantai berikutnya","Peta navigasi gedung"]}
+];
+const byId=Object.fromEntries(data.map(r=>[r.id,r]));
+const NS="http://www.w3.org/2000/svg";
+function add(tag,a,p){const e=document.createElementNS(NS,tag);Object.entries(a).forEach(([k,v])=>e.setAttribute(k,v));p.appendChild(e);return e}
+
+const gZones=document.getElementById("zones"),gRoads=document.getElementById("roads"),gDoors=document.getElementById("doors"),gRoute=document.getElementById("route");
+
+data.forEach(r=>{
+  const g=add("g",{"class":"zone","data-id":r.id,tabindex:"0",role:"button"},gZones);
+  add("rect",{class:"roombox",x:r.x,y:r.y,width:r.w,height:r.h,rx:1,fill:r.c,"fill-opacity":r.lock?".40":".24",stroke:r.c,"stroke-width":"0.9"},g);
+  if(r.id==="foyer"){
+    add("rect",{x:143,y:83,width:22,height:14,rx:1.5,fill:"#32765f","fill-opacity":".22",stroke:"#48c9b4","stroke-width":".35","stroke-dasharray":"1.5 1.5"},g);
+    add("rect",{x:195,y:83,width:22,height:14,rx:1.5,fill:"#32765f","fill-opacity":".22",stroke:"#48c9b4","stroke-width":".35","stroke-dasharray":"1.5 1.5"},g);
+    const hl1=add("text",{x:154,y:88.8,"font-size":"2.7",fill:"#b8ece4"},g);hl1.textContent="Hiasan /";
+    const hl2=add("text",{x:154,y:92.5,"font-size":"2.7",fill:"#b8ece4"},g);hl2.textContent="Minuman";
+    const hr1=add("text",{x:206,y:88.8,"font-size":"2.7",fill:"#b8ece4"},g);hr1.textContent="Hiasan /";
+    const hr2=add("text",{x:206,y:92.5,"font-size":"2.7",fill:"#b8ece4"},g);hr2.textContent="Minuman";
+  }
+  const fs=Math.max(3.6,Math.min(5.2,r.w/13.5));
+  if(r.id!=="foyer"){
+    const t=add("text",{x:r.x+r.w/2,y:r.y+r.h/2-(r.lock?2:1),"font-size":fs},g);t.textContent=r.n;
+    const d=add("text",{x:r.x+r.w/2,y:r.y+r.h/2+4.5,"class":"small"},g);d.textContent=r.dim.split(" · ")[0];
+  }
+  if(r.lock){const l=add("text",{x:r.x+r.w/2,y:r.y+7,"class":"locked"},g);l.textContent="ASET EKSISTING"}
+  else if(r.id!=="foyer"){const p=add("text",{x:r.x+r.w/2,y:r.y+6,"class":"phase"},g);p.textContent=r.fase.toUpperCase()}
+
+  g.addEventListener("click",()=>onZoneClick(r));
+  g.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();onZoneClick(r)}});
+
+  const item=document.createElement("div");item.className="item";
+  item.innerHTML=`<b>${r.n}</b><small>${r.dim} · ${r.fase}</small>`;
+  item.addEventListener("click",()=>onZoneClick(r));
+  document.getElementById("list").appendChild(item);
+});
+
+// Jalan utama + jalur tengah Meeting Foyer (terbuka tanpa tembok/kaca sisi)
+add("rect",{x:0,y:100,width:380,height:24,fill:"#48c9b4","fill-opacity":".20",stroke:"#48c9b4","stroke-width":"1.3"},gRoads);
+add("path",{d:"M5 112H375",stroke:"#48c9b4","stroke-width":"1","stroke-dasharray":"5 3"},gRoads);
+const rt=add("text",{x:190,y:110.5,fill:"#75ead7","font-size":"5","font-weight":"700","text-anchor":"middle","paint-order":"stroke",stroke:"#0c1a2a","stroke-width":"1.8"},gRoads);
+rt.textContent="JALAN UTAMA (BUS) · 2,4 m · AKSES BARAT–TIMUR";
+
+add("rect",{x:168,y:80,width:24,height:20,fill:"#48c9b4","fill-opacity":".16",stroke:"none"},gRoads);
+add("path",{d:"M168 82V98M192 82V98",stroke:"#48c9b4","stroke-width":".45","stroke-dasharray":"2 2",opacity:".7"},gRoads);
+add("path",{d:"M180 80V112",stroke:"#48c9b4","stroke-width":"1","stroke-dasharray":"3 2"},gRoads);
+const ft=add("text",{x:180,y:91.2,fill:"#d5fff7","font-size":"3.2","font-weight":"700","text-anchor":"middle","paint-order":"stroke",stroke:"#0c1a2a","stroke-width":"1.4"},gRoads);
+ft.textContent="FOYER";
+
+function drawDoor([x,y]){
+  add("line",{x1:x-5.5,y1:y,x2:x+5.5,y2:y,stroke:"#091321","stroke-width":"2.2"},gDoors);
+  add("line",{x1:x-5.5,y1:y,x2:x+5.5,y2:y,stroke:"#b5fff1","stroke-width":"1.1","stroke-dasharray":"2 1.2"},gDoors);
+  add("circle",{cx:x,cy:y,r:"1.7",fill:"#48c9b4",stroke:"#091321","stroke-width":".6"},gDoors);
+}
+add("line",{x1:0,y1:100,x2:140,y2:100,stroke:"#d5a64d","stroke-width":"1.4"},gDoors);
+data.forEach(r=>r.doors.forEach(drawDoor));
+
+// Graf BFS rute terpendek melalui pintu (sejalan dengan navigation.ts di 3D)
+const routeLine=add("polyline",{points:"",fill:"none",stroke:"#f1d18e","stroke-width":"1.8","stroke-linejoin":"round","stroke-linecap":"round"},gRoute);
+const dot=add("circle",{cx:"-20",cy:"-20",r:"2.8",fill:"#f1d18e",stroke:"#091321","stroke-width":".8"},gRoute);
+let routeMode=false,pickFrom=null,pickTo=null,routePts=[],routeLen=0,t0=0;
+
+function centerOf(r){return [r.x+r.w/2, r.id==="foyer"?90:r.y+r.h/2]}
+
+const graph={bus:[]};
+data.forEach(r=>{graph[r.id]=[]});
+data.forEach(r=>{
+  const target=r.parent||"bus";
+  r.doors.forEach(d=>{
+    graph[r.id].push({to:target,door:d});
+    graph[target].push({to:r.id,door:d});
+  });
+});
+
+function computeRoute(a,b){
+  const q=[a.id],prev={[a.id]:null};
+  while(q.length){
+    const cur=q.shift();
+    if(cur===b.id)break;
+    for(const edge of graph[cur]){
+      if(!(edge.to in prev)){prev[edge.to]={from:cur,door:edge.door};q.push(edge.to)}
+    }
+  }
+  const hops=[];
+  for(let cur=b.id;cur!==a.id&&prev[cur];cur=prev[cur].from){
+    hops.unshift({from:prev[cur].from,to:cur,door:prev[cur].door});
+  }
+  const dstX=centerOf(b)[0];
+  const pts=[centerOf(a)],steps=[];
+  hops.forEach((h,idx)=>{
+    let door=h.door;
+    if(h.from==="work"&&h.to==="bus"){
+      door=byId.work.doors.reduce((p,c)=>Math.abs(c[0]-dstX)<Math.abs(p[0]-dstX)?c:p);
+    }else if(h.from==="bus"&&h.to==="work"){
+      const last=pts[pts.length-1];
+      door=byId.work.doors.reduce((p,c)=>Math.abs(c[0]-last[0])<Math.abs(p[0]-last[0])?c:p);
+    }
+    const last=pts[pts.length-1];
+    if(h.from==="bus"){
+      const d=Math.abs(door[0]-last[0])/10;
+      if(d>0.05)steps.push(`Berjalan di Jalan Utama ${d.toFixed(1)} m ke ${door[0]>=last[0]?"timur":"barat"}`);
+      pts.push([door[0],112], door);
+      const nextR=byId[h.to];
+      const ny=centerOf(nextR)[1];
+      if(idx===hops.length-1){pts.push([door[0],ny], centerOf(nextR))}
+      else{pts.push([door[0],ny])}
+      steps.push(`Masuk ${nextR.n} dari Jalan Utama lewat pintu (${(door[0]/10).toFixed(1)} m)`);
+    }else if(h.to==="bus"){
+      const curR=byId[h.from];
+      const cy=last[1];
+      if(Math.abs(last[0]-door[0])>0.5)pts.push([door[0],cy]);
+      pts.push(door,[door[0],112]);
+      steps.push(`Keluar ${curR.n} lewat pintu (${(door[0]/10).toFixed(1)} m) ke Jalan Utama`);
+    }else{
+      const nextR=byId[h.to];
+      const cy=last[1], ny=centerOf(nextR)[1];
+      if(Math.abs(last[0]-door[0])>0.5)pts.push([door[0],cy]);
+      pts.push(door,[door[0],ny]);
+      if(idx===hops.length-1&&Math.abs(door[0]-centerOf(nextR)[0])>0.5)pts.push(centerOf(nextR));
+      steps.push(`Langsung masuk ${nextR.n} lewat pintu penghubung (${(door[0]/10).toFixed(1)} m)`);
+    }
+  });
+  const clean=pts.filter((p,i)=>i===0||Math.hypot(p[0]-pts[i-1][0],p[1]-pts[i-1][1])>0.1);
+  return {pts:clean,steps};
+}
+function seg(a,b){return Math.hypot(b[0]-a[0],b[1]-a[1])}
+function renderRoute(){
+  document.querySelectorAll(".zone").forEach(e=>{
+    e.classList.remove("from","to");
+    if(pickFrom&&e.dataset.id===pickFrom.id)e.classList.add("from");
+    if(pickTo&&e.dataset.id===pickTo.id)e.classList.add("to");
+  });
+  const box=document.getElementById("routeInfo");
+  if(!routeMode&&!pickTo){box.style.display="none";routePts=[];routeLine.setAttribute("points","");dot.setAttribute("cx",-20);return}
+  box.style.display="block";
+  document.getElementById("rFrom").textContent=pickFrom?pickFrom.n:"pilih ruang asal…";
+  document.getElementById("rTo").textContent=pickTo?pickTo.n:"pilih ruang tujuan…";
+  const ul=document.getElementById("rSteps");ul.innerHTML="";
+  if(pickFrom&&pickTo){
+    const res=computeRoute(pickFrom,pickTo);
+    routePts=res.pts;routeLen=0;
+    for(let i=1;i<routePts.length;i++)routeLen+=seg(routePts[i-1],routePts[i]);
+    routeLine.setAttribute("points",routePts.map(p=>p.join(",")).join(" "));
+    res.steps.forEach(s=>{const li=document.createElement("li");li.textContent=s;ul.appendChild(li)});
+    const meters=routeLen/10;
+    document.getElementById("rMeta").textContent=`Total jarak ±${meters.toFixed(1)} m · ±${Math.round(meters/1.4)} dtk jalan santai`;
+    t0=performance.now();
+  }else{routePts=[];routeLine.setAttribute("points","");dot.setAttribute("cx",-20);document.getElementById("rMeta").textContent=""}
+}
+function tick(now){
+  if(routePts.length>1&&routeLen>0){
+    let d=(((now-t0)/1000)*45)%(routeLen+25);if(d>routeLen)d=routeLen;
+    let i=1;while(i<routePts.length&&d>seg(routePts[i-1],routePts[i])){d-=seg(routePts[i-1],routePts[i]);i++}
+    if(i>=routePts.length)i=routePts.length-1;
+    const a=routePts[i-1],b=routePts[i],L=seg(a,b)||1,k=Math.min(1,d/L);
+    dot.setAttribute("cx",a[0]+(b[0]-a[0])*k);dot.setAttribute("cy",a[1]+(b[1]-a[1])*k);
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+function showDetail(r){
+  document.querySelectorAll(".zone").forEach(e=>e.classList.toggle("selected",e.dataset.id===r.id));
+  document.getElementById("detail").innerHTML=`<div class="detailname">${r.n}</div><span class="pill">${r.dim}</span><span class="pill phasepill">${r.fase}</span><p style="margin:8px 0 4px"><b>Tujuan:</b> ${r.goal}</p><p class="muted" style="margin:0 0 8px;font-size:12px"><b>Akses pintu:</b> ${r.via}</p><b>Rencana isi / elemen:</b><ul>${r.items.map(v=>`<li>${v}</li>`).join("")}</ul>`;
+}
+function onZoneClick(r){
+  showDetail(r);
+  if(routeMode){
+    if(!pickFrom||(pickFrom&&pickTo)){pickFrom=r;pickTo=null}
+    else if(r.id!==pickFrom.id){pickTo=r}
+    renderRoute();
+  }
+}
+
+document.getElementById("modeRoute").onclick=function(){
+  routeMode=!routeMode;
+  this.textContent=`Mode Cek Jalur: ${routeMode?"ON":"OFF"}`;
+  this.classList.toggle("active",routeMode);
+  if(!routeMode){pickFrom=pickTo=null}
+  renderRoute();
+};
+document.querySelectorAll(".preset").forEach(btn=>btn.onclick=()=>{
+  routeMode=true;
+  const mr=document.getElementById("modeRoute");mr.textContent="Mode Cek Jalur: ON";mr.classList.add("active");
+  pickFrom=byId[btn.dataset.from];pickTo=byId[btn.dataset.to];
+  showDetail(pickTo);renderRoute();
+});
+document.getElementById("showRoadmap").onclick=()=>{
+  document.querySelectorAll(".zone").forEach(e=>e.classList.remove("selected"));
+  document.getElementById("detail").innerHTML=`<div class="detailname">Roadmap Build Bertahap</div><p class="muted" style="font-size:12px">Kerjakan satu per satu dari area inti barat–tengah ke timur:</p><ol style="font-size:12px"><li><b>Tahap 1:</b> Jalan Utama 38 × 2,4 m + Dinding Selatan Ruang Kerja (2 pintu) + geser Ruang Rapat ke x: 14–22 m + Meeting Foyer terbuka (8 × 2 m, center 18 m).</li><li><b>Tahap 2:</b> Pantry / Café (x: 11–16 m, pindah Coffee Bar, Dispenser, Sampah) &amp; Ruang Manajer (x: 0–6 m).</li><li><b>Tahap 3:</b> Lobi &amp; Resepsionis + Lounge + Server / IT (pindah 2× Server Rack).</li><li><b>Tahap 4:</b> Collaboration Commons (x: 22–32 m) &amp; Digital Garden (x: 29–34 m).</li><li><b>Tahap 5:</b> Workshop / Training + Information Wall + Collaboration Pods.</li><li><b>Tahap 6:</b> Studio / Content + Focus Pods + Digital Access Hub.</li></ol>`;
+};
+document.getElementById("clear").onclick=()=>{
+  routeMode=false;pickFrom=pickTo=null;
+  const mr=document.getElementById("modeRoute");mr.textContent="Mode Cek Jalur: OFF";mr.classList.remove("active");
+  document.querySelectorAll(".zone").forEach(e=>e.classList.remove("selected"));
+  document.getElementById("detail").innerHTML='<span class="muted">Klik ruangan pada denah untuk melihat ukuran, tujuan, isi, pintu, serta fase pengerjaan 3D-nya.</span>';
+  renderRoute();
+};
+</script></body></html>
