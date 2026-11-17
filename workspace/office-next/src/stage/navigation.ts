@@ -12,12 +12,18 @@ import {
   AGENT_3D_POSITIONS,
   BOARDROOM,
   CORRIDOR_BUS,
+  LOBBY,
+  LOUNGE,
   MANAGER,
   PANTRY,
   ROOM_FOYER,
+  ROOM_LOBBY,
+  ROOM_LOUNGE,
   ROOM_MAIN,
   ROOM_MANAGER,
   ROOM_PANTRY,
+  ROOM_SERVER,
+  SERVER,
   SOUTH_ROOM_DOOR_INSIDE_Z,
   type DeskSpot,
   type Pt,
@@ -142,6 +148,43 @@ export const managerPath = laneZ(MANAGER.laneZ);
  * (barat) dan kursi bar (timur). Antrean, kursi bar, dan tempat sampah tersambung lurus ke sini.
  */
 export const pantryPath = laneX(PANTRY.spineX);
+
+/**
+ * Lorong berupa polyline (Tahap 3). Titik asal & tujuan disambung ke titik terdekat pada
+ * polyline, lalu rute menyusuri polyline di antara kedua proyeksi itu.
+ */
+export function polylineLane(points: readonly Pt[]) {
+  const segs = points.slice(1).map((b, i) => ({ a: points[i]!, b }));
+  const cum: number[] = [0];
+  segs.forEach((sg, i) => cum.push(cum[i]! + segLen(sg.a, sg.b)));
+  const project = (p: Pt) => {
+    let best = { d: Infinity, t: 0, pt: points[0]! as Pt, seg: 0 };
+    segs.forEach((sg, i) => {
+      const dx = sg.b.x - sg.a.x, dz = sg.b.z - sg.a.z, L2 = dx * dx + dz * dz || 1;
+      const u = Math.max(0, Math.min(1, ((p.x - sg.a.x) * dx + (p.z - sg.a.z) * dz) / L2));
+      const q = { x: sg.a.x + dx * u, z: sg.a.z + dz * u };
+      const d = segLen(p, q);
+      if (d < best.d - 1e-9) best = { d, t: cum[i]! + u * Math.sqrt(L2), pt: q, seg: i };
+    });
+    return best;
+  };
+  return (from: Pt, to: Pt): NavPt[] => {
+    const a = project(from), b = project(to);
+    const mid: Pt[] = [];
+    if (a.t < b.t) { for (let i = a.seg + 1; i <= b.seg; i++) mid.push(points[i]!); }
+    else if (a.t > b.t) { for (let i = a.seg; i > b.seg; i--) mid.push(points[i]!); }
+    return dedupe([{ ...from }, a.pt, ...mid, b.pt, { ...to }]);
+  };
+}
+
+/** Room_LobbyReception — lorong tengah segaris pintu (dunia X 1.5), melewati karpet spawn. */
+export const lobbyPath = laneX(LOBBY.spineX);
+
+/** Room_LoungeRelax — lorong tengah segaris pintu (dunia X 11.5); kursi sofa di sisi barat. */
+export const loungePath = laneX(LOUNGE.spineX);
+
+/** Room_ServerIT — lorong U mengitari 2 rak di tengah: hot aisle → sisi timur → cold aisle. */
+export const serverPath = polylineLane(SERVER.lane);
 
 // ============================================================================
 // Room_Boardroom_10p — promenade selatan, lorong utara, lorong barat & timur
@@ -329,6 +372,15 @@ export const FLOOR1_PORTALS = {
   /** Dunia (6.5, 6.2) ↔ (6.5, 8.05). */
   busPantryDoor: { x: busX(ROOM_PANTRY.origin.x + mid(ROOM_PANTRY.northDoor)), z: 0 },
   pantryNorth: { x: mid(ROOM_PANTRY.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
+  /** Tahap 3. Dunia (1.5, 6.2) ↔ (1.5, 8.05). */
+  busLobbyDoor: { x: busX(ROOM_LOBBY.origin.x + mid(ROOM_LOBBY.northDoor)), z: 0 },
+  lobbyNorth: { x: mid(ROOM_LOBBY.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
+  /** Dunia (11.5, 6.2) ↔ (11.5, 8.05). */
+  busLoungeDoor: { x: busX(ROOM_LOUNGE.origin.x + mid(ROOM_LOUNGE.northDoor)), z: 0 },
+  loungeNorth: { x: mid(ROOM_LOUNGE.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
+  /** Dunia (20.0, 6.2) ↔ (20.0, 8.05). */
+  busServerDoor: { x: busX(ROOM_SERVER.origin.x + mid(ROOM_SERVER.northDoor)), z: 0 },
+  serverNorth: { x: mid(ROOM_SERVER.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
 } as const;
 
 export const BOARDROOM_DOOR_GATE = 'boardroom_door';

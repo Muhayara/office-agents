@@ -24,6 +24,7 @@ import { buildSolidWallX, workspaceWallMats } from './walls';
  * berbatasan langsung dengan dinding barat ruang rapat (sekat kaca tanpa pintu).
  * Tahap 2: pantry sementara (coffee bar, dispenser, tempat sampah) pindah ke Pantry / Café;
  * meja Raka pindah ke Ruang Manajer dan tempatnya diisi whiteboard scrum.
+ * Tahap 3: 2× Server Rack 42U pindah ke Server / IT (ruang kerja 100% bebas aset titipan).
  */
 export interface MainWorkspace {
   group: THREE.Group;
@@ -162,22 +163,6 @@ export function buildMainWorkspace(opts: {
     opts.onShellLoaded();
   }, opts.onShellError);
 
-  // ---- Server rack + LED berdenyut ----
-  const serverLeds: THREE.PointLight[] = [];
-  // Merapat ke dinding selatan baru, di kiri-kanan pintu selatan-timur (X 2.8..4.2).
-  [{ x: 1.8, z: 4.17 }, { x: 5.5, z: 4.17 }].forEach((p, i) => {
-    const slot = new THREE.Group();
-    slot.name = `ServerRack_${i}`;
-    slot.position.set(p.x, 0, p.z);
-    decor.add(slot);
-    mountAsset(slot, '/models/Server_Rack_42U.glb', new THREE.Group(), load);
-    const led = new THREE.PointLight(i === 0 ? 0x5dbb8a : 0x4da8da, 4.5, 3.5, 2);
-    led.position.set(p.x, 1.2, p.z - 0.45);
-    led.userData = { offset: i * 2.5 };
-    decor.add(led);
-    serverLeds.push(led);
-  });
-
   // ---- Tanaman ----
   const plant = (url: string, name: string, p: { x: number; z: number; s: number }) => {
     const slot = new THREE.Group();
@@ -235,9 +220,8 @@ export function buildMainWorkspace(opts: {
     mountAsset(slot, '/models/Office_Whiteboard_Scrum.glb', new THREE.Group(), load);
   }
 
-  const update = (time: number) => {
-    for (const led of serverLeds) led.intensity = 2.8 + Math.sin(time * 5 + (led.userData.offset as number)) * 1.8;
-  };
+  // Tahap 3: 2× Server Rack 42U pindah ke Server / IT; ruang kerja bersih dari aset titipan.
+  const update = (_time: number) => {};
 
   return { group, workstations, chairs, seatAnchors, setCarpetMaterial, bindWalls, update };
 }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type ClientCommand, type StateSnapshot, parseServerEvent } from '@office/shared';
-import { IsometricOfficeStage, type CameraMode, type StageApi } from './stage/IsometricOfficeStage';
+import { IsometricOfficeStage, type CameraMode, type StageApi, type StageRoom } from './stage/IsometricOfficeStage';
 import { InspectorPanel } from './panels/InspectorPanel';
 import {
   DEMO_BUILD,
@@ -55,6 +55,19 @@ const FALLBACK_SNAPSHOT: StateSnapshot = {
  * - live: terhubung; avatar mengikuti status agen sebenarnya.
  */
 type Connection = 'checking' | 'demo' | 'offline' | 'login' | 'live';
+
+/** Ruangan Lantai 1 di pilihan fokus kamera (urutan Barat → Timur, utara dulu). */
+const FOCUS_ROOMS: ReadonlyArray<[StageRoom, string, string]> = [
+  ['workspace', 'Ruang Kerja', 'Workspace'],
+  ['boardroom', 'Ruang Rapat', 'Boardroom'],
+  ['foyer', 'Meeting Foyer', 'Meeting Foyer'],
+  ['bus', 'Jalan Utama', 'Main Corridor'],
+  ['manager', 'Ruang Manajer', 'Manager Office'],
+  ['lobby', 'Lobi & Resepsionis', 'Lobby & Reception'],
+  ['pantry', 'Pantry / Café', 'Pantry / Café'],
+  ['lounge', 'Lounge', 'Lounge'],
+  ['server', 'Server / IT', 'Server / IT'],
+];
 
 export function App() {
   const [snapshot, setSnapshot] = useState<StateSnapshot>(FALLBACK_SNAPSHOT);
@@ -214,7 +227,7 @@ export function App() {
             {t('Kantor 3D', '3D Office')}
           </strong>
           <span className="mono" style={{ fontSize: 12, color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>
-            {t('Lantai 1 · Ruang Kerja · Jalan Utama · Ruang Rapat · Manajer · Pantry', 'Floor 1 · Workspace · Main Corridor · Boardroom · Manager · Pantry')}
+            {t('Lantai 1 · Jalan Utama + 8 ruangan', 'Floor 1 · Main Corridor + 8 rooms')}
           </span>
           {connectionChip && (
             <span className="chip mono" style={{ color: connectionChip.color, borderColor: connectionChip.color }}>
@@ -229,38 +242,28 @@ export function App() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button
-            type="button"
-            onClick={() => stageApiRef.current?.focusRoom('workspace')}
-            title={t('Arahkan kamera ke ruang kerja', 'Focus the workspace')}
-            style={hudButton}
+          <select
+            aria-label={t('Fokus kamera ke ruangan', 'Focus the camera on a room')}
+            title={t('Arahkan kamera ke sebuah ruangan Lantai 1', 'Point the camera at a Floor 1 room')}
+            value=""
+            onChange={(e) => {
+              const room = e.target.value as StageRoom;
+              if (room) stageApiRef.current?.focusRoom(room);
+            }}
+            style={{
+              ...hudButton,
+              background: 'var(--color-paper)',
+              color: 'inherit',
+              border: '1px solid var(--color-rule)',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
           >
-            {t('Fokus: Ruang Kerja', 'Focus: Workspace')}
-          </button>
-          <button
-            type="button"
-            onClick={() => stageApiRef.current?.focusRoom('boardroom')}
-            title={t('Arahkan kamera ke ruang rapat', 'Focus the boardroom')}
-            style={hudButton}
-          >
-            {t('Fokus: Ruang Rapat', 'Focus: Boardroom')}
-          </button>
-          <button
-            type="button"
-            onClick={() => stageApiRef.current?.focusRoom('manager')}
-            title={t('Arahkan kamera ke ruang manajer', 'Focus the manager office')}
-            style={hudButton}
-          >
-            {t('Fokus: Manajer', 'Focus: Manager')}
-          </button>
-          <button
-            type="button"
-            onClick={() => stageApiRef.current?.focusRoom('pantry')}
-            title={t('Arahkan kamera ke pantry / café', 'Focus the pantry / café')}
-            style={hudButton}
-          >
-            {t('Fokus: Pantry', 'Focus: Pantry')}
-          </button>
+            <option value="">{t('Fokus: ruangan…', 'Focus: room…')}</option>
+            {FOCUS_ROOMS.map(([room, id, en]) => (
+              <option key={room} value={room}>{t(id, en)}</option>
+            ))}
+          </select>
           <button
             type="button"
             onClick={() => stageApiRef.current?.toggleCamera()}

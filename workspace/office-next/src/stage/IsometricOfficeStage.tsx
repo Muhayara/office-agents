@@ -7,8 +7,15 @@ import { type AgentStatus, type AgentView, type Lang, roleLabel } from '@office/
 import { OFFICE_ZONES } from '../isometric/coords';
 import type { StageEvent } from '../state/liveOffice';
 import {
+  ARRIVAL_LINES,
   COFFEE_ROUTINE_DIALOGUES,
+  LEAVING_LINES,
+  LOUNGE_CHAT,
+  LOUNGE_GOING,
   OFFICE_CONVERSATIONS,
+  SERVER_CONSOLE,
+  SERVER_GOING,
+  SERVER_INSPECT,
   AGENT_SOLO_THOUGHTS,
   LIVE_STATUS_LINES,
   MEETING_CALL_LINES,
@@ -32,8 +39,12 @@ import {
   ROOM_BOARDROOM,
   ROOM_FOYER,
   ROOM_MAIN,
+  LOUNGE,
+  ROOM_LOBBY,
+  ROOM_LOUNGE,
   ROOM_MANAGER,
   ROOM_PANTRY,
+  ROOM_SERVER,
   WALL_HEIGHT,
   WALL_THICKNESS,
   WALK_SPEED,
@@ -49,8 +60,11 @@ import {
   createBuildingNav,
   foyerPath,
   mainRoomPath,
+  lobbyPath,
+  loungePath,
   managerPath,
   pantryPath,
+  serverPath,
   pathLength,
   segLen,
   visitSpotFor,
@@ -65,6 +79,9 @@ import { buildMeetingFoyer } from './rooms/meetingFoyer';
 import { buildBoardroom } from './rooms/boardroom';
 import { buildManagerOffice, type KpiInfo } from './rooms/managerOffice';
 import { buildPantryCafe } from './rooms/pantryCafe';
+import { buildLobbyReception } from './rooms/lobbyReception';
+import { buildLoungeRelax } from './rooms/loungeRelax';
+import { buildServerRoom } from './rooms/serverRoom';
 
 // ============================================================================
 // Tipe & konstanta panggung
@@ -73,7 +90,7 @@ import { buildPantryCafe } from './rooms/pantryCafe';
 export type { CameraMode };
 
 /** Ruangan Lantai 1 yang bisa difokus kamera. */
-export type StageRoom = 'workspace' | 'boardroom' | 'foyer' | 'bus' | 'manager' | 'pantry';
+export type StageRoom = 'workspace' | 'boardroom' | 'foyer' | 'bus' | 'manager' | 'pantry' | 'lobby' | 'lounge' | 'server';
 
 export interface StageApi {
   focusRoom: (room: StageRoom) => void;
@@ -104,6 +121,9 @@ const CONVO_MAX_S    = 24;
 const THOUGHT_MIN_S  = 8;
 const THOUGHT_MAX_S  = 18;
 const VISIT_STAY_S   = 3.5;
+/** Jeda antar-inspeksi Server / IT oleh Satria / Bima. */
+const SERVER_MIN_S   = 70;
+const SERVER_MAX_S   = 120;
 /** Arah datang matahari (dari tenggara atas). Target & frustum bayangan dipaskan ke tapak gedung. */
 const SUN_OFFSET = new THREE.Vector3(12, 24, 16);
 const SEATED_LEG = Math.PI / 2.2;
@@ -135,7 +155,17 @@ type AnimState =
   | 'meeting_standing'
   | 'walk_from_meeting'
   /** Dipanggil balik ke meja dari rutinitas santai karena ada pekerjaan nyata. */
-  | 'walk_back_to_desk';
+  | 'walk_back_to_desk'
+  /** Tahap 3: belum hadir / sudah pulang (avatar disembunyikan di Lobi). */
+  | 'away'
+  /** Baru hadir: dari karpet Lobi berjalan ke meja. */
+  | 'walk_in_from_lobby'
+  /** Offline: berjalan dari meja ke Lobi lalu menghilang. */
+  | 'walk_out_to_lobby'
+  /** Tugas singkat di ruangan lain (sofa Lounge, inspeksi Server / IT): berjalan ke titik berikutnya. */
+  | 'walk_to_errand'
+  /** Duduk / berdiri di titik tugas (fase naik-turun dihitung dari stateTime). */
+  | 'errand_stay';
 
 /** State saat agen sedang dalam perjalanan pulang ke kursinya. */
 const RETURNING_STATES: ReadonlySet<AnimState> = new Set<AnimState>([
@@ -143,9 +173,10 @@ const RETURNING_STATES: ReadonlySet<AnimState> = new Set<AnimState>([
   'walk_from_visit',
   'walk_from_meeting',
   'walk_back_to_desk',
+  'walk_in_from_lobby',
 ]);
 
-/** Rutinitas santai yang boleh disela saat agen mendapat pekerjaan nyata. */
+/** Rutinitas santai (kopi, sofa Lounge, inspeksi Server) yang boleh disela saat ada pekerjaan nyata. */
 const COFFEE_STATES: ReadonlySet<AnimState> = new Set<AnimState>([
   'walk_to_coffee',
   'waiting_in_queue',
@@ -155,7 +186,27 @@ const COFFEE_STATES: ReadonlySet<AnimState> = new Set<AnimState>([
   'walk_to_trash',
   'disposing',
   'walk_from_trash',
+  'walk_to_errand',
+  'errand_stay',
 ]);
+
+/** Satu titik tugas singkat: berdiri di `approach`, lalu duduk/berdiri di `spot` selama `duration`. */
+interface ErrandStop {
+  approach: Spot;
+  spot: Spot;
+  /** Tinggi avatar saat duduk (0 = berdiri). */
+  sitY: number;
+  duration: number;
+  pose: 'lounge' | 'inspect' | 'type';
+  lines: readonly string[];
+}
+interface Errand {
+  kind: 'lounge' | 'server';
+  stops: ErrandStop[];
+  i: number;
+  /** Indeks kursi sofa yang dipesan (Lounge). */
+  seat?: number;
+}
 
 /** Agen yang sedang terikat rapat (dari dipanggil sampai berdiri dari kursi rapat). */
 const MEETING_STATES: ReadonlySet<AnimState> = new Set<AnimState>([
@@ -185,6 +236,10 @@ interface AgentAnim {
   meetingSeat?: number;
   /** Indeks kursi bar Pantry yang sedang dipesan / diduduki. */
   stool?: number;
+  /** Tugas singkat yang sedang berjalan (Lounge / Server). */
+  errand?: Errand;
+  /** Dipilih mampir ke Lounge setelah rapat bubar. */
+  loungeAfter?: boolean;
   /** Waktu berangkat ke / pulang dari ruang rapat (jeda bertahap). */
   departAt?: number;
   /** Penanda sub-fase animasi duduk / berdiri. */
@@ -482,6 +537,10 @@ export function IsometricOfficeStage({
     // Tahap 2: ruangan di sisi selatan Jalan Utama.
     const manager = buildManagerOffice(load, fader);
     const pantry = buildPantryCafe(load, fader);
+    // Tahap 3: Lobi & Resepsionis, Lounge, Server / IT.
+    const lobby = buildLobbyReception(load, fader);
+    const lounge = buildLoungeRelax(load, fader);
+    const server = buildServerRoom(load, fader);
     // Karpet seluruh lantai disamakan dengan karpet ruang rapat begitu GLB-nya dimuat
     // (Pantry memakai keramik mozaik sendiri).
     const board = buildBoardroom(load, fader, (mat) => {
@@ -490,7 +549,7 @@ export function IsometricOfficeStage({
       bus.setCarpetMaterial(mat);
       manager.setCarpetMaterial(mat);
     });
-    floor1.add(main.group, bus.group, foyer.group, board.group, manager.group, pantry.group);
+    floor1.add(main.group, bus.group, foyer.group, board.group, manager.group, pantry.group, lobby.group, lounge.group, server.group);
 
     // Avatar berada di level lantai karena berpindah antar-ruangan.
     const avatarsGroup = new THREE.Group();
@@ -503,6 +562,9 @@ export function IsometricOfficeStage({
     bus.bindWalls();
     manager.bindWalls();
     pantry.bindWalls();
+    lobby.bindWalls();
+    lounge.bindWalls();
+    server.bindWalls();
 
     // ---- Tapak dunia tiap ruangan (ruangan tidak diputar, jadi cukup dua sudutnya) ----
     const worldZone = (g: THREE.Object3D, minX: number, maxX: number, minZ: number, maxZ: number): WalkZone => {
@@ -518,6 +580,9 @@ export function IsometricOfficeStage({
       bus: worldZone(bus.group, -CORRIDOR_BUS.halfLength, CORRIDOR_BUS.halfLength, -CORRIDOR_BUS.halfWidth, CORRIDOR_BUS.halfWidth + WALL_THICKNESS),
       manager: worldZone(manager.group, -ROOM_MANAGER.halfX, ROOM_MANAGER.halfX, -ROOM_MANAGER.halfZ, ROOM_MANAGER.halfZ),
       pantry: worldZone(pantry.group, -ROOM_PANTRY.halfX, ROOM_PANTRY.halfX, -ROOM_PANTRY.halfZ, ROOM_PANTRY.halfZ),
+      lobby: worldZone(lobby.group, -ROOM_LOBBY.halfX, ROOM_LOBBY.halfX, -ROOM_LOBBY.halfZ, ROOM_LOBBY.halfZ),
+      lounge: worldZone(lounge.group, -ROOM_LOUNGE.halfX, ROOM_LOUNGE.halfX, -ROOM_LOUNGE.halfZ, ROOM_LOUNGE.halfZ),
+      server: worldZone(server.group, -ROOM_SERVER.halfX, ROOM_SERVER.halfX, -ROOM_SERVER.halfZ, ROOM_SERVER.halfZ),
     };
     // Free Cam di dalam tapak ini & di bawah tinggi dinding = mode jalan kaki (dinding utuh).
     fader.setWalkZones(Object.values(zones), WALL_HEIGHT);
@@ -561,7 +626,9 @@ export function IsometricOfficeStage({
     // ---- Bingkai awal kamera: klaster inti (ruang kerja + ruang rapat + foyer + ruas bus di
     // depannya) dan ruangan Tahap 2 di seberang Jalan Utama (Ruang Manajer & Pantry) ----
     {
-      const core = zoneBox([zones.main, zones.board, zones.foyer, zones.manager, zones.pantry]);
+      // Server / IT (X 18..22) sengaja di luar bingkai home: memasukkannya menurunkan zoom ±16% (0,63 → 0,53).
+      // Ruangan itu dijangkau lewat pilihan "Fokus: ruangan".
+      const core = zoneBox([zones.main, zones.board, zones.foyer, zones.manager, zones.pantry, zones.lobby, zones.lounge]);
       core.max.z = Math.max(core.max.z, zones.bus.maxZ);
       cam.setHomeBox(core);
     }
@@ -620,6 +687,24 @@ export function IsometricOfficeStage({
           pathLocal: pantryPath,
           ...roomTransform(pantry.group),
         },
+        {
+          id: 'lobby',
+          bounds: { minX: -ROOM_LOBBY.halfX, maxX: ROOM_LOBBY.halfX, minZ: -ROOM_LOBBY.halfZ, maxZ: ROOM_LOBBY.halfZ },
+          pathLocal: lobbyPath,
+          ...roomTransform(lobby.group),
+        },
+        {
+          id: 'lounge',
+          bounds: { minX: -ROOM_LOUNGE.halfX, maxX: ROOM_LOUNGE.halfX, minZ: -ROOM_LOUNGE.halfZ, maxZ: ROOM_LOUNGE.halfZ },
+          pathLocal: loungePath,
+          ...roomTransform(lounge.group),
+        },
+        {
+          id: 'server',
+          bounds: { minX: -ROOM_SERVER.halfX, maxX: ROOM_SERVER.halfX, minZ: -ROOM_SERVER.halfZ, maxZ: ROOM_SERVER.halfZ },
+          pathLocal: serverPath,
+          ...roomTransform(server.group),
+        },
       ],
       [
         // Ruang kerja punya 2 pintu ke Jalan Utama: router memilih rute total terpendek.
@@ -634,6 +719,9 @@ export function IsometricOfficeStage({
         },
         { id: 'bus-manager', a: { room: 'bus', portal: FLOOR1_PORTALS.busManagerDoor }, b: { room: 'manager', portal: FLOOR1_PORTALS.managerNorth } },
         { id: 'bus-pantry', a: { room: 'bus', portal: FLOOR1_PORTALS.busPantryDoor }, b: { room: 'pantry', portal: FLOOR1_PORTALS.pantryNorth } },
+        { id: 'bus-lobby', a: { room: 'bus', portal: FLOOR1_PORTALS.busLobbyDoor }, b: { room: 'lobby', portal: FLOOR1_PORTALS.lobbyNorth } },
+        { id: 'bus-lounge', a: { room: 'bus', portal: FLOOR1_PORTALS.busLoungeDoor }, b: { room: 'lounge', portal: FLOOR1_PORTALS.loungeNorth } },
+        { id: 'bus-server', a: { room: 'bus', portal: FLOOR1_PORTALS.busServerDoor }, b: { room: 'server', portal: FLOOR1_PORTALS.serverNorth } },
       ],
     );
     const walkPath = (from: Pt, to: Pt): NavPt[] => nav.path(from, to);
@@ -1045,6 +1133,19 @@ export function IsometricOfficeStage({
     initAnims();
     initBubbles();
 
+    // ---- Tahap 3: titik spawn Lobi. Demo: agen datang bertahap dari Lobi saat halaman dibuka. ----
+    const lobbySpawn = lobby.spawnWorld();
+    if (!liveRef.current) {
+      const order = Array.from(animMap.keys()).sort(() => Math.random() - 0.5);
+      order.forEach((id, k) => {
+        const a = animMap.get(id)!;
+        const r = meshMap.get(id);
+        a.state = 'away';
+        a.departAt = 0.8 + k * 1.2;
+        if (r) { r.avatar.visible = false; r.avatar.position.set(lobbySpawn.x, 0, lobbySpawn.z); }
+      });
+    }
+
     // Template meja & kursi kerja (setelah fungsi rebuild siap)
     load('/models/desk.glb', (m) => { deskT = m; enableShadow(m); rebuildDesks(); });
     load('/models/Office_Ergonomic_Chair.glb', (m) => { chairT = m; enableShadow(m); rebuildDesks(); });
@@ -1094,6 +1195,7 @@ export function IsometricOfficeStage({
     let nextCoffeeT = rand(4, 8);
     let nextConvoT  = rand(8, 14);
     let nextThoughtT = rand(6, 12);
+    let nextServerT = rand(35, 50);
     let lastCodeUpdate = 0;
     let lastKpiT = -Infinity;
     const dlgQueue: ScheduledLine[] = [];
@@ -1177,13 +1279,32 @@ export function IsometricOfficeStage({
       if (anim) anim.stool = undefined;
     };
 
+    // ---- Tahap 3: kursi sofa Lounge & titik inspeksi Server / IT ----
+    const sofaSeats = lounge.seatsWorld();
+    const sofaOccupant: Array<string | null> = sofaSeats.map(() => null);
+    let serverBusy: string | null = null;
+    /** Lepaskan kursi sofa / titik server yang dipesan agen dan akhiri tugasnya. */
+    const releaseErrand = (agentId: string) => {
+      const a = animMap.get(agentId);
+      const er = a?.errand;
+      if (!a || !er) return;
+      if (er.kind === 'lounge' && er.seat !== undefined && sofaOccupant[er.seat] === agentId) sofaOccupant[er.seat] = null;
+      if (er.kind === 'server' && serverBusy === agentId) serverBusy = null;
+      a.errand = undefined;
+    };
+    /** Keluar dari semua rutinitas santai (antrean, kursi bar, sofa, server). */
+    const leaveAmbient = (agentId: string) => {
+      leaveCoffeeQueue(agentId);
+      releaseStool(agentId);
+      releaseErrand(agentId);
+    };
+
     /** Panggil kembali ke meja dari rutinitas santai (mis. ada pekerjaan/izin masuk). */
     const recallToDesk = (agentId: string, text?: string) => {
       const anim = animMap.get(agentId);
       const refs = meshMap.get(agentId);
       if (!anim || !refs) return;
-      leaveCoffeeQueue(agentId);
-      releaseStool(agentId);
+      leaveAmbient(agentId);
       anim.hasCup = false;
       refs.cup.visible = false;
       // State khusus (bukan bagian rutinitas kopi) agar recall tidak terpicu ulang tiap frame.
@@ -1219,6 +1340,82 @@ export function IsometricOfficeStage({
     };
 
     const atDesk = (anim: AgentAnim) => anim.state === 'working' || anim.state === 'drinking';
+
+    /** Agen baru hadir: muncul di karpet Lobi lalu berjalan ke mejanya. */
+    const startArrival = (agentId: string, anim: AgentAnim, refs: AgentMeshRefs) => {
+      leaveAmbient(agentId);
+      anim.departAt = undefined;
+      anim.state = 'walk_in_from_lobby';
+      anim.stateTime = 0;
+      refs.avatar.visible = true;
+      refs.avatar.position.set(lobbySpawn.x, 0, lobbySpawn.z);
+      refs.avatar.rotation.y = lobbySpawn.rotY;
+      setWalk(agentId, anim, walkPath(lobbySpawn, deskPos(refs)));
+      anim.bubbleText = pick(ARRIVAL_LINES);
+      anim.bubbleTimer = 3.0;
+    };
+    /** Agen offline: berjalan dari meja ke Lobi, lalu menghilang. */
+    const startLeaving = (agentId: string, anim: AgentAnim, refs: AgentMeshRefs) => {
+      leaveAmbient(agentId);
+      anim.state = 'walk_out_to_lobby';
+      anim.stateTime = 0;
+      anim.hasCup = false;
+      refs.cup.visible = false;
+      setWalk(agentId, anim, walkPath(currentPos(refs), lobbySpawn));
+      anim.bubbleText = pick(LEAVING_LINES);
+      anim.bubbleTimer = 2.8;
+    };
+    const setAway = (anim: AgentAnim, refs: AgentMeshRefs) => {
+      anim.state = 'away';
+      anim.stateTime = 0;
+      refs.avatar.visible = false;
+      refs.avatar.position.set(lobbySpawn.x, 0, lobbySpawn.z);
+    };
+
+    /** Mampir duduk di sofa Lounge (setelah rapat). false bila sofa penuh. */
+    const startLoungeErrand = (agentId: string, anim: AgentAnim, from: Pt): boolean => {
+      const i = sofaOccupant.indexOf(null);
+      if (i < 0) return false;
+      sofaOccupant[i] = agentId;
+      const seat = sofaSeats[i]!;
+      anim.errand = {
+        kind: 'lounge', i: 0, seat: i,
+        stops: [{ approach: seat.approach, spot: seat.spot, sitY: LOUNGE.sitY, duration: rand(16, 24), pose: 'lounge', lines: LOUNGE_CHAT }],
+      };
+      anim.state = 'walk_to_errand';
+      anim.stateTime = 0;
+      setWalk(agentId, anim, walkPath(from, seat.approach));
+      anim.bubbleText = pick(LOUNGE_GOING);
+      anim.bubbleTimer = 3.0;
+      return true;
+    };
+    /** Inspeksi Server / IT: periksa rak di cold aisle, lalu duduk di konsol IT. */
+    const startServerErrand = (agentId: string, anim: AgentAnim, refs: AgentMeshRefs): boolean => {
+      if (serverBusy) return false;
+      serverBusy = agentId;
+      const ins = server.inspectWorld();
+      const con = server.consoleSeatWorld();
+      anim.errand = {
+        kind: 'server', i: 0,
+        stops: [
+          { approach: ins, spot: ins, sitY: 0, duration: rand(7, 10), pose: 'inspect', lines: SERVER_INSPECT },
+          { approach: con.approach, spot: con.spot, sitY: 0.45, duration: rand(8, 11), pose: 'type', lines: SERVER_CONSOLE },
+        ],
+      };
+      anim.state = 'walk_to_errand';
+      anim.stateTime = 0;
+      setWalk(agentId, anim, walkPath(deskPos(refs), ins));
+      anim.bubbleText = pick(SERVER_GOING);
+      anim.bubbleTimer = 3.0;
+      return true;
+    };
+    /** Tugas selesai (atau tidak valid): lepaskan pesanan, pulang ke meja. */
+    const finishErrand = (agentId: string, anim: AgentAnim, refs: AgentMeshRefs) => {
+      releaseErrand(agentId);
+      anim.state = 'walk_back_to_desk';
+      anim.stateTime = 0;
+      setWalk(agentId, anim, walkPath(currentPos(refs), deskPos(refs)));
+    };
 
     const sitAtDesk = (refs: AgentMeshRefs) => {
       refs.avatar.position.set(refs.sitPos.x, refs.sitPos.y, refs.sitPos.z);
@@ -1296,6 +1493,8 @@ export function IsometricOfficeStage({
       for (const id of ids) {
         const anim = animMap.get(id);
         if (!anim || !meshMap.get(id) || statusOf(id) === 'offline') continue;
+        // Belum hadir / sedang pulang lewat Lobi: tidak ikut rapat.
+        if (anim.state === 'away' || anim.state === 'walk_out_to_lobby') continue;
         if (assignSeat(id, anim) < 0) continue;
         attendees.push(id);
       }
@@ -1317,8 +1516,7 @@ export function IsometricOfficeStage({
             anim.state === 'walk_to_meeting' || anim.state === 'meeting_standing') continue;
         if (anim.state === 'walk_from_meeting') { walkToSeat(id, anim, refs); continue; }
 
-        leaveCoffeeQueue(id);
-        releaseStool(id);
+        leaveAmbient(id);
         anim.hasCup = false;
         refs.cup.visible = false;
         anim.hasDoc = false;
@@ -1389,6 +1587,10 @@ export function IsometricOfficeStage({
       seated.sort((a, b) => a.len - b.len).forEach(({ id }, k) => {
         animMap.get(id)!.departAt = globalTime + 0.5 + k * MEETING_DEPART_GAP_S;
       });
+      // Tahap 3: 2–3 peserta mampir ke Lounge (di seberang foyer) sebelum kembali ke meja.
+      const loungeCount = Math.min(sofaSeats.length, 2 + Math.floor(Math.random() * 2));
+      seated.map((s) => s.id).sort(() => Math.random() - 0.5).slice(0, loungeCount)
+        .forEach((id) => { animMap.get(id)!.loungeAfter = true; });
       refreshScreen();
     };
 
@@ -1495,6 +1697,26 @@ export function IsometricOfficeStage({
           break;
         }
 
+        case 'walk_out_to_lobby': {
+          setAway(anim, refs);
+          break;
+        }
+
+        case 'walk_to_errand': {
+          const stop = anim.errand?.stops[anim.errand.i];
+          if (!stop) { finishErrand(agentId, anim, refs); break; }
+          anim.state = 'errand_stay';
+          anim.stateTime = 0;
+          refs.avatar.position.set(stop.approach.x, 0, stop.approach.z);
+          refs.avatar.rotation.y = stop.spot.rotY;
+          refs.leftLegPivot.rotation.set(0, 0, 0);
+          refs.rightLegPivot.rotation.set(0, 0, 0);
+          anim.bubbleText = pick(stop.lines);
+          anim.bubbleTimer = 3.4;
+          break;
+        }
+
+        case 'walk_in_from_lobby':
         case 'walk_from_trash':
         case 'walk_from_visit':
         case 'walk_from_meeting':
@@ -1630,6 +1852,16 @@ export function IsometricOfficeStage({
               anim.bubbleTimer = 4.0;
             }
           }
+          // Tahap 3: offline → pulang lewat Lobi; online lagi → datang dari Lobi.
+          const refs = meshMap.get(ag.id);
+          if (refs) {
+            if (ag.status === 'offline') {
+              if (prev === undefined && anim.state !== 'away') setAway(anim, refs);
+              else if (atDesk(anim)) startLeaving(ag.id, anim, refs);
+            } else if (anim.state === 'away') {
+              startArrival(ag.id, anim, refs);
+            }
+          }
           // Pekerjaan nyata masuk saat sedang rehat kopi -> kembali ke meja
           if (ag.status !== 'idle' && ag.status !== 'meeting' && COFFEE_STATES.has(anim.state)) {
             recallToDesk(ag.id, ag.status === 'waiting_approval' ? 'Eh, ada yang butuh izin CEO!' : 'Ada tugas masuk, balik ke meja!');
@@ -1651,6 +1883,16 @@ export function IsometricOfficeStage({
         const st = statusOf(id);
         return st === null || st === 'idle' || st === 'meeting';
       };
+
+      // ---------- Scheduler: inspeksi Server / IT oleh Satria atau Bima (yang sedang santai) ----------
+      if (globalTime >= nextServerT) {
+        const techs = ['satria', 'bima'].filter((id) => animMap.get(id)?.state === 'working' && ambientOk(id) && !coffeeQueue.includes(id));
+        const id = techs.length ? pick(techs) : null;
+        const a = id ? animMap.get(id) : undefined;
+        const r = id ? meshMap.get(id) : undefined;
+        if (id && a && r) startServerErrand(id, a, r);
+        nextServerT = globalTime + rand(SERVER_MIN_S, SERVER_MAX_S);
+      }
 
       // ---------- Scheduler: Jadwalkan Karyawan Rehat Kopi (Antrean Teratur) ----------
       if (globalTime >= nextCoffeeT) {
@@ -1777,8 +2019,7 @@ export function IsometricOfficeStage({
         // ---------- Visual mengikuti status asli (live) ----------
         const status = statusOf(agentId);
         const beaconMat = refs.beacon.material as THREE.MeshStandardMaterial;
-        const away = status === 'offline' && (anim.state === 'working' || anim.state === 'drinking');
-        refs.avatar.visible = !away;
+        refs.avatar.visible = anim.state !== 'away';
         if (status !== null) {
           const look = STATUS_LOOK[status];
           if (refs.screenMat) {
@@ -1941,7 +2182,11 @@ export function IsometricOfficeStage({
                 if (meeting && meeting.phase !== 'dispersing') {
                   // Rapat baru dipanggil saat sedang bubar: duduk kembali.
                   anim.state = 'meeting_sitting';
+                } else if (anim.loungeAfter && ambientOk(agentId) && startLoungeErrand(agentId, anim, appr)) {
+                  anim.loungeAfter = false;
+                  releaseSeat(agentId, anim);
                 } else {
+                  anim.loungeAfter = false;
                   anim.state = 'walk_from_meeting';
                   setWalk(agentId, anim, walkPath(appr, deskPos(refs)));
                 }
@@ -2022,6 +2267,61 @@ export function IsometricOfficeStage({
                 anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.walking_with_coffee);
               }
               anim.bubbleTimer = 3.0;
+            }
+            break;
+          }
+
+          case 'away': {
+            // Demo: datang bertahap dari Lobi saat halaman dibuka.
+            if (!isLive && anim.departAt !== undefined && globalTime >= anim.departAt) startArrival(agentId, anim, refs);
+            break;
+          }
+
+          case 'errand_stay': {
+            const stop = anim.errand?.stops[anim.errand.i];
+            if (!anim.errand || !stop) { finishErrand(agentId, anim, refs); break; }
+            const SIT_S = 0.4, t = anim.stateTime, seated = stop.sitY > 0;
+            const k = !seated ? 0 : t < SIT_S ? smoothstep(t / SIT_S) : t < SIT_S + stop.duration ? 1 : 1 - smoothstep((t - SIT_S - stop.duration) / SIT_S);
+            refs.avatar.position.set(
+              stop.approach.x + (stop.spot.x - stop.approach.x) * k,
+              stop.sitY * k,
+              stop.approach.z + (stop.spot.z - stop.approach.z) * k,
+            );
+            refs.avatar.rotation.y = stop.spot.rotY;
+            refs.leftLegPivot.rotation.set(SEATED_LEG * k, 0, 0);
+            refs.rightLegPivot.rotation.set(SEATED_LEG * k, 0, 0);
+            const ph = globalTime + (bData.offset || 0);
+            if (stop.pose === 'inspect') {
+              // Menunjuk & memeriksa LED rak bergantian
+              refs.rightArmPivot.rotation.set(-2.1 + Math.sin(ph * 2.2) * 0.25, 0, -0.15);
+              refs.leftArmPivot.rotation.set(-0.7 + Math.cos(ph * 1.6) * 0.15, 0, 0.12);
+            } else if (stop.pose === 'type' && k >= 1) {
+              refs.leftArmPivot.rotation.set(-0.95 + Math.sin(ph * 16) * 0.12, 0, 0.18);
+              refs.rightArmPivot.rotation.set(-0.95 + Math.cos(ph * 19) * 0.12, 0, -0.18);
+            } else {
+              // Santai di sofa; bergestur saat bicara
+              const talking = anim.bubbleTimer > 0 && k >= 1;
+              refs.leftArmPivot.rotation.set(talking ? -0.7 + Math.sin(ph * 4) * 0.25 : -0.4, 0, 0.14);
+              refs.rightArmPivot.rotation.set(talking ? -0.6 + Math.cos(ph * 3.5) * 0.25 : -0.4, 0, -0.14);
+            }
+            if (k >= 1) refs.avatar.position.y += Math.sin(ph * 2.5) * 0.004;
+            // Obrolan santai di sofa
+            if (stop.pose === 'lounge' && k >= 1 && anim.bubbleTimer <= 0 && Math.random() < dt * 0.18) {
+              anim.bubbleText = pick(LOUNGE_CHAT);
+              anim.bubbleTimer = 3.2;
+            }
+            const end = seated ? SIT_S * 2 + stop.duration : stop.duration;
+            if (t >= end) {
+              const er = anim.errand;
+              er.i += 1;
+              const next = er.stops[er.i];
+              if (next) {
+                anim.state = 'walk_to_errand';
+                anim.stateTime = 0;
+                setWalk(agentId, anim, walkPath(stop.approach, next.approach));
+              } else {
+                finishErrand(agentId, anim, refs);
+              }
             }
             break;
           }
@@ -2127,6 +2427,9 @@ export function IsometricOfficeStage({
 
           case 'walk_to_coffee':
           case 'walk_to_stool':
+          case 'walk_in_from_lobby':
+          case 'walk_out_to_lobby':
+          case 'walk_to_errand':
           case 'walk_to_desk':
           case 'walk_to_trash':
           case 'walk_from_trash':
@@ -2213,6 +2516,11 @@ export function IsometricOfficeStage({
 
       main.update(globalTime);
       board.update(dt);
+      // Pintu otomatis Lobi & Server (sensor gerak), LED rak & layar NOC.
+      const agentPts: Pt[] = [];
+      for (const r of meshMap.values()) if (r.avatar.visible) agentPts.push({ x: r.avatar.position.x, z: r.avatar.position.z });
+      lobby.update(dt, agentPts);
+      server.update(globalTime, dt, agentPts);
 
       // ---------- TV KPI Ruang Manajer (dihitung ulang tiap 1 detik) ----------
       if (globalTime - lastKpiT >= 1) {
@@ -2228,9 +2536,21 @@ export function IsometricOfficeStage({
           else if (st === 'error') kpi.error++;
           else if (st === 'offline') kpi.offline++;
           else if (st === null ? a.state === 'working' || a.state === 'drinking' : st === 'working' || st === 'thinking' || st === 'messaging') kpi.working++;
-          if (COFFEE_STATES.has(a.state) && a.state !== 'walk_from_trash') kpi.pantry++;
+          const r = meshMap.get(id);
+          if (r && a.state !== 'away' && nav.roomAt({ x: r.avatar.position.x, z: r.avatar.position.z }) === 'pantry') kpi.pantry++;
         }
         manager.setKpi(kpi);
+        // Kios direktori Lobi: kehadiran & sebaran agen per ruangan.
+        const rooms: Record<string, number> = {};
+        let present = 0;
+        for (const [id, a] of animMap) {
+          const r = meshMap.get(id);
+          if (!r || a.state === 'away') continue;
+          present += 1;
+          const room = nav.roomAt({ x: r.avatar.position.x, z: r.avatar.position.z });
+          rooms[room] = (rooms[room] ?? 0) + 1;
+        }
+        lobby.setDirectory({ present, total: animMap.size, live: isLive, rooms });
       }
     };
 
@@ -2298,6 +2618,9 @@ export function IsometricOfficeStage({
       bus: bus.focusPoint,
       manager: manager.focusPoint,
       pantry: pantry.focusPoint,
+      lobby: lobby.focusPoint,
+      lounge: lounge.focusPoint,
+      server: server.focusPoint,
     };
     apiRef.current = {
       focusRoom: (room) => cam.focus(roomFocus[room]()),
@@ -2368,6 +2691,23 @@ export function IsometricOfficeStage({
         meetingState: () => (meeting ? { ...meeting, attendees: [...meeting.attendees] } : null),
         /** Antrean kopi & penghuni kursi bar Pantry. */
         pantryState: () => ({ queue: [...coffeeQueue], stools: [...stoolOccupant] }),
+        /** Tahap 3: penghuni sofa Lounge & agen yang sedang di Server / IT. */
+        errandState: () => ({ sofa: [...sofaOccupant], server: serverBusy }),
+        /** Kirim agen (yang sedang bekerja) duduk di sofa Lounge sekarang. */
+        lounge: (id: string) => {
+          const a = animMap.get(id), r = meshMap.get(id);
+          if (!a || !r || a.state !== 'working') return false;
+          return startLoungeErrand(id, a, deskPos(r));
+        },
+        /** Kirim agen inspeksi ke Server / IT sekarang. */
+        inspect: (id = 'satria') => {
+          const a = animMap.get(id), r = meshMap.get(id);
+          if (!a || !r || a.state !== 'working') return false;
+          return startServerErrand(id, a, r);
+        },
+        /** Simulasikan agen pulang lewat Lobi / datang lagi (uji spawn tanpa server). */
+        leave: (id: string) => { const a = animMap.get(id), r = meshMap.get(id); if (a && r) startLeaving(id, a, r); },
+        arrive: (id: string) => { const a = animMap.get(id), r = meshMap.get(id); if (a && r) startArrival(id, a, r); },
         /** Kirim agen ke Pantry sekarang juga (uji antrean & kursi bar). */
         coffee: (id: string) => {
           const a = animMap.get(id);

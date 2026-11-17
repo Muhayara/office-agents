@@ -20,7 +20,9 @@ import {
  *            (dinding dalam antara koridor dan ruangan).
  * - Selatan: dinding luar gedung (memudar bila kamera di luarnya).
  * - Barat / Timur: dinding perimeter, atau dinding dalam (`interiorSides`) bila berbatasan
- *            dengan ruangan lain, termasuk ruangan tahap berikutnya.
+ *            dengan ruangan lain, termasuk ruangan tahap berikutnya. Sisi yang sudah ditutup
+ *            dinding milik tetangga dilewati (`sides`), mis. Lobi di antara Manajer & Pantry.
+ * - Utara bisa juga dinding penuh berpintu (`north: 'solid'`), mis. partisi akustik Server / IT.
  *
  * Lantai (karpet / keramik) dan isi ruangan dipasang oleh modul ruangannya.
  */
@@ -49,6 +51,12 @@ export function buildSouthRoomShell(o: {
   glassBand?: { yMin: number; yMax: number };
   solid?: SolidWallMaterials;
   interiorSides: readonly SideWall[];
+  /** Dinding samping yang dibangun ruangan ini (bawaan keduanya). */
+  sides?: { west?: boolean; east?: boolean };
+  /** Jenis dinding utara: kaca (bawaan) atau dinding penuh berpintu. */
+  north?: 'glass' | 'solid';
+  /** Material dinding utara bila `north: 'solid'` (bawaan = material dinding lain). */
+  northSolid?: SolidWallMaterials;
 }): SouthRoomShell {
   const { spec, fader } = o;
   const T = WALL_THICKNESS;
@@ -73,24 +81,37 @@ export function buildSouthRoomShell(o: {
   slab.castShadow = false;
   architecture.add(slab);
 
-  // ---- Utara: kaca berpintu ke Jalan Utama + pelat ambang di bukaan ----
-  const north = buildGlassWallX({
-    name: 'North_Glass_Wall',
-    xMin: -hx,
-    xMax: hx,
-    z: -hz + T / 2,
-    doors: [spec.northDoor],
-    mats: o.glass,
-    yBase: -0.02,
-    maxBay: 1.6,
-    band: o.glassBand,
-    // Dari tepi karpet Jalan Utama (Z 7.40) sampai lantai ruangan (Z 7.64).
-    threshold: { zMin: -hz, zMax: -hz + T, yMin: -0.02, yMax: 0.003 },
-  });
-
-  // ---- Selatan, Barat, Timur: dinding penuh gaya ruang kerja ----
+  // ---- Utara: kaca (bawaan) atau dinding penuh, berpintu ke Jalan Utama + pelat ambang ----
   const mats = o.solid ?? workspaceWallMats();
   const cap = { width: 0.16, yMin: WALL_HEIGHT - 0.085, yMax: WALL_HEIGHT + 0.015 };
+  // Dari tepi karpet Jalan Utama (Z 7.40) sampai lantai ruangan (Z 7.64).
+  const threshold = { zMin: -hz, zMax: -hz + T, yMin: -0.02, yMax: 0.003 };
+  const north = o.north === 'solid'
+    ? buildSolidWallX({
+      name: 'North_Wall',
+      xMin: -hx,
+      xMax: hx,
+      z: -hz + T / 2,
+      doors: [spec.northDoor],
+      mats: o.northSolid ?? mats,
+      cap,
+      base: { height: 0.12, north: 0.02, south: 0.02 },
+      threshold,
+    })
+    : buildGlassWallX({
+      name: 'North_Glass_Wall',
+      xMin: -hx,
+      xMax: hx,
+      z: -hz + T / 2,
+      doors: [spec.northDoor],
+      mats: o.glass,
+      yBase: -0.02,
+      maxBay: 1.6,
+      band: o.glassBand,
+      threshold,
+    });
+
+  // ---- Selatan, Barat, Timur: dinding penuh gaya ruang kerja ----
   const south = buildSolidWallX({
     name: 'South_Wall',
     xMin: -hx,
@@ -102,14 +123,20 @@ export function buildSouthRoomShell(o: {
   });
   // Dinding samping dibangun memanjang X lalu diputar: sisi "north" = +X, sisi "south" = -X.
   const sideLen = hz - T;
-  const west = alongZ(buildSolidWallX({
-    name: 'West_Wall', xMin: -sideLen, xMax: sideLen, z: 0, mats, cap,
-    base: { height: 0.12, north: 0.02 },
-  }), -hx + T / 2, 0);
-  const east = alongZ(buildSolidWallX({
-    name: 'East_Wall', xMin: -sideLen, xMax: sideLen, z: 0, mats, cap,
-    base: { height: 0.12, south: 0.02 },
-  }), hx - T / 2, 0);
+  const hasWest = o.sides?.west !== false;
+  const hasEast = o.sides?.east !== false;
+  const west = hasWest
+    ? alongZ(buildSolidWallX({
+      name: 'West_Wall', xMin: -sideLen, xMax: sideLen, z: 0, mats, cap,
+      base: { height: 0.12, north: 0.02 },
+    }), -hx + T / 2, 0)
+    : new THREE.Group();
+  const east = hasEast
+    ? alongZ(buildSolidWallX({
+      name: 'East_Wall', xMin: -sideLen, xMax: sideLen, z: 0, mats, cap,
+      base: { height: 0.12, south: 0.02 },
+    }), hx - T / 2, 0)
+    : new THREE.Group();
   architecture.add(north, south, west, east);
 
   const local = (x: number, y: number, z: number) => {
@@ -124,15 +151,16 @@ export function buildSouthRoomShell(o: {
     // Normal menghadap KE DALAM ruangan, titik di muka dalam dinding.
     fader.register(`${o.fadeId}_north`, [north], dir(0, 1), local(0, 0, -hz + T), { interior: true });
     fader.register(`${o.fadeId}_south`, [south], dir(0, -1), local(0, 0, hz - T));
-    fader.register(`${o.fadeId}_west`, [west], dir(1, 0), local(-hx + T, 0, 0), { interior: isInterior('west') });
-    fader.register(`${o.fadeId}_east`, [east], dir(-1, 0), local(hx - T, 0, 0), { interior: isInterior('east') });
+    if (hasWest) fader.register(`${o.fadeId}_west`, [west], dir(1, 0), local(-hx + T, 0, 0), { interior: isInterior('west') });
+    if (hasEast) fader.register(`${o.fadeId}_east`, [east], dir(-1, 0), local(hx - T, 0, 0), { interior: isInterior('east') });
   };
 
   return {
     group,
     sub,
     walls: { north, south, west, east },
-    inner: { minX: -hx + T, maxX: hx - T, minZ: -hz + T, maxZ: hz - T },
+    // Tanpa dinding sendiri, lantai sampai tepi tapak (muka dinding tetangga).
+    inner: { minX: hasWest ? -hx + T : -hx, maxX: hasEast ? hx - T : hx, minZ: -hz + T, maxZ: hz - T },
     local,
     bindWalls,
   };

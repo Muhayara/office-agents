@@ -275,3 +275,51 @@ export const VISIT_ACKS: readonly string[] = [
   'Taruh di sini saja, nanti saya review.',
   'Noted, makasih!',
 ];
+
+// Tahap 3: datang & pulang lewat Lobi
+export const ARRIVAL_LINES: readonly string[] = [
+  'Selamat pagi semua! Langsung ke meja ya.',
+  'Hadir! Siap lanjut sprint hari ini.',
+  'Baru sampai, cek tugas dulu di meja.',
+  'Pagi! Kopi nanti saja, kerjaan dulu.',
+];
+
+export const LEAVING_LINES: readonly string[] = [
+  'Pamit dulu, sesi saya selesai.',
+  'Offline sebentar, sampai nanti!',
+  'Keluar lewat lobi dulu ya.',
+];
+
+// Tahap 3: santai di Lounge setelah rapat
+export const LOUNGE_GOING: readonly string[] = [
+  'Mampir lounge dulu, rapat tadi seru juga.',
+  'Lima menit di sofa, lanjut bahas santai.',
+  'Ke lounge yuk, kepala perlu napas sebentar.',
+];
+
+export const LOUNGE_CHAT: readonly string[] = [
+  'Poin tadi soal deadline masuk akal sih.',
+  'Sofa ini empuk banget, bahaya kalau kelamaan.',
+  'Habis ini aku langsung pecah tugasnya jadi sub-task.',
+  'Lampunya hangat, enak buat mikir ulang arsitektur.',
+  'Setuju, demo minggu depan harus lebih rapi.',
+];
+
+// Tahap 3: inspeksi Server / IT (Satria & Bima)
+export const SERVER_GOING: readonly string[] = [
+  'Cek rak server dulu, ada alert kecil tadi.',
+  'Waktunya inspeksi rutin ruang server.',
+  'Mau lihat log keamanan langsung dari konsol.',
+];
+
+export const SERVER_INSPECT: readonly string[] = [
+  'LED hijau semua, rak A dan B aman.',
+  'Kabel fiber rapi, suhu CRAC stabil 18 derajat.',
+  'Throughput normal, tidak ada lonjakan aneh.',
+];
+
+export const SERVER_CONSOLE: readonly string[] = [
+  'Scan keamanan database: bersih.',
+  'Uptime 99,98%. Catat di laporan mingguan.',
+  'Patch kecil terpasang, restart nanti malam.',
+];

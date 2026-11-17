@@ -143,11 +143,11 @@ export interface BusFrontage { id: string; xMin: number; xMax: number; tahap: nu
 /** Sisi selatan Jalan Utama (dinding di Z dunia 7.40..7.64, di dalam tapak ruangan selatan). */
 export const BUS_FRONTAGE_SOUTH: readonly BusFrontage[] = [
   { id: 'manager', xMin: -7, xMax: -1, tahap: 2, built: true },
-  { id: 'lobby',   xMin: -1, xMax: 4,  tahap: 3, built: false },
+  { id: 'lobby',   xMin: -1, xMax: 4,  tahap: 3, built: true },
   { id: 'pantry',  xMin: 4,  xMax: 9,  tahap: 2, built: true },
-  { id: 'lounge',  xMin: 9,  xMax: 14, tahap: 3, built: false },
+  { id: 'lounge',  xMin: 9,  xMax: 14, tahap: 3, built: true },
   { id: 'focus',   xMin: 14, xMax: 18, tahap: 6, built: false },
-  { id: 'server',  xMin: 18, xMax: 22, tahap: 3, built: false },
+  { id: 'server',  xMin: 18, xMax: 22, tahap: 3, built: true },
   { id: 'garden',  xMin: 22, xMax: 27, tahap: 4, built: false },
   { id: 'access',  xMin: 27, xMax: 31, tahap: 6, built: false },
 ];
@@ -283,6 +283,111 @@ export const PANTRY = {
   /** Papan menu di dinding barat, di atas coffee bar. */
   menuBoard: { x: -2.255, y: 1.85, z: 0.5 },
   baristaLight: { x: -1.45, y: 2.4, z: 0.6 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Tahap 3: Lobi & Resepsionis, Lounge, Server / IT (sisi selatan Jalan Utama)
+//
+// Lobi tidak punya dinding samping sendiri: diapit dinding timur Ruang Manajer (X -1.24..-1.0)
+// dan dinding barat Pantry (X 4.0..4.24). Lounge memakai dinding timur Pantry (X 8.76..9.0)
+// sebagai dinding baratnya. Dari kamera Tenggara semua dinding ruangan ini memudar, jadi benda
+// "pajangan" (logo, lukisan, layar NOC, CRAC) menempel di sisi BARAT dan menghadap Timur.
+// ---------------------------------------------------------------------------
+export const ROOM_LOBBY = {
+  name: 'Room_LobbyReception',
+  /** Bentang dunia X -1..4, Z 7.4..13.4 (5 × 6 m). */
+  origin: { x: 1.5, z: 10.4 },
+  halfX: 2.5,
+  halfZ: 3.0,
+  /** Pintu kaca geser ganda otomatis 1,6 m, dunia X 0.7..2.3 (8,5 m tapak). */
+  northDoor: { xMin: -0.8, xMax: 0.8 },
+} as const satisfies SouthRoomSpec;
+
+export const ROOM_LOUNGE = {
+  name: 'Room_LoungeRelax',
+  /** Bentang dunia X 9..14, Z 7.4..13.4 (5 × 6 m), di seberang Meeting Foyer. */
+  origin: { x: 11.5, z: 10.4 },
+  halfX: 2.5,
+  halfZ: 3.0,
+  /** Bukaan kaca 1,4 m, dunia X 10.8..12.2 (18,5 m tapak). */
+  northDoor: { xMin: -0.7, xMax: 0.7 },
+} as const satisfies SouthRoomSpec;
+
+export const ROOM_SERVER = {
+  name: 'Room_ServerIT',
+  /** Bentang dunia X 18..22, Z 7.4..13.4 (4 × 6 m). */
+  origin: { x: 20.0, z: 10.4 },
+  halfX: 2.0,
+  halfZ: 3.0,
+  /** Pintu baja 1,0 m berakses RFID, dunia X 19.5..20.5 (27 m tapak). */
+  northDoor: { xMin: -0.5, xMax: 0.5 },
+} as const satisfies SouthRoomSpec;
+
+/** Lobi (LOKAL terhadap pusat Room_LobbyReception). Lantai bersih X -2.5..2.5, Z -2.76..2.76. */
+export const LOBBY = {
+  spineX: 0,
+  /** Karpet selamat datang = titik spawn agen yang baru hadir (menghadap pintu, Utara). */
+  spawn: { x: 0, z: 0.55, rotY: Math.PI } as Spot,
+  /** Dinding fitur marmer hitam + logo berlampu, menempel muka dinding barat (X -2.5), menghadap Timur. */
+  featureWall: { x: -2.47, z: 0.7, w: 2.8, h: 2.6, t: 0.06 },
+  /** Meja resepsionis melengkung: busur berpusat di (cx, cz), menghadap Timur. */
+  reception: { cx: -2.4, cz: 0.7, rIn: 0.42, rWork: 0.86, rOut: 1.16, halfDeg: 52 },
+  receptionistChair: { x: -1.98, z: 0.7, rotY: Math.PI / 2 } as Spot,
+  /** Kios direktori digital di dekat pintu, layar menghadap Selatan (ke dalam lobi & kamera). */
+  kiosk: { x: 1.9, z: -1.75, rotY: 0 } as Spot,
+  sideTable: { x: 1.7, z: 1.65 },
+  accentChairs: [
+    { x: 0.98, z: 1.65, rotY: Math.PI / 2 },
+    { x: 1.7, z: 0.92, rotY: 0 },
+  ] as Spot[],
+  plants: [{ x: -2.1, z: 2.4 }, { x: 2.1, z: 2.4 }] as Pt[],
+  light: { x: 0, y: 2.7, z: 0.5 },
+  /** Jarak agen ke tengah pintu yang membuka pintu otomatis. */
+  doorSense: 1.6,
+} as const;
+
+/** Lounge (LOKAL terhadap pusat Room_LoungeRelax). Lantai bersih X -2.5..2.26, Z -2.76..2.76. */
+export const LOUNGE = {
+  spineX: 0,
+  /** Sofa sudut L di pojok barat daya: lengan panjang menempel dinding barat, lengan pendek di selatan. */
+  sofa: { longX0: -2.5, longX1: -1.6, longZ0: -0.6, shortX1: -0.3, shortZ0: 1.86, z1: 2.76, seatTop: 0.43, backTop: 0.82 },
+  /** Kursi sofa yang bisa diduduki agen + titik berdiri sebelum duduk (di jalur bebas meja kopi). */
+  seats: [
+    { spot: { x: -1.95, z: -0.2, rotY: Math.PI / 2 }, approach: { x: -1.25, z: -0.2 } },
+    { spot: { x: -1.95, z: 0.65, rotY: Math.PI / 2 }, approach: { x: -1.25, z: 0.65 } },
+    { spot: { x: -0.95, z: 2.3, rotY: Math.PI }, approach: { x: -0.95, z: 1.7 } },
+  ] as Array<{ spot: Spot; approach: Pt }>,
+  /** Tinggi avatar saat duduk di sofa (dudukan 0,43 m). */
+  sitY: 0.33,
+  coffeeTable: { x: -0.7, z: 1.2, w: 1.0, d: 0.6, h: 0.4 },
+  /** Lampu lantai melengkung: kaki di samping ujung sofa, kap kuningan di atas meja kopi. */
+  arcLamp: { baseX: 0.05, baseZ: 2.45, shadeX: -0.6, shadeZ: 1.3, shadeY: 1.95 },
+  palm: { x: -2.15, z: -2.35 },
+  magazineRack: { x: -2.2, z: -1.2 },
+  /** Lukisan kanvas & rak tipis di muka dinding barat (dinding timur Pantry), menghadap Timur. */
+  art: { x: -2.48, y: 1.85, z: 0.85, w: 1.5, h: 0.95 },
+  shelf: { x: -2.4, y: 1.3, z: -1.3, len: 1.0 },
+} as const;
+
+/** Server / IT (LOKAL terhadap pusat Room_ServerIT). Lantai bersih X -1.76..1.76, Z -2.76..2.76. */
+export const SERVER = {
+  /** 2× Server_Rack_42U.glb berdampingan di tengah, depan (+Z GLB) menghadap Selatan / kamera. */
+  racks: [{ x: -0.385, z: -0.5 }, { x: 0.385, z: -0.5 }] as Pt[],
+  /** Lorong berbentuk U: belakang rak (hot aisle) → sisi timur → depan rak (cold aisle). */
+  lane: [{ x: 0, z: -1.65 }, { x: 1.25, z: -1.65 }, { x: 1.25, z: 0.65 }, { x: -0.6, z: 0.65 }] as Pt[],
+  /** Titik inspeksi di cold aisle, menghadap rak (Utara). */
+  inspect: { x: 0, z: 0.6, rotY: Math.PI } as Spot,
+  /** Konsol IT admin menempel dinding selatan; agen duduk menghadap Selatan (ke monitor ganda). */
+  console: { x: 0.85, z: 2.46, w: 1.2, d: 0.6 },
+  consoleSeat: { spot: { x: 0.85, z: 1.95, rotY: 0 } as Spot, approach: { x: 0.85, z: 1.4 } as Pt },
+  /** Unit AC presisi (CRAC) di dinding barat, menghadap Timur. */
+  crac: { x: -1.46, z: 1.0, w: 0.9, d: 0.6, h: 1.95 },
+  /** Layar NOC 55" (GLB display diskala 0,65) di dinding barat, menghadap Timur. */
+  noc: { x: -1.755, y: 1.75, z: -1.35, scale: 0.65 },
+  extinguisher: { x: -0.95, z: -2.62 },
+  firstAid: { x: -1.35, y: 1.45, z: -2.74 },
+  light: { x: 0.2, y: 2.75, z: 0.4 },
+  doorSense: 1.5,
 } as const;
 
 // ---------------------------------------------------------------------------
