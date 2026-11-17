@@ -1,6 +1,7 @@
 /**
  * Tata letak gedung kantor: koordinat meja, pantry, dan penempatan layer ruangan.
- * Topologi Lantai 1 (Tahap 1): Ruang Kerja ↔ Jalan Utama (bus) ↔ Meeting Foyer ↔ Ruang Rapat.
+ * Topologi Lantai 1 (Tahap 2): Ruang Kerja ↔ Jalan Utama (bus) ↔ Meeting Foyer ↔ Ruang Rapat,
+ * plus Ruang Manajer & Pantry / Café di sisi selatan Jalan Utama.
  *
  * Konvensi (lihat docs/modular_office_layers_plan.md §2):
  * - X: Barat (-) ↔ Timur (+), Y: lantai 0 ke atas, Z: Utara (-) ↔ Selatan (+).
@@ -11,18 +12,31 @@
  */
 
 export type Pt = { x: number; z: number };
+/** Titik berdiri beserta arah hadap agen di titik itu. */
+export type Spot = Pt & { rotY: number };
+
+/** Ruangan yang memuat meja kerja agen. */
+export type DeskRoom = 'main' | 'manager';
 
 /**
- * Posisi meja kerja di Room_MainWorkspace (lokal = dunia karena pusat ruang kerja di 0,0).
- * `chairSide` = arah letak KURSI relatif terhadap meja. Agen duduk di kursi itu dan
- * menghadap ke meja, yaitu rotasi `chairSide + π`.
- * Contoh: Raka `chairSide: π` → kursi di sisi utara meja, agen menghadap Selatan.
+ * Posisi meja kerja, LOKAL terhadap ruangannya (`room`, bawaan Room_MainWorkspace).
+ * `rotY` = rotasi meja; kursi berada 0,55 m ke arah (sin rotY, cos rotY) dan agen duduk
+ * menghadap ke meja, yaitu rotasi `rotY + π`.
+ * Contoh: Fajar `rotY: π` → kursi di sisi utara meja, agen menghadap Selatan.
  */
-export interface DeskSpot { x: number; z: number; rotY: number }
+export interface DeskSpot {
+  x: number;
+  z: number;
+  rotY: number;
+  room?: DeskRoom;
+  /** `executive` = meja L walnut di Ruang Manajer (bukan desk.glb). */
+  style?: 'executive';
+}
 
 export const AGENT_3D_POSITIONS: Record<string, DeskSpot> = {
-  // Meja eksekutif di dinding utara (kursi di utara meja, agen menghadap Selatan)
-  raka:   { x: -3.8, z: -3.8, rotY: Math.PI }, // Manajer
+  // Tahap 2: Manajer pindah ke Ruang Manajer (meja L menghadap Timur, kredenza di belakangnya)
+  raka:   { room: 'manager', x: -1.0, z: 0, rotY: -Math.PI / 2, style: 'executive' },
+  // Meja eksekutif di dinding utara ruang kerja (kursi di utara meja, agen menghadap Selatan)
   fajar:  { x:  3.0, z: -3.8, rotY: Math.PI }, // Penguji Visual
 
   // Pod 1 (Barat: Riset, Penulisan & Desain — 4 meja berhadapan)
@@ -38,8 +52,8 @@ export const AGENT_3D_POSITIONS: Record<string, DeskSpot> = {
   laras:  { x:  4.0, z: -0.9, rotY: 0 },       // Reviewer
 };
 
-/** Titik duduk (lokal ruang kerja): 0.55 m dari pusat meja ke arah kursi. */
-export function sitWorld(p: DeskSpot) {
+/** Titik duduk (lokal ruangan meja): 0.55 m dari pusat meja ke arah kursi. */
+export function sitLocal(p: DeskSpot) {
   return {
     x: p.x + 0.55 * Math.sin(p.rotY),
     y: 0.45,
@@ -55,35 +69,13 @@ export const WALL_THICKNESS = 0.24;
 /** Tinggi bersih bukaan pintu (sama dengan portal Office_Boardroom_Shell.glb). */
 export const DOOR_HEIGHT = 2.57;
 
-// ---------------------------------------------------------------------------
-// Pantry & antrean kopi (Room_MainWorkspace, lokal)
-//
-// Tahap 1: klaster pantry digeser ke sudut barat daya karena pintu selatan-barat
-// (X = -3.5) menempati posisi coffee bar lama. Sementara, sampai pindah ke Pantry / Café
-// di Tahap 2. Semua benda berjarak dari baseboard dinding selatan (Z = 4.66).
-// ---------------------------------------------------------------------------
-export const COFFEE_BAR_POS = { x: -5.8, z: 4.33 };
-/** Di antara coffee bar dan kusen pintu selatan-barat. */
-export const WATER_DISPENSER_POS = { x: -4.59, z: 4.45 };
-/** Di sisi timur pintu selatan-barat. */
-export const TRASH_BIN_POS  = { x: -2.4, z: 4.46 };
-/** Titik berdiri di depan tempat sampah (bukan di dalam tong). */
-export const TRASH_STAND    = { x: -2.4, z: 4.03 };
-
-/** Slot 0 di depan mesin espresso, slot 1-3 berbaris rapi di belakangnya (ke utara). */
-export const COFFEE_QUEUE_SPOTS: Pt[] = [
-  { x: -5.8, z: 3.6 },
-  { x: -5.8, z: 2.7 },
-  { x: -5.8, z: 1.8 },
-  { x: -5.8, z: 0.9 },
-];
-/** Arah hadap agen di antrean / depan mesin: coffee bar ada di selatan (+Z). */
-export const COFFEE_FACE_ROT = 0;
-/** Arah hadap agen di depan tempat sampah (+Z). */
-export const TRASH_FACE_ROT = 0;
-
 /** Meja diskusi bundar (huddle) di ruang kerja. Rapat penuh sekarang di ruang rapat. */
 export const HUDDLE_TABLE_POS = { x: 0.2, z: 2.2 };
+/**
+ * Whiteboard scrum di bekas meja Raka (dinding utara ruang kerja, Tahap 2).
+ * Kaki GLB menonjol 0,276 m ke belakang: pusat 0,29 m dari permukaan dinding (Z -4.76).
+ */
+export const WORKSPACE_WHITEBOARD_POS = { x: -3.8, z: -4.47 };
 
 // ---------------------------------------------------------------------------
 // Layer ruangan di Lantai 1 (posisi grup = pusat ruangan di dunia)
@@ -150,9 +142,9 @@ export interface BusFrontage { id: string; xMin: number; xMax: number; tahap: nu
 
 /** Sisi selatan Jalan Utama (dinding di Z dunia 7.40..7.64, di dalam tapak ruangan selatan). */
 export const BUS_FRONTAGE_SOUTH: readonly BusFrontage[] = [
-  { id: 'manager', xMin: -7, xMax: -1, tahap: 2, built: false },
+  { id: 'manager', xMin: -7, xMax: -1, tahap: 2, built: true },
   { id: 'lobby',   xMin: -1, xMax: 4,  tahap: 3, built: false },
-  { id: 'pantry',  xMin: 4,  xMax: 9,  tahap: 2, built: false },
+  { id: 'pantry',  xMin: 4,  xMax: 9,  tahap: 2, built: true },
   { id: 'lounge',  xMin: 9,  xMax: 14, tahap: 3, built: false },
   { id: 'focus',   xMin: 14, xMax: 18, tahap: 6, built: false },
   { id: 'server',  xMin: 18, xMax: 22, tahap: 3, built: false },
@@ -165,6 +157,133 @@ export const BUS_FRONTAGE_NORTH: readonly BusFrontage[] = [
   { id: 'commons',  xMin: 15, xMax: 25, tahap: 4, built: false },
   { id: 'workshop', xMin: 25, xMax: 31, tahap: 5, built: false },
 ];
+
+// ---------------------------------------------------------------------------
+// Ruangan sisi selatan Jalan Utama (Tahap 2+): tapak dunia Z 7.4..13.4 (6 m)
+//
+// Semua dinding berdiri DI DALAM tapak ruangannya (tebal WALL_THICKNESS):
+// - Utara : dinding kaca berpintu, dunia Z 7.40..7.64 (garis yang sama dengan kaca sementara
+//           Jalan Utama, jadi lebar koridor tetap 2,4 m).
+// - Selatan: dinding luar gedung, Z 13.16..13.40.
+// - Barat / Timur: X tepi tapak ± 0,24 m.
+// ---------------------------------------------------------------------------
+export interface SouthRoomSpec {
+  name: string;
+  /** Pusat tapak di dunia. */
+  origin: Pt;
+  halfX: number;
+  halfZ: number;
+  /** Bukaan pintu dinding utara ke Jalan Utama (lokal). */
+  northDoor: DoorSpan;
+}
+
+/** Z lokal titik berdiri di dalam ruangan tepat di depan pintu utara (dunia Z 8.05). */
+export const SOUTH_ROOM_DOOR_INSIDE_Z = -2.35;
+
+export const ROOM_MANAGER = {
+  name: 'Room_ManagerOffice',
+  /** Bentang dunia X -7..-1, Z 7.4..13.4 (6 × 6 m). */
+  origin: { x: -4.0, z: 10.4 },
+  halfX: 3.0,
+  halfZ: 3.0,
+  /** Pintu geser kaca di tengah, dunia X -4.7..-3.3 (3 m tapak). */
+  northDoor: { xMin: -0.7, xMax: 0.7 },
+} as const satisfies SouthRoomSpec;
+
+export const ROOM_PANTRY = {
+  name: 'Room_PantryCafe',
+  /** Bentang dunia X 4..9, Z 7.4..13.4 (5 × 6 m). */
+  origin: { x: 6.5, z: 10.4 },
+  halfX: 2.5,
+  halfZ: 3.0,
+  /** Bukaan terbuka di tengah, dunia X 5.8..7.2 (13,5 m tapak). */
+  northDoor: { xMin: -0.7, xMax: 0.7 },
+} as const satisfies SouthRoomSpec;
+
+// ---------------------------------------------------------------------------
+// Ruang Manajer (semua koordinat LOKAL terhadap pusat Room_ManagerOffice)
+//
+// Kamera isometrik memandang dari Tenggara, jadi satu-satunya dinding yang tetap solid
+// adalah dinding barat (tepi gedung): kredenza, TV KPI, dan rak buku menempel di sana.
+// Raka duduk membelakangi kredenza, menghadap Timur (ke pintu & kursi tamu).
+// ---------------------------------------------------------------------------
+export const MANAGER = {
+  /** Lorong utara: semua titik ruangan disambung lurus Utara–Selatan ke lorong ini. */
+  laneZ: -1.8,
+  /**
+   * Meja L Raka (Office_Manager_L_Desk.glb): origin = pusat sayap utama 1,8 × 0,8 m, atas 0,75 m.
+   * Sayap return (atas 0,72 m) di sisi KANAN Raka (+X workstation = Selatan dunia) dan menjorok
+   * ke arah kursi sampai kedalaman total 1,6 m; sisi kiri (Utara) bebas untuk jalan ke kursi.
+   */
+  deskTopY: 0.75,
+  /** Titik berdiri tamu / agen yang minta review, 0,4 m di depan meja Raka. */
+  visitSpot: { x: -0.2, z: 0 } as Pt,
+  /** Kredenza walnut (belakang 0,45 m menempel muka dinding barat X -2.76), menghadap Timur. */
+  credenza: { x: -2.535, z: 0 },
+  /** TV KPI 55" (GLB display 85" diskala 0,65) di dinding barat, di atas kredenza. */
+  tv: { x: -2.755, y: 1.78, z: 0, scale: 0.65 },
+  bookshelf: { x: -2.56, z: -1.95 },
+  /** 2 kursi tamu menghadap meja (sedikit menyerong ke tengah). */
+  guestChairs: [
+    { x: 0.45, z: -0.6, rotY: -Math.PI / 2 + 0.2 },
+    { x: 0.45, z: 0.6, rotY: -Math.PI / 2 - 0.2 },
+  ] as Spot[],
+  rug: { x: 0.35, z: 0, w: 1.7, d: 2.6 },
+  plantSW: { x: -2.3, z: 2.3 },
+  plantNE: { x: 2.3, z: -2.36 },
+  /** Jendela palsu (pemandangan kota) + slat walnut di muka dalam dinding selatan. */
+  window: { xMin: -1.4, xMax: 1.4, yMin: 0.95, yMax: 2.45 },
+  light: { x: -0.9, y: 2.7, z: 0 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Pantry / Café (semua koordinat LOKAL terhadap pusat Room_PantryCafe)
+//
+// Coffee Bar menempel dinding BARAT dan menghadap Timur supaya agen yang menyeduh terlihat
+// dari kamera Tenggara (di dinding selatan ia tertutup badan bar). Antrean berbaris ke utara
+// sepanjang muka bar; lorong tengah (spine X = 0) lurus dari pintu ke kursi bar island.
+// Benda tinggi hanya di dinding barat: di sisi utara ia menutupi Jalan Utama dari kamera.
+// ---------------------------------------------------------------------------
+export const PANTRY = {
+  /** Lorong tengah segaris pintu; semua titik ruangan disambung lurus Timur–Barat ke lorong ini. */
+  spineX: 0,
+  /** Office_Coffee_Bar.glb 1,8 × 0,65 m, belakang menempel muka dinding barat (X -2.26). */
+  coffeeBar: { x: -1.935, z: 0.5, rotY: Math.PI / 2 },
+  waterDispenser: { x: -2.07, z: 1.64, rotY: Math.PI / 2 },
+  /**
+   * Kabinet utilitas tinggi (Office_Pantry_Utility_Cabinet.glb 0,80 × 0,60 × 1,85 m), sudut barat
+   * daya. Origin GLB = tengah sisi BELAKANG di lantai → slot tepat di muka dinding barat (X -2.26).
+   */
+  utility: { x: -2.26, z: 2.35, rotY: Math.PI / 2, w: 0.8, d: 0.6, h: 1.85 },
+  /**
+   * Kitchen counter + sink (Office_Pantry_Kitchen_Counter.glb 3,20 × 0,65 m, atas 0,90 m,
+   * backsplash sampai 1,25 m). Origin GLB = tengah sisi BELAKANG → slot di muka dinding selatan.
+   */
+  counter: { x: 0.05, z: 2.76, rotY: Math.PI, length: 3.2, depth: 0.65, top: 0.9, splashTop: 1.25 },
+  /** Bar island (Office_Pantry_Bar_Island.glb 0,90 × 2,40 × 1,05 m) membujur Utara–Selatan. */
+  island: { x: 1.25, z: 0, w: 0.9, d: 2.4, h: 1.05 },
+  /** 4 kursi bar (Office_Pantry_Bar_Stool.glb, dudukan 0,75 m) di sisi barat island, menghadap Timur. */
+  stoolX: 0.5,
+  stoolZ: [-0.625, -0.075, 0.475, 1.025],
+  stoolRotY: Math.PI / 2,
+  /** Tinggi avatar saat duduk di kursi bar (permukaan dudukan 0,75 m). */
+  stoolSitY: 0.65,
+  /** Slot 0 di depan mesin espresso (menghadap bar), slot 1–3 berbaris ke utara menghadap kepala antrean. */
+  queue: [
+    { x: -1.15, z: 0.97, rotY: -Math.PI / 2 },
+    { x: -1.15, z: 0.07, rotY: 0 },
+    { x: -1.15, z: -0.83, rotY: 0 },
+    { x: -1.15, z: -1.73, rotY: 0 },
+  ] as Spot[],
+  /** Tempat sampah di samping pintu (dibuang sambil keluar), titik berdiri menghadap Utara. */
+  trashBin: { x: 1.05, z: -2.54 },
+  trashStand: { x: 1.05, z: -2.05, rotY: Math.PI } as Spot,
+  plantNW: { x: -1.95, z: -2.4 },
+  plantSE: { x: 1.97, z: 2.42 },
+  /** Papan menu di dinding barat, di atas coffee bar. */
+  menuBoard: { x: -2.255, y: 1.85, z: 0.5 },
+  baristaLight: { x: -1.45, y: 2.4, z: 0.6 },
+} as const;
 
 // ---------------------------------------------------------------------------
 // Ruang rapat (semua koordinat LOKAL terhadap pusat Room_Boardroom_10p)

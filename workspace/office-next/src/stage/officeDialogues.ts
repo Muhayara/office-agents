@@ -22,8 +22,14 @@ export interface DialogueExchange {
   }>;
 }
 
-// Dialog saat siklus kopi (mengantre, menyeduh kopi, menikmati, membuang cangkir)
+// Dialog saat siklus kopi (ke Pantry, mengantre, menyeduh, ngopi di kursi bar, membuang cangkir)
 export const COFFEE_ROUTINE_DIALOGUES = {
+  going_to_pantry: [
+    'Ke pantry dulu ah, rehat kopi sebentar!',
+    'Otak butuh kafein, mampir pantry sebentar.',
+    'Jalan ke pantry, sekalian peregangan kaki.',
+    'Rehat lima menit di pantry, nanti lanjut lagi.',
+  ],
   waiting_in_queue: [
     'Antre dulu, racikan espresso hari ini wangi banget...',
     'Sabar menunggu giliran, demi segelas kafein segar!',
@@ -39,9 +45,21 @@ export const COFFEE_ROUTINE_DIALOGUES = {
     'Satu cangkir kopi hitam hangat biar ide terus ngalir.',
   ],
   walking_with_coffee: [
-    'Kopi aman di tangan, saatnya balik ke workstation.',
+    'Kursi bar penuh, kopinya kubawa ke meja saja.',
     'Awas panas... jalan santai sambil mikirin arsitektur sistem.',
     'Aroma kopinya bikin mata langsung melek!',
+  ],
+  walking_to_bar: [
+    'Duduk di bar island dulu, ngopi santai sebentar.',
+    'Ada kursi kosong di island, pas banget!',
+    'Kopi aman di tangan, cari kursi bar dulu.',
+  ],
+  sipping_at_bar: [
+    'Srupuuut... rehat sebentar di pantry memang ampuh.',
+    'Ngopi di island sambil ngelamunin solusi bug tadi.',
+    'Kopi susu gula aren-nya pas banget hari ini.',
+    'Pemandangan Jalan Utama dari pantry, adem juga.',
+    'Lima menit santai, habis ini gaspol lagi!',
   ],
   sipping_at_desk: [
     'Srupuuut... mantap! Langsung on-fire lagi ngetik kode.',

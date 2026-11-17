@@ -214,7 +214,7 @@ export function App() {
             {t('Kantor 3D', '3D Office')}
           </strong>
           <span className="mono" style={{ fontSize: 12, color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>
-            {t('Lantai 1 · Ruang Kerja · Jalan Utama · Ruang Rapat', 'Floor 1 · Workspace · Main Corridor · Boardroom')}
+            {t('Lantai 1 · Ruang Kerja · Jalan Utama · Ruang Rapat · Manajer · Pantry', 'Floor 1 · Workspace · Main Corridor · Boardroom · Manager · Pantry')}
           </span>
           {connectionChip && (
             <span className="chip mono" style={{ color: connectionChip.color, borderColor: connectionChip.color }}>
@@ -244,6 +244,22 @@ export function App() {
             style={hudButton}
           >
             {t('Fokus: Ruang Rapat', 'Focus: Boardroom')}
+          </button>
+          <button
+            type="button"
+            onClick={() => stageApiRef.current?.focusRoom('manager')}
+            title={t('Arahkan kamera ke ruang manajer', 'Focus the manager office')}
+            style={hudButton}
+          >
+            {t('Fokus: Manajer', 'Focus: Manager')}
+          </button>
+          <button
+            type="button"
+            onClick={() => stageApiRef.current?.focusRoom('pantry')}
+            title={t('Arahkan kamera ke pantry / café', 'Focus the pantry / café')}
+            style={hudButton}
+          >
+            {t('Fokus: Pantry', 'Focus: Pantry')}
           </button>
           <button
             type="button"

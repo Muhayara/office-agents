@@ -116,6 +116,10 @@ function shouldSkipWalk(relPath: string): boolean {
     norm === 'dist' ||
     norm.startsWith('dist/') ||
     norm.includes('/dist/') ||
+    norm === '.esbuild-tmp' ||
+    norm.startsWith('.esbuild-tmp/') ||
+    norm === '.playwright-mcp' ||
+    norm.startsWith('.playwright-mcp/') ||
     norm === 'data' ||
     norm.startsWith('data/')
   ) {

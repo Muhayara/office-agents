@@ -1,12 +1,10 @@
 import * as THREE from 'three';
 import {
-  COFFEE_BAR_POS,
   HUDDLE_TABLE_POS,
   ROOM_MAIN,
-  TRASH_BIN_POS,
   WALL_HEIGHT,
   WALL_THICKNESS,
-  WATER_DISPENSER_POS,
+  WORKSPACE_WHITEBOARD_POS,
 } from '../layout';
 import type { WallFader } from '../camera/wallFade';
 import {
@@ -24,6 +22,8 @@ import { buildSolidWallX, workspaceWallMats } from './walls';
  *
  * Tahap 1 (bus): sisi selatan kini dinding penuh dengan 2 pintu ke Jalan Utama, sisi timur
  * berbatasan langsung dengan dinding barat ruang rapat (sekat kaca tanpa pintu).
+ * Tahap 2: pantry sementara (coffee bar, dispenser, tempat sampah) pindah ke Pantry / Café;
+ * meja Raka pindah ke Ruang Manajer dan tempatnya diisi whiteboard scrum.
  */
 export interface MainWorkspace {
   group: THREE.Group;
@@ -66,7 +66,6 @@ export function buildMainWorkspace(opts: {
   const architecture = sub('SubLayer_Architecture');
   const workstations = sub('SubLayer_Workstations');
   const chairs = sub('SubLayer_Chairs');
-  const pantry = sub('SubLayer_Pantry');
   const appliances = sub('SubLayer_Appliances');
   const decor = sub('SubLayer_Decor');
   const seatAnchors = sub('SubLayer_SeatAnchors');
@@ -189,8 +188,8 @@ export function buildMainWorkspace(opts: {
     mountAsset(slot, url, new THREE.Group(), load);
   };
   [
-    { x: -6.3, z: 0.15, s: 0.9 },  // Ujung antrean kopi (pembatas pantry ↔ pod barat)
-    { x: -6.0, z: -4.2, s: 0.90 }, // Sudut eksekutif Raka
+    { x: -6.3, z: 0.15, s: 0.9 },  // Sudut barat daya (dulu ujung antrean kopi)
+    { x: -6.0, z: -4.2, s: 0.90 }, // Sudut barat laut (dulu sudut eksekutif Raka)
     { x: -6.0, z: -1.6, s: 0.85 }, // Pembatas pod barat
   ].forEach((p, i) => plant('/models/Office_Indoor_Plant.glb', `Monstera_${i}`, p));
   [
@@ -227,34 +226,13 @@ export function buildMainWorkspace(opts: {
     mountAsset(slot, '/models/Office_Meeting_Table_Round.glb', ph, load);
   }
 
-  // ---- Pantry sementara (sudut barat daya): coffee bar, dispenser air, tempat sampah, lampu barista ----
+  // ---- Whiteboard scrum tim di bekas meja Raka (dinding utara, menghadap Selatan) ----
   {
-    const bar = new THREE.Group();
-    bar.name = 'Office_Coffee_Bar';
-    bar.position.set(COFFEE_BAR_POS.x, 0, COFFEE_BAR_POS.z);
-    bar.rotation.y = Math.PI;
-    pantry.add(bar);
-    mountAsset(bar, '/models/Office_Coffee_Bar.glb', new THREE.Group(), load);
-
-    const dispenser = new THREE.Group();
-    dispenser.name = 'Office_Water_Dispenser';
-    dispenser.position.set(WATER_DISPENSER_POS.x, 0, WATER_DISPENSER_POS.z);
-    dispenser.rotation.y = Math.PI; // menghadap ke dalam ruangan, searah coffee bar
-    pantry.add(dispenser);
-    mountAsset(dispenser, '/models/Office_Water_Dispenser.glb', new THREE.Group(), load);
-
-    const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.52, 16), std(0x334155, 0.35, 0.8));
-    bin.position.set(TRASH_BIN_POS.x, 0.26, TRASH_BIN_POS.z);
-    bin.castShadow = true;
-    bin.name = 'Trash_Bin';
-    pantry.add(bin);
-    const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.03, 16), std(0x0f172a, 0.2, 0.9));
-    lid.position.set(TRASH_BIN_POS.x, 0.53, TRASH_BIN_POS.z);
-    pantry.add(lid);
-
-    const baristaLight = new THREE.PointLight(0xffdfb8, 28, 5, 1.6);
-    baristaLight.position.set(COFFEE_BAR_POS.x, 2.3, COFFEE_BAR_POS.z - 0.3);
-    pantry.add(baristaLight);
+    const slot = new THREE.Group();
+    slot.name = 'Whiteboard_Scrum_Team';
+    slot.position.set(WORKSPACE_WHITEBOARD_POS.x, 0, WORKSPACE_WHITEBOARD_POS.z);
+    decor.add(slot);
+    mountAsset(slot, '/models/Office_Whiteboard_Scrum.glb', new THREE.Group(), load);
   }
 
   const update = (time: number) => {

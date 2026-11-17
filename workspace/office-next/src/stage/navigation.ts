@@ -11,10 +11,14 @@
 import {
   AGENT_3D_POSITIONS,
   BOARDROOM,
-  COFFEE_QUEUE_SPOTS,
   CORRIDOR_BUS,
+  MANAGER,
+  PANTRY,
   ROOM_FOYER,
   ROOM_MAIN,
+  ROOM_MANAGER,
+  ROOM_PANTRY,
+  SOUTH_ROOM_DOOR_INSIDE_Z,
   type DeskSpot,
   type Pt,
 } from './layout';
@@ -51,26 +55,24 @@ function dedupe(pts: NavPt[]): NavPt[] {
 // ============================================================================
 /**
  * Jaringan jalan ruang kerja:
- * - Lorong Utara (North Aisle): Z = -3.4 (di antara meja Raka/Fajar dan meja pod)
+ * - Lorong Utara (North Aisle): Z = -3.4 (di antara meja eksekutif Fajar dan meja pod)
  * - Lorong Tengah (Central Avenue): X = 0.0 (menghubungkan Utara ke Selatan)
- * - Promenade Selatan: Z = 0.8 (di depan pod menuju pantry, meja diskusi & 2 pintu selatan)
- * - Garis antrean kopi: X = COFFEE_QUEUE_SPOTS[0].x (sudut barat daya)
- * - Pintu selatan (X = -3.5 & +3.5) dan tempat sampah dicapai lurus dari promenade.
+ * - Promenade Selatan: Z = 0.8 (di depan pod menuju meja diskusi & 2 pintu selatan)
+ * - Pintu selatan (X = -3.5 & +3.5) dicapai lurus dari promenade.
  *
  * Setiap titik punya "jalan keluar" ke jaringan; rute = keluar -> koridor -> masuk.
  */
 const NORTH_AISLE_Z = -3.4;
 const PROMENADE_Z = 0.8;
 const AVENUE_X = 0.0;
-const QUEUE_X = COFFEE_QUEUE_SPOTS[0]!.x;
-/** Meja eksekutif di dinding utara (Raka & Fajar). */
+/** Meja di ruang kerja (Tahap 2: meja Raka pindah ke Ruang Manajer). */
+const isMainDesk = (p: DeskSpot) => (p.room ?? 'main') === 'main';
+/** Meja eksekutif di dinding utara ruang kerja (Fajar). */
 const EXEC_DESKS: Pt[] = Object.values(AGENT_3D_POSITIONS)
-  .filter((p) => p.z < -3.0)
+  .filter((p) => isMainDesk(p) && p.z < -3.0)
   .map((p) => ({ x: p.x, z: p.z }));
 
 function mainToNetwork(p: Pt): Pt[] {
-  // Antrean / mesin kopi: mundur lurus di garis antrean ke promenade
-  if (p.z > 1.6 && Math.abs(p.x - QUEUE_X) < 0.6) return [{ x: QUEUE_X, z: PROMENADE_Z }];
   // Kursi eksekutif di depan dinding utara: keluar lewat celah samping meja (tidak menembus meja).
   // Celah dihitung dari posisi meja, bukan dari posisi agen, agar titik di celah itu sendiri
   // tidak terus "digeser" ke timur.
@@ -101,26 +103,45 @@ export function mainRoomPath(from: Pt, to: Pt): NavPt[] {
   return dedupe([{ ...from }, ...exit, ...mainViaCorridor(a, b), ...entry, { ...to }]);
 }
 
-/** Titik berdiri tamu di samping/depan meja rekan (selalu di koridor yang bisa dicapai). */
+/**
+ * Titik berdiri tamu di samping/depan meja rekan (selalu di koridor yang bisa dicapai),
+ * LOKAL terhadap ruangan meja itu.
+ */
 export function visitSpotFor(p: DeskSpot): Pt {
-  if (p.z < -3.0) return { x: p.x, z: -3.15 };                // depan meja eksekutif (Raka/Fajar)
+  if (p.room === 'manager') return { ...MANAGER.visitSpot };    // depan meja Raka, menghadap Barat
+  if (p.z < -3.0) return { x: p.x, z: -3.15 };                // depan meja eksekutif (Fajar)
   if (p.z < -1.5) return { x: p.x + 0.55, z: NORTH_AISLE_Z };  // belakang kursi baris belakang pod
   return { x: p.x + 0.55, z: 0.15 };                           // belakang kursi baris depan pod
 }
 
 // ============================================================================
-// Corridor_MainBus — lurus di sumbu tengah Jalan Utama (lokal z = 0, dunia Z = 6.2)
+// Ruangan berlorong tunggal: setiap titik disambung tegak lurus ke satu lorong lurus.
+// Rute = keluar tegak lurus → menyusuri lorong → masuk tegak lurus.
 // ============================================================================
-export function busPath(from: Pt, to: Pt): NavPt[] {
-  return dedupe([{ ...from }, { x: from.x, z: 0 }, { x: to.x, z: 0 }, { ...to }]);
-}
+/** Lorong sejajar sumbu X di z = `z0` (lokal). */
+const laneZ = (z0: number) => (from: Pt, to: Pt): NavPt[] =>
+  dedupe([{ ...from }, { x: from.x, z: z0 }, { x: to.x, z: z0 }, { ...to }]);
+/** Lorong sejajar sumbu Z di x = `x0` (lokal). */
+const laneX = (x0: number) => (from: Pt, to: Pt): NavPt[] =>
+  dedupe([{ ...from }, { x: x0, z: from.z }, { x: x0, z: to.z }, { ...to }]);
 
-// ============================================================================
-// Room_MeetingFoyer — jalur tengah terbuka (lokal x = 0, dunia X = 11.0)
-// ============================================================================
-export function foyerPath(from: Pt, to: Pt): NavPt[] {
-  return dedupe([{ ...from }, { x: 0, z: from.z }, { x: 0, z: to.z }, { ...to }]);
-}
+/** Corridor_MainBus — lurus di sumbu tengah Jalan Utama (lokal z = 0, dunia Z = 6.2). */
+export const busPath = laneZ(0);
+
+/** Room_MeetingFoyer — jalur tengah terbuka (lokal x = 0, dunia X = 11.0). */
+export const foyerPath = laneX(0);
+
+/**
+ * Room_ManagerOffice — lorong utara (dunia Z 8.6): pintu, kursi Raka (lewat celah antara
+ * kredenza dan meja), dan titik tamu di depan meja semuanya tersambung lurus ke lorong ini.
+ */
+export const managerPath = laneZ(MANAGER.laneZ);
+
+/**
+ * Room_PantryCafe — lorong tengah segaris pintu (dunia X 6.5) di antara garis antrean
+ * (barat) dan kursi bar (timur). Antrean, kursi bar, dan tempat sampah tersambung lurus ke sini.
+ */
+export const pantryPath = laneX(PANTRY.spineX);
 
 // ============================================================================
 // Room_Boardroom_10p — promenade selatan, lorong utara, lorong barat & timur
@@ -286,7 +307,11 @@ const FOYER_DOOR_X = mid(ROOM_FOYER.southDoor);
 
 /**
  * Konstanta portal (lokal masing-masing ruangan) untuk konektor gedung Lantai 1:
- * Ruang Kerja (2 pintu selatan) ↔ Jalan Utama ↔ Meeting Foyer ↔ Ruang Rapat.
+ * Ruang Kerja (2 pintu selatan) ↔ Jalan Utama ↔ Meeting Foyer ↔ Ruang Rapat (Tahap 1),
+ * Jalan Utama ↔ Ruang Manajer & Pantry / Café (Tahap 2).
+ *
+ * Portal di sisi Jalan Utama selalu di sumbu tengah koridor (z = 0); portal di sisi ruangan
+ * berada DI DALAM ruangan, tepat di depan pintunya (bukan di garis dinding).
  */
 export const FLOOR1_PORTALS = {
   mainSouthWest: { x: mid(DOOR_SW), z: ROOM_MAIN.southDoorInsideZ },
@@ -298,6 +323,12 @@ export const FLOOR1_PORTALS = {
   /** Titik antre door mutex arah masuk: tepat di luar pintu ruang rapat. */
   foyerNorth: { x: FOYER_DOOR_X, z: -0.6 },
   boardroomDoorInside: BOARDROOM.doorInside,
+  /** Dunia (-4.0, 6.2) ↔ (-4.0, 8.05). */
+  busManagerDoor: { x: busX(ROOM_MANAGER.origin.x + mid(ROOM_MANAGER.northDoor)), z: 0 },
+  managerNorth: { x: mid(ROOM_MANAGER.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
+  /** Dunia (6.5, 6.2) ↔ (6.5, 8.05). */
+  busPantryDoor: { x: busX(ROOM_PANTRY.origin.x + mid(ROOM_PANTRY.northDoor)), z: 0 },
+  pantryNorth: { x: mid(ROOM_PANTRY.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
 } as const;
 
 export const BOARDROOM_DOOR_GATE = 'boardroom_door';

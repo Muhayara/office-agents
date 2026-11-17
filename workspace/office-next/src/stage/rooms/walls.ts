@@ -128,11 +128,15 @@ export function buildSolidWallX(o: SolidWallOpts): THREE.Group {
 }
 
 // ============================================================================
-// Dinding kaca berbingkai gelap (pembatas sementara Jalan Utama)
+// Dinding kaca berbingkai gelap (pembatas sementara Jalan Utama & dinding ruangan sisi bus)
 // ============================================================================
 export interface GlassWallMaterials {
   frame: THREE.Material;
   glass: THREE.Material;
+  /** Strip kaca buram (privacy band) setinggi mata, opsional. */
+  band?: THREE.Material;
+  /** Pelat ambang di lantai bukaan pintu. Bawaan: material frame. */
+  threshold?: THREE.Material;
 }
 
 export interface GlassWallOpts {
@@ -147,12 +151,22 @@ export interface GlassWallOpts {
   yBase?: number;
   /** Jarak maksimum antar-tiang kecil. */
   maxBay?: number;
+  /**
+   * Bukaan pintu (tinggi DOOR_HEIGHT): curb terputus, tiang utama menjadi kusen, dan di
+   * atasnya ada palang + kaca transom sampai header.
+   */
+  doors?: readonly DoorSpan[];
+  /** Pelat ambang di lantai bukaan pintu (menutup celah antar-lantai). */
+  threshold?: { zMin: number; zMax: number; yMin: number; yMax: number };
+  /** Strip privacy band pada setiap panel kaca (butuh `mats.band`). */
+  band?: { yMin: number; yMax: number };
 }
 
 const CURB_TOP = 0.11;
 const HEADER_H = 0.08;
 const MAJOR_POST = 0.1;
 const MINOR_POST = 0.06;
+const TRANSOM_BAR = 0.06;
 
 export function buildGlassWallX(o: GlassWallOpts): THREE.Group {
   const g = new THREE.Group();
@@ -165,30 +179,68 @@ export function buildGlassWallX(o: GlassWallOpts): THREE.Group {
   const postTop = WALL_HEIGHT - HEADER_H;
   const postH = postTop - postBottom;
   const postY = (postBottom + postTop) / 2;
+  const doors = [...(o.doors ?? [])].sort((a, b) => a.xMin - b.xMin);
 
-  g.add(part(len, CURB_TOP - yBase, WALL_THICKNESS, o.mats.frame, cx, (yBase + CURB_TOP) / 2, o.z, `${o.name}_Curb`));
   g.add(part(len, HEADER_H, 0.1, o.mats.frame, cx, WALL_HEIGHT - HEADER_H / 2, o.z, `${o.name}_Header`));
 
-  // Tiang utama: kedua ujung + batas ruas
-  const majors = [
-    o.xMin + MAJOR_POST / 2,
-    ...(o.breaks ?? []).filter((x) => x > o.xMin + 0.2 && x < o.xMax - 0.2),
-    o.xMax - MAJOR_POST / 2,
-  ].sort((a, b) => a - b);
+  // Ruas kaca di antara bukaan pintu. Tiang ujung ruas yang berbatasan pintu menjadi kusen,
+  // jadi lebar bersih bukaan = xMax - xMin pintu.
+  const spans: Array<[number, number]> = [];
+  let cursor = o.xMin;
+  for (const d of doors) {
+    if (d.xMin > cursor + 1e-4) spans.push([cursor, d.xMin]);
+    cursor = d.xMax;
+  }
+  if (o.xMax > cursor + 1e-4) spans.push([cursor, o.xMax]);
+
+  const majors: number[] = [];
+  spans.forEach(([a, b], s) => {
+    g.add(part(b - a, CURB_TOP - yBase, WALL_THICKNESS, o.mats.frame, (a + b) / 2, (yBase + CURB_TOP) / 2, o.z, spans.length > 1 ? `${o.name}_Curb_${s}` : `${o.name}_Curb`));
+    majors.push(
+      a + MAJOR_POST / 2,
+      ...(o.breaks ?? []).filter((x) => x > a + 0.2 && x < b - 0.2),
+      b - MAJOR_POST / 2,
+    );
+  });
+  majors.sort((a, b) => a - b);
   majors.forEach((x, i) => {
     g.add(part(MAJOR_POST, postH, MAJOR_POST, o.mats.frame, x, postY, o.z, `${o.name}_Post_${i}`));
   });
 
-  // Panel kaca per ruas + tiang kecil di dalam ruas
+  // Panel kaca per ruas + tiang kecil di dalam ruas (bukaan pintu dilewati)
+  const isDoorGap = (a: number, b: number) => doors.some((d) => a >= d.xMin - 1e-3 && b <= d.xMax + 1e-3);
   const minors: number[] = [];
   for (let i = 0; i < majors.length - 1; i++) {
     const a = majors[i]! + MAJOR_POST / 2;
     const b = majors[i + 1]! - MAJOR_POST / 2;
+    if (b - a < 0.05 || isDoorGap(a, b)) continue;
     const pane = part(b - a, postH, 0.02, o.mats.glass, (a + b) / 2, postY, o.z, `${o.name}_Glass_${i}`);
     g.add(pane);
+    if (o.band && o.mats.band) {
+      const { yMin, yMax } = o.band;
+      g.add(part(b - a, yMax - yMin, 0.026, o.mats.band, (a + b) / 2, (yMin + yMax) / 2, o.z, `${o.name}_Band_${i}`));
+    }
     const bays = Math.max(1, Math.ceil((b - a) / maxBay));
     for (let k = 1; k < bays; k++) minors.push(a + ((b - a) * k) / bays);
   }
+
+  // Palang + kaca transom di atas pintu, pelat ambang di lantai
+  doors.forEach((d, i) => {
+    const w = d.xMax - d.xMin;
+    const dx = (d.xMin + d.xMax) / 2;
+    g.add(part(w, TRANSOM_BAR, MAJOR_POST, o.mats.frame, dx, DOOR_HEIGHT + TRANSOM_BAR / 2, o.z, `${o.name}_Door_Head_${i}`));
+    const tBottom = DOOR_HEIGHT + TRANSOM_BAR;
+    if (postTop - tBottom > 0.05) {
+      g.add(part(w, postTop - tBottom, 0.02, o.mats.glass, dx, (tBottom + postTop) / 2, o.z, `${o.name}_Transom_${i}`));
+    }
+    if (o.threshold) {
+      const t = o.threshold;
+      g.add(part(
+        w, t.yMax - t.yMin, t.zMax - t.zMin, o.mats.threshold ?? o.mats.frame,
+        dx, (t.yMin + t.yMax) / 2, (t.zMin + t.zMax) / 2, `${o.name}_Door_Threshold_${i}`,
+      ));
+    }
+  });
   if (minors.length > 0) {
     const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(MINOR_POST, postH, MINOR_POST), o.mats.frame, minors.length);
     inst.name = `${o.name}_Mullions`;
@@ -238,6 +290,24 @@ export function boardroomWallMats(): SolidWallMaterials {
     frame: anodized,
     threshold: anodized,
   };
+}
+
+/** Kaca gelap (smoked) + privacy band buram untuk ruang privat (Ruang Manajer). */
+export function smokedGlassWallMats(): GlassWallMaterials {
+  const glass = (color: number, opacity: number, roughness: number) => new THREE.MeshStandardMaterial({
+    color, roughness, metalness: 0.1, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide,
+  });
+  return {
+    frame: stdLin([0.009, 0.023, 0.03], 0.35, 0.75),
+    glass: glass(0x4a5d66, 0.38, 0.12),
+    band: glass(0xd7e2e6, 0.5, 0.6),
+    threshold: stdLin([0.019, 0.025, 0.03], 0.38, 0.85),
+  };
+}
+
+/** Ambang kuningan (Pantry / Café). */
+export function brassMat() {
+  return stdLin([0.56, 0.38, 0.13], 0.32, 0.95);
 }
 
 /** Kaca berbingkai gelap (serasi sekat kaca ruang kerja & koridor kaca lama). */
