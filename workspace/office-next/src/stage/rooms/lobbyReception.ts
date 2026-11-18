@@ -127,8 +127,8 @@ export function buildLobbyReception(load: ModelLoader, fader: WallFader): LobbyR
   // ---- Meja resepsionis melengkung + kursi resepsionis ----
   {
     const r = LOBBY.reception;
-    const desk = slot(furniture, 'Reception_Desk_Curved', r.cx, 0, r.cz, Math.PI / 2);
-    mountAsset(desk, '/models/Office_Lobby_Reception_Desk.glb', receptionDeskPlaceholder(r.rIn, r.rWork, r.rOut, r.halfDeg), load);
+    const desk = slot(furniture, 'Reception_Desk_Curved', r.apexX, 0, r.apexZ, r.rotY);
+    mountAsset(desk, '/models/Office_Lobby_Reception_Desk.glb', receptionDeskPlaceholder(r), load);
     const c = LOBBY.receptionistChair;
     mountAsset(slot(furniture, 'Receptionist_Chair', c.x, 0, c.z, c.rotY), '/models/Office_Ergonomic_Chair.glb', new THREE.Group(), load);
   }
@@ -159,7 +159,7 @@ export function buildLobbyReception(load: ModelLoader, fader: WallFader): LobbyR
     const t = LOBBY.sideTable;
     mountAsset(slot(furniture, 'Lobby_Side_Table', t.x, 0, t.z), '/models/Office_Lobby_Side_Table.glb', sideTablePlaceholder(), load);
     LOBBY.accentChairs.forEach((c, i) => {
-      mountAsset(slot(furniture, `Lobby_Accent_Chair_${i}`, c.x, 0, c.z, c.rotY), '/models/Office_Lobby_Accent_Chair.glb', accentChairPlaceholder(), load);
+      mountAsset(slot(furniture, `Lobby_Accent_Chair_${i}`, c.x, 0, c.z, c.rotY), '/models/Office_Lobby_Accent_Armchair.glb', accentChairPlaceholder(), load);
     });
   }
 
@@ -359,14 +359,20 @@ class DirectoryScreen {
 // Placeholder prosedural (otomatis diganti GLB bila file-nya ada di public/models)
 // ============================================================================
 /**
- * Meja resepsionis melengkung (busur ±halfDeg di sekitar +Z, pusat busur = origin):
- * badan berlapis bilah kayu vertikal, ledge marmer Carrara setinggi 1,06 m di sisi tamu,
- * permukaan kerja 0,75 m di sisi dalam dengan terminal & telepon interkom. Depan = +Z.
+ * Meja resepsionis melengkung, kontrak GLB `Office_Lobby_Reception_Desk`: origin = puncak busur depan
+ * di lantai, muka cembung ke -Z (tamu), pusat busur di (0, 0, Ro), resepsionis di sisi +Z.
+ * Cincin r Ri..Ro, ±halfDeg; ledge marmer Carrara 1,05 m (r ledgeIn..Ro), bilah oak vertikal di
+ * muka depan, permukaan kerja walnut 0,75 m dengan terminal & telepon interkom.
  */
-function receptionDeskPlaceholder(rIn: number, rWork: number, rOut: number, halfDeg: number) {
+function receptionDeskPlaceholder(r: { Ro: number; Ri: number; ledgeIn: number; halfDeg: number }) {
+  const root = new THREE.Group();
+  root.name = 'Reception_Desk_Placeholder';
+  // Dibangun di sekitar pusat busur dengan busur ke +Z, lalu diputar π agar puncaknya di origin & menghadap -Z.
   const g = new THREE.Group();
-  g.name = 'Reception_Desk_Placeholder';
-  const a0 = Math.PI / 2 - THREE.MathUtils.degToRad(halfDeg), a1 = Math.PI / 2 + THREE.MathUtils.degToRad(halfDeg);
+  g.position.set(0, 0, r.Ro);
+  g.rotation.y = Math.PI;
+  root.add(g);
+  const a0 = Math.PI / 2 - THREE.MathUtils.degToRad(r.halfDeg), a1 = Math.PI / 2 + THREE.MathUtils.degToRad(r.halfDeg);
   const sector = (r0: number, r1: number) => {
     const s = new THREE.Shape();
     s.absarc(0, 0, r1, a0, a1, false);
@@ -374,8 +380,9 @@ function receptionDeskPlaceholder(rIn: number, rWork: number, rOut: number, half
     s.closePath();
     return s;
   };
+  // Shape (x, y) → setelah rotateX(π/2): y → z. Busur di sekitar +y shape = +Z grup dalam.
   const ring = (r0: number, r1: number, y0: number, y1: number, mat: THREE.Material, name: string) => {
-    const geo = new THREE.ExtrudeGeometry(sector(r0, r1), { depth: y1 - y0, bevelEnabled: false, curveSegments: 24 });
+    const geo = new THREE.ExtrudeGeometry(sector(r0, r1), { depth: y1 - y0, bevelEnabled: false, curveSegments: 32 });
     geo.rotateX(Math.PI / 2);
     geo.translate(0, y1, 0);
     const m = new THREE.Mesh(geo, mat);
@@ -383,44 +390,42 @@ function receptionDeskPlaceholder(rIn: number, rWork: number, rOut: number, half
     g.add(m);
     return m;
   };
-  // Shape (x, y) → setelah rotateX(π/2): y → z. Busur di sekitar +y shape = +Z dunia.
-  const carcass = std(0x2a2e33, 0.5, 0.2);
-  const marble = std(0xf1f5f9, 0.2, 0.05);
-  const oak = std(0x9a6b43, 0.5, 0.05);
-  ring(rWork + 0.12, rOut, 0.08, 1.03, carcass, 'Counter_Body');
-  ring(rWork + 0.08, rOut + 0.04, 1.03, 1.06, marble, 'Transaction_Ledge_Marble');
-  ring(rIn, rWork + 0.12, 0.72, 0.75, marble, 'Work_Surface');
-  ring(rWork + 0.1, rOut - 0.04, 0.0, 0.08, std(0x111315, 0.6, 0.3), 'Plinth');
-  // Bilah kayu vertikal di muka luar
-  const n = Math.round((a1 - a0) / THREE.MathUtils.degToRad(3.6));
+  const backing = std(0x26292d, 0.7, 0.02);
+  const lacquer = std(0xeceef0, 0.45, 0.02);
+  const oak = std(0xc8a27a, 0.4, 0.02);
+  ring(1.42, 1.5, 0, 0.06, std(0x1b1d21, 0.75, 0.05), 'Plinth');
+  ring(1.545, 1.57, 0.06, 1.01, backing, 'Front_Apron');
+  ring(r.ledgeIn, r.Ro, 1.01, 1.05, std(0xf8fafc, 0.22, 0.05), 'Transaction_Ledge_Marble');
+  ring(r.ledgeIn + 0.005, r.ledgeIn + 0.035, 0.75, 1.01, lacquer, 'Transaction_Riser');
+  ring(r.Ri, 1.545, 0.72, 0.75, std(0x3a2a1c, 0.5, 0.03), 'Work_Surface_Walnut');
+  // Bilah oak vertikal 20 mm (jarak 35 mm) di muka depan
+  const rMid = 1.5775, n = Math.floor(rMid * (a1 - a0) / 0.035);
   for (let i = 0; i <= n; i++) {
     const a = a0 + (a1 - a0) * i / n;
-    const slat = box(0.03, 0.92, 0.022, oak, [Math.cos(a) * (rOut + 0.012), 0.55, Math.sin(a) * (rOut + 0.012)], 'Wood_Slat');
+    const slat = box(0.02, 0.92, 0.015, oak, [Math.cos(a) * rMid, 0.53, Math.sin(a) * rMid], 'Oak_Slat');
     slat.rotation.y = Math.PI / 2 - a;
     g.add(slat);
   }
-  // Panel ujung + kaki permukaan kerja
+  // Panel ujung (gable) di kedua ujung busur
   [a0, a1].forEach((a, i) => {
-    const r = (rIn + rOut) / 2;
-    const end = box(rOut - rIn, 0.98, 0.03, carcass, [Math.cos(a) * r, 0.49 + 0.06, Math.sin(a) * r], `End_Panel_${i}`);
+    const rm = (r.Ri + 1.545) / 2;
+    const end = box(1.545 - r.Ri, 0.72, 0.025, lacquer, [Math.cos(a) * rm, 0.36, Math.sin(a) * rm], `End_Gable_${i}`);
     end.rotation.y = -a;
     g.add(end);
   });
-  // Terminal resepsionis (menghadap ke dalam, -Z) + keyboard + telepon interkom
-  const rm = (rIn + rWork) / 2 + 0.12;
-  const mon = box(0.5, 0.3, 0.03, std(0x0b0f12, 0.3, 0.4), [0, 1.0, rm], 'Terminal_Monitor');
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.26), new THREE.MeshBasicMaterial({ color: 0x1e5a7a }));
-  screen.position.set(0, 1.0, rm - 0.017);
+  // Komputer all-in-one (menghadap pusat busur = resepsionis), keyboard & telepon interkom
+  const rm = 1.1;
+  const mon = box(0.55, 0.37, 0.012, std(0xc4c8cc, 0.22, 0.9), [0, 1.05, rm], 'AIO_Body');
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.29), new THREE.MeshBasicMaterial({ color: 0x1d4f6a }));
+  screen.position.set(0, 1.07, rm - 0.007);
   screen.rotation.y = Math.PI;
-  const stand = box(0.04, 0.22, 0.04, std(0x1c2226, 0.4, 0.7), [0, 0.86, rm + 0.02], 'Terminal_Stand');
-  const kb = box(0.36, 0.015, 0.12, std(0x1a1d21, 0.6, 0.2), [0, 0.758, rm - 0.24], 'Terminal_Keyboard');
-  const phone = box(0.16, 0.05, 0.2, std(0x15181b, 0.5, 0.2), [0.42, 0.775, rm - 0.18], 'Intercom_Phone');
-  phone.rotation.y = 0.5;
-  const handset = box(0.05, 0.035, 0.19, std(0x0f1113, 0.5, 0.2), [0.47, 0.81, rm - 0.18], 'Intercom_Handset');
-  handset.rotation.y = 0.5;
-  g.add(mon, screen, stand, kb, phone, handset);
-  enableShadow(g);
-  return g;
+  const stand = box(0.13, 0.12, 0.01, std(0xc4c8cc, 0.22, 0.9), [0, 0.81, rm + 0.03], 'AIO_Stand');
+  const kb = box(0.28, 0.01, 0.115, std(0xf1f2f3, 0.5, 0.05), [0, 0.755, rm - 0.17], 'AIO_Keyboard');
+  const phone = box(0.17, 0.05, 0.19, std(0x16181b, 0.6, 0.05), [0.36, 0.775, 1.0], 'Intercom_Phone');
+  phone.rotation.y = 0.33;
+  g.add(mon, screen, stand, kb, phone);
+  enableShadow(root);
+  return root;
 }
 
 /** Kios direktori berdiri: totem 0,5 × 1,75 m, layar potret 0,42 × 0,70 m. Depan = +Z. */
@@ -428,24 +433,24 @@ function kioskPlaceholder() {
   const g = new THREE.Group();
   g.name = 'Directory_Kiosk_Placeholder';
   const body = std(0x1b2228, 0.35, 0.6);
-  g.add(box(0.5, 0.02, 0.36, std(0x2b3238, 0.3, 0.8), [0, 0.01, 0], 'Base_Plate'));
-  g.add(box(0.5, 1.73, 0.1, body, [0, 0.885, 0], 'Totem_Body'));
+  g.add(box(0.55, 0.02, 0.45, std(0x111827, 0.5, 0.8), [0, 0.01, 0], 'Base_Plate'));
+  g.add(box(0.55, 1.73, 0.1, body, [0, 0.885, 0], 'Totem_Body'));
   g.add(box(0.46, 0.74, 0.01, std(0x05080a, 0.1, 0.3), [0, 1.27, 0.05], 'Screen_Bezel'));
   g.add(box(0.5, 0.03, 0.11, std(0xc9a24a, 0.3, 0.9), [0, 1.765, 0], 'Brass_Cap'));
   enableShadow(g);
   return g;
 }
 
-/** Kursi aksen velvet teal (tub chair) 0,7 × 0,72 m, depan = +Z. */
+/** Kursi aksen velvet teal (barrel chair) 0,72 × 0,70 × 0,80 m, dudukan 0,43 m, depan = +Z. */
 function accentChairPlaceholder() {
   const g = new THREE.Group();
   g.name = 'Accent_Chair_Placeholder';
   const velvet = std(0x0f6b6b, 0.75, 0);
   const velvetDark = std(0x0b5656, 0.8, 0);
   const brass = std(0xc9a24a, 0.3, 0.9);
-  g.add(box(0.56, 0.1, 0.52, velvet, [0, 0.42, 0.04], 'Seat_Cushion'));
-  const back = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.33, 0.36, 28, 1, true, Math.PI * 0.75, Math.PI * 1.5), velvetDark);
-  back.position.set(0, 0.55, 0);
+  g.add(box(0.56, 0.08, 0.56, velvet, [0, 0.39, 0.05], 'Seat_Cushion'));
+  const back = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.35, 0.6, 28, 1, true, Math.PI * 0.75, Math.PI * 1.5), velvetDark);
+  back.position.set(0, 0.5, 0);
   back.material.side = THREE.DoubleSide;
   back.name = 'Tub_Back';
   g.add(back);

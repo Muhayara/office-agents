@@ -181,7 +181,7 @@ export function polylineLane(points: readonly Pt[]) {
 export const lobbyPath = laneX(LOBBY.spineX);
 
 /** Room_LoungeRelax — lorong tengah segaris pintu (dunia X 11.5); kursi sofa di sisi barat. */
-export const loungePath = laneX(LOUNGE.spineX);
+export const loungePath = polylineLane(LOUNGE.lane);
 
 /** Room_ServerIT — lorong U mengitari 2 rak di tengah: hot aisle → sisi timur → cold aisle. */
 export const serverPath = polylineLane(SERVER.lane);

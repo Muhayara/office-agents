@@ -330,9 +330,13 @@ export const LOBBY = {
   spawn: { x: 0, z: 0.55, rotY: Math.PI } as Spot,
   /** Dinding fitur marmer hitam + logo berlampu, menempel muka dinding barat (X -2.5), menghadap Timur. */
   featureWall: { x: -2.47, z: 0.7, w: 2.8, h: 2.6, t: 0.06 },
-  /** Meja resepsionis melengkung: busur berpusat di (cx, cz), menghadap Timur. */
-  reception: { cx: -2.4, cz: 0.7, rIn: 0.42, rWork: 0.86, rOut: 1.16, halfDeg: 52 },
-  receptionistChair: { x: -1.98, z: 0.7, rotY: Math.PI / 2 } as Spot,
+  /**
+   * Meja resepsionis melengkung (GLB `Office_Lobby_Reception_Desk`: origin = puncak busur depan,
+   * muka cembung ke -Z, pusat busur di (0, 0, Ro)). Diputar -90° agar muka menghadap Timur:
+   * jejak X -2.45..-0.95, Z -0.5..1.9 (dunia X -0.95..0.55, Z 9.9..12.3).
+   */
+  reception: { apexX: -0.95, apexZ: 0.7, rotY: -Math.PI / 2, Ro: 1.6, Ri: 0.756, ledgeIn: 1.215, halfDeg: 48.59 },
+  receptionistChair: { x: -2.0, z: 0.7, rotY: Math.PI / 2 } as Spot,
   /** Kios direktori digital di dekat pintu, layar menghadap Selatan (ke dalam lobi & kamera). */
   kiosk: { x: 1.9, z: -1.75, rotY: 0 } as Spot,
   sideTable: { x: 1.7, z: 1.65 },
@@ -348,20 +352,27 @@ export const LOBBY = {
 
 /** Lounge (LOKAL terhadap pusat Room_LoungeRelax). Lantai bersih X -2.5..2.26, Z -2.76..2.76. */
 export const LOUNGE = {
-  spineX: 0,
-  /** Sofa sudut L di pojok barat daya: lengan panjang menempel dinding barat, lengan pendek di selatan. */
-  sofa: { longX0: -2.5, longX1: -1.6, longZ0: -0.6, shortX1: -0.3, shortZ0: 1.86, z1: 2.76, seatTop: 0.43, backTop: 0.82 },
-  /** Kursi sofa yang bisa diduduki agen + titik berdiri sebelum duduk (di jalur bebas meja kopi). */
+  /** Lorong tunggal: pintu → belok barat → menyusuri depan sofa (X -1.3) hingga ujung chaise. */
+  lane: [{ x: 0, z: -2.35 }, { x: 0, z: -1.2 }, { x: -1.3, z: -1.2 }, { x: -1.3, z: 1.6 }] as Pt[],
+  /**
+   * Sofa sectional L (GLB `Office_Lounge_Sectional_Sofa`: origin = sudut belakang-kiri, X 0..2.60,
+   * Z 0..1.80, hadap +Z, chaise di sisi -X). Diputar +90°: punggung menempel dinding barat, chaise
+   * menyusuri dinding selatan. Ruangan: main X -2.485..-1.585 × Z 0.145..2.745,
+   * chaise X -2.485..-0.685 × Z 1.832..2.745.
+   */
+  sofa: { originX: -2.485, originZ: 2.745, rotY: Math.PI / 2, width: 2.6, depth: 1.8, mainDepth: 0.9, armW: 0.14, chaiseW: 0.913, seatTop: 0.44, backTop: 0.78 },
+  /** Kursi yang bisa diduduki agen + titik berdiri sebelum duduk (di lorong X -1.3, bebas meja kopi). */
   seats: [
-    { spot: { x: -1.95, z: -0.2, rotY: Math.PI / 2 }, approach: { x: -1.25, z: -0.2 } },
-    { spot: { x: -1.95, z: 0.65, rotY: Math.PI / 2 }, approach: { x: -1.25, z: 0.65 } },
-    { spot: { x: -0.95, z: 2.3, rotY: Math.PI }, approach: { x: -0.95, z: 1.7 } },
+    { spot: { x: -1.935, z: 0.672, rotY: Math.PI / 2 }, approach: { x: -1.3, z: 0.672 } },
+    { spot: { x: -1.935, z: 1.445, rotY: Math.PI / 2 }, approach: { x: -1.3, z: 1.445 } },
+    { spot: { x: -1.1, z: 2.03, rotY: Math.PI }, approach: { x: -1.1, z: 1.53 } },
   ] as Array<{ spot: Spot; approach: Pt }>,
-  /** Tinggi avatar saat duduk di sofa (dudukan 0,43 m). */
-  sitY: 0.33,
-  coffeeTable: { x: -0.7, z: 1.2, w: 1.0, d: 0.6, h: 0.4 },
-  /** Lampu lantai melengkung: kaki di samping ujung sofa, kap kuningan di atas meja kopi. */
-  arcLamp: { baseX: 0.05, baseZ: 2.45, shadeX: -0.6, shadeZ: 1.3, shadeY: 1.95 },
+  /** Tinggi avatar saat duduk di sofa (dudukan 0,44 m). */
+  sitY: 0.34,
+  /** Meja kopi 1,10 × 0,65 × 0,42 diputar 90° (sisi panjang sejajar sofa): X -1.0..-0.35, Z 0.25..1.35. */
+  coffeeTable: { x: -0.675, z: 0.8, rotY: Math.PI / 2, w: 1.1, d: 0.65, h: 0.42 },
+  /** Lampu busur (kap di +Z lokal sejauh `reach`, rim 1,65 m), di-yaw agar kap menggantung di atas meja kopi. */
+  arcLamp: { baseX: -0.25, baseZ: 2.35, aimX: -0.675, aimZ: 0.8, reach: 1.2, rimY: 1.65 },
   palm: { x: -2.15, z: -2.35 },
   magazineRack: { x: -2.2, z: -1.2 },
   /** Lukisan kanvas & rak tipis di muka dinding barat (dinding timur Pantry), menghadap Timur. */
@@ -377,11 +388,18 @@ export const SERVER = {
   lane: [{ x: 0, z: -1.65 }, { x: 1.25, z: -1.65 }, { x: 1.25, z: 0.65 }, { x: -0.6, z: 0.65 }] as Pt[],
   /** Titik inspeksi di cold aisle, menghadap rak (Utara). */
   inspect: { x: 0, z: 0.6, rotY: Math.PI } as Spot,
-  /** Konsol IT admin menempel dinding selatan; agen duduk menghadap Selatan (ke monitor ganda). */
-  console: { x: 0.85, z: 2.46, w: 1.2, d: 0.6 },
-  consoleSeat: { spot: { x: 0.85, z: 1.95, rotY: 0 } as Spot, approach: { x: 0.85, z: 1.4 } as Pt },
-  /** Unit AC presisi (CRAC) di dinding barat, menghadap Timur. */
-  crac: { x: -1.46, z: 1.0, w: 0.9, d: 0.6, h: 1.95 },
+  /**
+   * Konsol IT admin (GLB `Office_Server_Admin_Console`: origin = belakang-tengah, pengguna di +Z)
+   * menempel panel akustik selatan, diputar 180°: meja X 0.15..1.55, Z 2.03..2.73. Agen duduk
+   * menghadap Selatan (ke monitor ganda).
+   */
+  console: { x: 0.85, z: 2.73, rotY: Math.PI, w: 1.4, d: 0.7 },
+  consoleSeat: { spot: { x: 0.85, z: 1.82, rotY: 0 } as Spot, approach: { x: 0.85, z: 1.27 } as Pt },
+  /**
+   * Unit AC presisi (GLB `Office_Server_CRAC_Unit`: origin = belakang-bawah-tengah, depan +Z)
+   * menempel panel akustik barat, menghadap Timur: X -1.73..-0.98, Z 0.4..1.6.
+   */
+  crac: { x: -1.73, z: 1.0, rotY: Math.PI / 2, w: 1.2, d: 0.75, h: 2.05 },
   /** Layar NOC 55" (GLB display diskala 0,65) di dinding barat, menghadap Timur. */
   noc: { x: -1.755, y: 1.75, z: -1.35, scale: 0.65 },
   extinguisher: { x: -0.95, z: -2.62 },

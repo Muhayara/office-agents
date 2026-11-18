@@ -103,25 +103,27 @@ export function buildLoungeRelax(load: ModelLoader, fader: WallFader): LoungeRel
     }
   }
 
-  // ---- Sofa sudut L (sectional) di pojok barat daya; origin GLB = pusat bounding box sofa ----
+  // ---- Sofa sectional L di pojok barat daya; origin GLB = sudut belakang-kiri, diputar +90° ----
   {
-    const c = sofaCenter();
-    mountAsset(slot(furniture, 'Sectional_L_Sofa', c.x, 0, c.z), '/models/Office_Lounge_Sectional_Sofa.glb', sectionalSofaPlaceholder(), load);
+    const s = LOUNGE.sofa;
+    mountAsset(slot(furniture, 'Sectional_L_Sofa', s.originX, 0, s.originZ, s.rotY), '/models/Office_Lounge_Sectional_Sofa.glb', sectionalSofaPlaceholder(), load);
   }
 
   // ---- Meja kopi rendah walnut + kaki besi silang ----
   {
     const t = LOUNGE.coffeeTable;
-    mountAsset(slot(furniture, 'Coffee_Table_Walnut', t.x, 0, t.z), '/models/Office_Lounge_Coffee_Table.glb', coffeeTablePlaceholder(t.w, t.d, t.h), load);
+    mountAsset(slot(furniture, 'Coffee_Table_Walnut', t.x, 0, t.z, t.rotY), '/models/Office_Lounge_Coffee_Table.glb', coffeeTablePlaceholder(t.w, t.d, t.h), load);
   }
 
   // ---- Lampu lantai melengkung (kubah kuningan) + cahaya hangat ----
   {
     const l = LOUNGE.arcLamp;
-    mountAsset(slot(furniture, 'Arc_Floor_Lamp', l.baseX, 0, l.baseZ), '/models/Office_Lounge_Arc_Floor_Lamp.glb', arcLampPlaceholder(l.shadeX - l.baseX, l.shadeY, l.shadeZ - l.baseZ), load);
+    // GLB: kap di +Z lokal sejauh `reach`; yaw agar kap menggantung di atas titik `aim` (meja kopi).
+    const yaw = Math.atan2(l.aimX - l.baseX, l.aimZ - l.baseZ);
+    mountAsset(slot(furniture, 'Arc_Floor_Lamp', l.baseX, 0, l.baseZ, yaw), '/models/Office_Lounge_Arc_Floor_Lamp.glb', arcLampPlaceholder(0, l.rimY, l.reach), load);
     const light = new THREE.PointLight(0xffcf9a, 12, 5.5, 1.7);
     light.name = 'Arc_Lamp_Warm_Light';
-    light.position.set(l.shadeX, l.shadeY - 0.15, l.shadeZ);
+    light.position.set(l.baseX + Math.sin(yaw) * l.reach, l.rimY - 0.1, l.baseZ + Math.cos(yaw) * l.reach);
     decor.add(light);
   }
 
@@ -204,55 +206,44 @@ function artTexture() {
 // ============================================================================
 // Placeholder prosedural (otomatis diganti GLB bila file-nya ada di public/models)
 // ============================================================================
-/** Pusat bounding box sofa L di koordinat ruangan (= origin GLB sofa). */
-function sofaCenter() {
-  const s = LOUNGE.sofa;
-  return { x: (s.longX0 + s.shortX1) / 2, z: (s.longZ0 + s.z1) / 2 };
-}
-
 /**
- * Sofa sudut L 2,20 × 3,36 m, origin = pusat bounding box (dunia ruangan: lengan panjang
- * X -2.5..-1.6 × Z -0.6..2.76 menghadap Timur, lengan pendek X -1.6..-0.3 × Z 1.86..2.76
- * menghadap Utara). Fabric krem / abu terang + bantal mustard & teal. Depan lengan panjang = +X.
+ * Sofa sectional L, kontrak GLB `Office_Lounge_Sectional_Sofa`: origin = sudut belakang-kiri di lantai,
+ * X 0..2.60 × Z 0..1.80, hadap +Z. Bagian utama Z 0..0.90 (3 bantal dudukan), chaise X 0..0.913 ×
+ * Z 0.90..1.80 di sisi -X. Linen abu hangat, plinth oak, bantal aksen mustard & teal. Dudukan 0,44 m.
  */
 function sectionalSofaPlaceholder() {
   const s = LOUNGE.sofa;
-  const root = new THREE.Group();
-  root.name = 'Sectional_Sofa_Placeholder';
-  const c = sofaCenter();
   const g = new THREE.Group();
-  g.position.set(-c.x, 0, -c.z);
-  root.add(g);
-  const fabric = std(0xd9d2c5, 0.95, 0);
-  const fabricDark = std(0xc6beaf, 0.95, 0);
-  const legMat = std(0x2d2016, 0.5, 0.05);
-  const baseH = 0.28, seatT = 0.15;
-  // Lengan panjang (barat)
-  const lw = s.longX1 - s.longX0, ll = s.z1 - s.longZ0, lcx = (s.longX0 + s.longX1) / 2, lcz = (s.longZ0 + s.z1) / 2;
-  g.add(box(lw, baseH, ll, fabricDark, [lcx, 0.06 + baseH / 2, lcz], 'Long_Base'));
-  g.add(box(lw - 0.2, seatT, ll - 0.22, fabric, [lcx + 0.1, 0.06 + baseH + seatT / 2, lcz - 0.06], 'Long_Seat_Cushion'));
-  g.add(box(0.2, s.backTop - 0.06, ll, fabricDark, [s.longX0 + 0.1, 0.06 + (s.backTop - 0.06) / 2, lcz], 'Long_Backrest'));
-  g.add(box(lw, 0.2, 0.18, fabricDark, [lcx, 0.06 + baseH + 0.1, s.longZ0 + 0.09], 'Long_Arm_North'));
-  // Lengan pendek (selatan)
-  const sw = s.shortX1 - s.longX1, sd = s.z1 - s.shortZ0, scx = (s.longX1 + s.shortX1) / 2, scz = (s.shortZ0 + s.z1) / 2;
-  g.add(box(sw, baseH, sd, fabricDark, [scx, 0.06 + baseH / 2, scz], 'Short_Base'));
-  g.add(box(sw - 0.18, seatT, sd - 0.2, fabric, [scx - 0.09, 0.06 + baseH + seatT / 2, scz - 0.1], 'Short_Seat_Cushion'));
-  g.add(box(sw, s.backTop - 0.06, 0.2, fabricDark, [scx, 0.06 + (s.backTop - 0.06) / 2, s.z1 - 0.1], 'Short_Backrest'));
-  g.add(box(0.18, 0.2, sd, fabricDark, [s.shortX1 - 0.09, 0.06 + baseH + 0.1, scz], 'Short_Arm_East'));
-  // Kaki walnut pendek
-  [[s.longX0 + 0.06, s.longZ0 + 0.06], [s.longX1 - 0.06, s.longZ0 + 0.06], [s.longX0 + 0.06, s.z1 - 0.06], [s.shortX1 - 0.06, s.z1 - 0.06], [s.shortX1 - 0.06, s.shortZ0 + 0.06]]
-    .forEach(([x, z], i) => g.add(box(0.05, 0.06, 0.05, legMat, [x!, 0.03, z!], `Leg_${i}`)));
-  // Bantal aksen mustard & teal
-  const pillow = (x: number, z: number, rotY: number, color: number, n: string) => {
-    const p = box(0.42, 0.4, 0.12, std(color, 0.9, 0), [x, 0.06 + baseH + seatT + 0.2, z], n);
-    p.rotation.y = rotY; p.rotation.x = -0.15;
+  g.name = 'Sectional_Sofa_Placeholder';
+  const fabric = std(0xd1d5db, 0.9, 0);
+  const fabricDark = std(0xc3c7cd, 0.92, 0);
+  const oak = std(0xb48a60, 0.4, 0.02);
+  const y0 = 0.12, base = 0.3, seatW = (s.width - 2 * s.armW) / 3, chaiseD = s.depth - s.mainDepth;
+  g.add(box(s.width - 0.06, 0.05, s.mainDepth - 0.06, oak, [s.width / 2, 0.095, s.mainDepth / 2], 'Plinth_Main'));
+  g.add(box(s.chaiseW - 0.06, 0.05, chaiseD, oak, [s.chaiseW / 2, 0.095, s.mainDepth + chaiseD / 2 - 0.03], 'Plinth_Chaise'));
+  g.add(box(s.width, base - y0, s.mainDepth, fabricDark, [s.width / 2, (y0 + base) / 2, s.mainDepth / 2], 'Platform_Main'));
+  g.add(box(s.chaiseW, base - y0, chaiseD, fabricDark, [s.chaiseW / 2, (y0 + base) / 2, s.mainDepth + chaiseD / 2], 'Platform_Chaise'));
+  g.add(box(s.width, 0.62 - y0, 0.18, fabricDark, [s.width / 2, (0.62 + y0) / 2, 0.09], 'Back_Frame'));
+  g.add(box(s.armW, 0.6 - y0, s.depth, fabricDark, [s.armW / 2, (0.6 + y0) / 2, s.depth / 2], 'Arm_Left_Chaise'));
+  g.add(box(s.armW, 0.6 - y0, s.mainDepth, fabricDark, [s.width - s.armW / 2, (0.6 + y0) / 2, s.mainDepth / 2], 'Arm_Right'));
+  for (let k = 0; k < 3; k++) {
+    const x = s.armW + (k + 0.5) * seatW;
+    g.add(box(seatW - 0.008, s.seatTop - base, s.mainDepth - 0.18, fabric, [x, (base + s.seatTop) / 2, (0.18 + s.mainDepth) / 2], `Seat_Cushion_${k + 1}`));
+    const pillow = box(seatW - 0.03, 0.34, 0.18, fabric, [x, s.seatTop + 0.16, 0.28], `Back_Pillow_${k + 1}`);
+    pillow.rotation.x = -0.22;
+    g.add(pillow);
+  }
+  g.add(box(seatW - 0.008, s.seatTop - base, chaiseD, fabric, [s.armW + seatW / 2, (base + s.seatTop) / 2, s.mainDepth + chaiseD / 2], 'Chaise_Cushion'));
+  const throwPillow = (x: number, yaw: number, color: number, n: string) => {
+    const p = box(0.4, 0.4, 0.12, std(color, 0.85, 0), [x, 0.6, 0.5], n);
+    p.rotation.set(-0.75, yaw, 0, 'YXZ');
     g.add(p);
   };
-  pillow(s.longX0 + 0.3, -0.35, Math.PI / 2, 0xd4a017, 'Pillow_Mustard');
-  pillow(s.longX0 + 0.3, 1.25, Math.PI / 2, 0x0f6b6b, 'Pillow_Teal');
-  pillow(-0.55, s.z1 - 0.3, 0, 0xd4a017, 'Pillow_Mustard_2');
-  enableShadow(root);
-  return root;
+  throwPillow(s.armW + 0.26, 0.42, 0xca8a04, 'Pillow_Mustard_L');
+  throwPillow(s.armW + 1.62, -0.12, 0x0d9488, 'Pillow_Teal');
+  throwPillow(s.width - s.armW - 0.25, -0.45, 0xca8a04, 'Pillow_Mustard_R');
+  enableShadow(g);
+  return g;
 }
 
 /** Meja kopi rendah walnut padat + kaki besi silang (X), buku arsitektur & lilin aromaterapi. */

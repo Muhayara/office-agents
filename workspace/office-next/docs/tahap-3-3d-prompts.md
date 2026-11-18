@@ -257,3 +257,56 @@ Create a complete, single-file HTML application using Three.js r128 (via CDN) an
    - **Server Room ($4 \times 6\text{ m}$):** Kedua Server Rack 42U di tengah, CRAC Unit ($1.2\text{ m}$) di dinding timur, dan Admin Console ($1.4\text{ m}$) di dinding barat menyisakan *cold aisle* dan *hot aisle* standar data center selebar $\sim 1.1\text{ m}$.
 3. **Format & Kesiapan Ekspor:**
    - Seluruh prompt dirancang untuk menghasilkan file `.glb` tunggal dengan material standar PBR MeshStandardMaterial (tanpa ketergantungan texture eksternal yang hilang).
+
+---
+
+## 5. Kontrak Scene & Status Generator (dicek terhadap kode, 18 November 2026)
+
+**Status:** kedelapan generator HTML sudah dibuat di `tools/3d-generator/<Nama>.html` (gitignored, lokal saja). Buka file, klik **Export GLB**, lalu salin ke `public/models/`; setiap GLB otomatis menggantikan placeholder prosedural di scene. Semua generator memakai Three.js r128 + GLTFExporter, material PBR standar, dan tekstur kanvas yang ditanam di GLB.
+
+### A. Koreksi terhadap prompt
+
+| # | Prompt | Masalah | Keputusan |
+|---|---|---|---|
+| 1 | Meja resepsionis: "Receptionist sits on the inside facing +Z" | Muka depan menghadap −Z (tamu), jadi resepsionis justru menghadap −Z. Arah ini salah ketik. | Resepsionis di sisi +Z, menghadap −Z. Bentuk = sektor cincin R 0,756..1,60, ±48,59°, sehingga ukurannya tepat 2,40 × 1,10. |
+| 2 | Kiosk: layar ber-CanvasTexture sendiri | Lobi menimpa layar dengan kanvas direktori live, dicari lewat nama mesh `/screen/i` (mesh pertama yang cocok). | Hanya layar aktif yang bernama `Kiosk_Screen`; bezel diberi nama `Front_Toughened_Glass`. |
+| 3 | Kursi aksen bernama `Office_Lobby_Accent_Armchair` | Slot scene lama bernama `Office_Lobby_Accent_Chair`. | Slot scene diganti mengikuti prompt. |
+| 4 | Sofa: origin sudut belakang-kiri, chaise di −X | Sofa lama di scene berbentuk L 2,20 × 3,36 dengan origin di pusat. | Scene mengikuti prompt: sofa diputar +90° (punggung di dinding barat, chaise di sepanjang dinding selatan), kursi agen dan lorong Lounge dihitung ulang. |
+| 5 | CRAC di "dinding timur", konsol di "dinding barat" | Keputusan CEO di Tahap 3: CRAC di dinding **barat** (sisi timur menutupi isi ruangan dari kamera Tenggara); konsol di dinding selatan. | Penempatan scene tetap; GLB hanya peduli origin (belakang-tengah) dan arah depan (+Z). |
+| 6 | Konsol bernama `Office_Server_Admin_Console` | Slot scene lama bernama `Office_Server_IT_Console`. | Slot scene diganti mengikuti prompt. |
+| 7 | CRAC tinggi 2,05 termasuk menara lampu status | Menara di atas kabinet akan melebihi 2,05. | Kabinet 1,95 + menara 3 tingkat (hijau menyala) sampai tepat 2,05. |
+| 8 | Lampu busur: kabel lantai | Kabel 0,95 m menembus dinding selatan Lounge. | Kabel 0,40 m (berakhir tepat di dinding); saklar injak di 0,33 m. |
+| 9 | Emissive intensity 1,4 / 1,5 / 1,6 | GLTFExporter r128 memotong emissive di atas 1,0. | Layar memakai `emissiveMap` = tekstur warna dengan intensitas 1,0 (terang tanpa clipping). |
+
+### B. Kontrak per GLB (yang dipakai kode scene)
+
+| GLB | Ukuran W × H × D (m) | Origin & arah | Penempatan di scene (dunia) |
+|---|---|---|---|
+| `Office_Lobby_Reception_Desk` | 2,40 × 1,05 × 1,10 (AIO sampai 1,234) | Puncak busur depan di lantai; muka −Z; pusat busur `(0, 0, 1.60)` | Lobi, rotY −90°, puncak `(0.55, 11.1)` → jejak `X -0.55..0.55, Z 9.9..12.3`; kursi resepsionis `(-0.5, 11.1)` |
+| `Office_Lobby_Directory_Kiosk` | 0,55 × 1,75 × 0,45 | Bawah-tengah pelat; layar +Z; mesh `Kiosk_Screen` 0,535 × 0,951 (43") | Lobi `(3.4, 8.65)`, rotY 0 (layar ke Selatan) |
+| `Office_Lobby_Accent_Armchair` | 0,72 × 0,80 × 0,70, dudukan 0,43 | Lantai di bawah dudukan; hadap +Z | Lobi `(2.48, 12.05)` rotY 90° dan `(3.2, 11.32)` rotY 0 |
+| `Office_Lounge_Sectional_Sofa` | 2,60 × 0,78 × 1,80, dudukan 0,44 | Sudut belakang-kiri; hadap +Z; chaise di −X (X 0..0.913, Z 0.9..1.8) | Lounge, rotY +90°, origin `(9.015, 13.145)` |
+| `Office_Lounge_Coffee_Table` | 1,10 × 0,42 × 0,65 (+props sampai 0,52) | Lantai tengah; sisi panjang = X | Lounge `(10.825, 11.2)`, rotY 90° |
+| `Office_Lounge_Arc_Floor_Lamp` | Ø0,42 kaki, tinggi 2,15, jangkauan 1,20 | Lantai tengah kaki; rim kap di `(0, 1.65, 1.20)` | Lounge, kaki `(11.25, 12.75)`, yaw ke meja kopi → rim `(10.93, 1.65, 11.59)` |
+| `Office_Server_CRAC_Unit` | 1,20 × 2,05 × 0,75 | Belakang-bawah-tengah; depan +Z | Server, rotY 90°, origin `(18.27, 11.4)` → `X 18.27..19.02, Z 10.8..12.0` |
+| `Office_Server_Admin_Console` | 1,40 × 1,25 × 0,70, meja 0,75 | Belakang-bawah-tengah; pengguna di +Z; tanpa kursi | Server, rotY 180°, origin `(20.85, 13.13)` → `X 20.15..21.55, Z 12.43..13.13` |
+
+Slot tanpa prompt (tetap placeholder prosedural): `Office_Lobby_Side_Table`, `Office_Plant_Areca_Palm`, `Office_Lounge_Magazine_Rack`.
+
+### C. Hasil verifikasi
+
+| GLB | Segitiga | Ukuran GLB | Catatan |
+|---|---|---|---|
+| Reception Desk | 8,4k | ±840 KB | 75 bilah oak, ledge marmer Carrara, plinth LED, laci 3 susun, AIO + telepon + tempat kartu kuningan |
+| Directory Kiosk | 2,1k | ±260 KB | Peta lantai + daftar ruangan + tombol "TAP TO SEARCH", QR scanner hijau, NFC, kisi belakang |
+| Accent Armchair | 16,8k | ±560 KB | Cangkang barrel tersapu dengan flute vertikal, bantal 80 mm + welt, kaki kuningan miring 10° |
+| Sectional Sofa | 37,4k | ±920 KB | 3 bantal dudukan + bantal chaise + welt, 3 bantal sandaran berkerut, 3 bantal lempar (2 mustard, 1 teal) |
+| Coffee Table | 6,5k | ±410 KB | Top walnut 35 mm dengan bevel terbalik, rangka X tabung 20 mm, 2 buku, coaster + gelas, mangkuk moss |
+| Arc Floor Lamp | 19,8k | ±570 KB | Kaki marmer Nero Marquina, busur teleskopik + sekrup, kubah kuningan dengan dalam putih hangat, diffuser |
+| CRAC Unit | 2,1k | ±240 KB | Pelat berlubang (alpha) di depan coil, 4 pintu + latch, LCD 18,0 °C, decal tegangan tinggi, menara status |
+| Admin Console | 7,1k | ±480 KB | Rangka 40×40 + gusset, 2 ultrawide 1800R (log hijau / grafik cyan), keyboard TKL RGB, keranjang kabel |
+
+- Setiap generator menampilkan cek dimensi di panel kanan. Semua lolos: ±4 mm (sofa ±5 mm), origin, dan ketinggian kunci.
+- Kedelapan GLB dibangun dari generator lalu disajikan ke halaman kantor lewat `page.route`. Semuanya termuat menggantikan placeholder, dengan bounding box dunia sesuai tabel B. Overlay kanvas kios jatuh tepat di depan `Kiosk_Screen`, dan PointLight Lounge tepat di bawah rim kap.
+- Simulasi 600 detik dengan GLB terpasang (2 rapat, 5 agen bergantian duduk di sofa, inspeksi Satria & Bima, uji pulang/datang) menghasilkan **0 pelanggaran** dinding/perabot dan tidak ada agen macet.
+- `npm run typecheck`, `npm test` (64), serta build live dan demo lulus.

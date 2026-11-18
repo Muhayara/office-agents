@@ -122,7 +122,7 @@ export function buildServerRoom(load: ModelLoader, fader: WallFader): ServerRoom
   // ---- Unit AC presisi (CRAC) di dinding barat, menghadap Timur ----
   {
     const c = SERVER.crac;
-    mountAsset(slot(it, 'CRAC_Precision_Cooling', c.x, 0, c.z, Math.PI / 2), '/models/Office_Server_CRAC_Unit.glb', cracPlaceholder(c.w, c.d, c.h), load);
+    mountAsset(slot(it, 'CRAC_Precision_Cooling', c.x, 0, c.z, c.rotY), '/models/Office_Server_CRAC_Unit.glb', cracPlaceholder(c.w, c.d, c.h), load);
   }
 
   // ---- Layar NOC 55" di dinding barat (grafik throughput, uptime, keamanan) ----
@@ -154,7 +154,7 @@ export function buildServerRoom(load: ModelLoader, fader: WallFader): ServerRoom
   // ---- Konsol meja IT admin (monitor ganda) + kursi putar ----
   {
     const c = SERVER.console;
-    mountAsset(slot(it, 'IT_Admin_Console', c.x, 0, c.z, Math.PI), '/models/Office_Server_IT_Console.glb', consolePlaceholder(c.w, c.d), load);
+    mountAsset(slot(it, 'IT_Admin_Console', c.x, 0, c.z, c.rotY), '/models/Office_Server_Admin_Console.glb', consolePlaceholder(c.w, c.d), load);
     const s = SERVER.consoleSeat.spot;
     mountAsset(slot(it, 'IT_Console_Chair', s.x, 0, s.z, s.rotY), '/models/Office_Ergonomic_Chair.glb', new THREE.Group(), load);
   }
@@ -358,10 +358,13 @@ function rackPlaceholder() {
   return g;
 }
 
-/** CRAC presisi: kabinet tinggi, grille hisap atas & bawah, panel layar suhu. Depan = +Z. */
+/** CRAC presisi: kabinet tinggi, grille hisap atas & bawah, panel layar suhu. Origin = belakang-bawah-tengah, depan = +Z. */
 function cracPlaceholder(w: number, d: number, h: number) {
+  const root = new THREE.Group();
+  root.name = 'CRAC_Placeholder';
   const g = new THREE.Group();
-  g.name = 'CRAC_Placeholder';
+  g.position.z = d / 2;
+  root.add(g);
   const body = std(0xd5d9dc, 0.45, 0.35);
   const grille = std(0x30363b, 0.6, 0.5);
   g.add(box(w, h, d, body, [0, h / 2, 0], 'CRAC_Cabinet'));
@@ -377,17 +380,20 @@ function cracPlaceholder(w: number, d: number, h: number) {
   screen.position.set(0, h - 0.75, d / 2 + 0.006);
   g.add(screen);
   g.add(box(0.06, 0.06, 0.01, std(0x16a34a, 0.4, 0, { emissive: 0x22c55e, emissiveIntensity: 1.2 }), [0.18, h - 0.75, d / 2 + 0.006], 'Status_LED'));
-  enableShadow(g);
-  return g;
+  enableShadow(root);
+  return root;
 }
 
 /**
- * Konsol IT admin: meja teknis sempit 1,2 × 0,6 m (pengguna di +Z), monitor ganda dengan
- * grafik throughput / uptime / keamanan, keyboard & mouse. Depan (sisi pengguna) = +Z.
+ * Konsol IT admin: meja teknis 1,4 × 0,7 m, monitor ganda dengan grafik throughput / keamanan,
+ * keyboard & mouse. Origin = belakang-bawah-tengah, sisi pengguna = +Z.
  */
 function consolePlaceholder(w: number, d: number) {
+  const root = new THREE.Group();
+  root.name = 'IT_Console_Placeholder';
   const g = new THREE.Group();
-  g.name = 'IT_Console_Placeholder';
+  g.position.z = d / 2;
+  root.add(g);
   const top = std(0x2f363c, 0.45, 0.4);
   const steel = std(0x1c2226, 0.45, 0.75);
   g.add(box(w, 0.035, d, top, [0, 0.737, 0], 'Desk_Top'));
@@ -414,6 +420,6 @@ function consolePlaceholder(w: number, d: number) {
   });
   g.add(box(0.4, 0.015, 0.13, std(0x15181b, 0.6, 0.2), [0, 0.762, 0.1], 'Keyboard'));
   g.add(box(0.06, 0.02, 0.09, std(0x15181b, 0.5, 0.2), [0.3, 0.765, 0.1], 'Mouse'));
-  enableShadow(g);
-  return g;
+  enableShadow(root);
+  return root;
 }
