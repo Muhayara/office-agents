@@ -277,7 +277,8 @@ function logoTexture() {
 const ROOM_LABELS: Array<[string, string]> = [
   ['main', 'Ruang Kerja'], ['boardroom', 'Ruang Rapat'], ['manager', 'Manajer'], ['pantry', 'Pantry'],
   ['lounge', 'Lounge'], ['server', 'Server / IT'], ['lobby', 'Lobi'], ['commons', 'Commons'], ['garden', 'Garden'],
-  ['workshop', 'Workshop'], ['infowall', 'Info Wall'], ['collabpods', 'Pods'],
+  ['workshop', 'Workshop'], ['infowall', 'Info Wall'], ['collabpods', 'Pods'], ['studio', 'Studio'], ['focus', 'Focus Pods'],
+  ['access', 'Access Hub'],
 ];
 
 class DirectoryScreen {
@@ -333,6 +334,9 @@ class DirectoryScreen {
     rect(25, -1, 31, 5, '#123544', 'Wrkshp');
     rect(21, -5, 26, -1, '#123544', 'Info');
     rect(26, -5, 31, -1, '#123544', 'Pods');
+    rect(15, -5, 21, -1, '#123544', 'Studio');
+    rect(14, 7.4, 18, 13.4, '#123544', 'Fokus');
+    rect(27, 7.4, 31, 13.4, '#123544', 'Akses');
     c.fillStyle = '#fbbf24'; c.font = '700 14px "Inter", system-ui, sans-serif';
     c.fillText('▲ Anda di sini', ox + (1.5 + 7) * sx - 40, oy + 18.4 * sz + 16);
 
@@ -348,7 +352,7 @@ class DirectoryScreen {
     c.fillStyle = '#94a3b8'; c.font = '500 24px "Inter", system-ui, sans-serif';
     c.fillText(`/ ${info.total} hadir`, 22 + c.measureText(`${info.present}`).width * 2.4 + 8, y + 6);
     y += 48;
-    // Grid 2 kolom (12 ruangan sejak Tahap 5; muat sampai 16 ruangan sebelum melewati kanvas).
+    // Grid 2 kolom: 15 ruangan sejak Tahap 6 (semua kecuali foyer), 8 baris, masih di atas strip bawah kanvas.
     c.font = '500 17px "Inter", system-ui, sans-serif';
     const colW = (W - 44 - 16) / 2, rowsN = Math.ceil(ROOM_LABELS.length / 2);
     ROOM_LABELS.forEach(([id, label], i) => {

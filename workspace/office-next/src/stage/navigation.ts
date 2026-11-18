@@ -11,7 +11,10 @@
 import {
   AGENT_3D_POSITIONS,
   BOARDROOM,
+  ACCESS,
   COLLABPODS,
+  FOCUSPODS,
+  STUDIO,
   COMMONS,
   CORRIDOR_BUS,
   GARDEN,
@@ -22,7 +25,10 @@ import {
   NORTH_ROOM_DOOR_INSIDE_Z,
   NORTH_TIER_SOUTH_DOOR_INSIDE_Z,
   PANTRY,
+  ROOM_ACCESS,
   ROOM_COLLABPODS,
+  ROOM_FOCUS,
+  ROOM_STUDIO,
   ROOM_COMMONS,
   ROOM_FOYER,
   ROOM_GARDEN,
@@ -274,6 +280,15 @@ export const infoWallPath = laneZ(INFOWALL.laneZ);
 /** Room_CollabPods — lorong lurus dunia Z -2.40 di depan kedua pod. */
 export const collabPodsPath = laneZ(COLLABPODS.laneZ);
 
+/** Tahap 6. Room_StudioContent — koridor selatan → lorong tengah x 0.42 → tanda talent green screen. */
+export const studioPath = polylineLane(STUDIO.lane);
+
+/** Room_FocusPods — lorong L: pintu → koridor timur x 0.85 di depan kedua mulut bilik. */
+export const focusPodsPath = polylineLane(FOCUSPODS.lane);
+
+/** Room_AccessHub — lorong tengah di antara lift/totem (barat) dan tangga (timur). */
+export const accessHubPath = polylineLane(ACCESS.lane);
+
 // ============================================================================
 // Room_Boardroom_10p — promenade selatan, lorong utara, lorong barat & timur
 // ============================================================================
@@ -440,7 +455,8 @@ const FOYER_DOOR_X = mid(ROOM_FOYER.southDoor);
  * Konstanta portal (lokal masing-masing ruangan) untuk konektor gedung Lantai 1:
  * Ruang Kerja (2 pintu selatan) ↔ Jalan Utama ↔ Meeting Foyer ↔ Ruang Rapat (Tahap 1),
  * Jalan Utama ↔ Ruang Manajer & Pantry / Café (Tahap 2), Lobi / Lounge / Server (Tahap 3),
- * Collaboration Commons (utara) & Digital Garden (selatan) (Tahap 4).
+ * Collaboration Commons (utara) & Digital Garden (selatan) (Tahap 4), Workshop / Information Wall /
+ * Collaboration Pods (Tahap 5), Studio / Focus Pods / Digital Access Hub (Tahap 6).
  *
  * Portal di sisi Jalan Utama selalu di sumbu tengah koridor (z = 0); portal di sisi ruangan
  * berada DI DALAM ruangan, tepat di depan pintunya (bukan di garis dinding).
@@ -485,6 +501,15 @@ export const FLOOR1_PORTALS = {
   /** Workshop ↔ Collaboration Pods lewat ROOM_WORKSHOP.northDoors[0]: dunia (28.5, -0.35) ↔ (28.5, -1.45). */
   workshopNorthPods: { x: mid(ROOM_WORKSHOP.northDoors[0]!), z: -NORTH_ROOM_DOOR_INSIDE_Z },
   collabPodsSouth: { x: mid(ROOM_COLLABPODS.southDoor), z: NORTH_TIER_SOUTH_DOOR_INSIDE_Z },
+  /** Tahap 6. Commons ↔ Studio lewat ROOM_COMMONS.northDoors[0]: dunia (18.0, -0.35) ↔ (18.0, -1.45). */
+  commonsNorthStudio: { x: mid(ROOM_COMMONS.northDoors[0]!), z: -NORTH_ROOM_DOOR_INSIDE_Z },
+  studioSouth: { x: mid(ROOM_STUDIO.southDoor), z: NORTH_TIER_SOUTH_DOOR_INSIDE_Z },
+  /** Jalan Utama ↔ Focus Pods: dunia (16.0, 6.2) ↔ (16.0, 8.05). */
+  busFocusDoor: { x: busX(ROOM_FOCUS.origin.x + mid(ROOM_FOCUS.northDoor)), z: 0 },
+  focusNorth: { x: mid(ROOM_FOCUS.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
+  /** Jalan Utama ↔ Digital Access Hub: dunia (29.0, 6.2) ↔ (29.0, 8.05). */
+  busAccessDoor: { x: busX(ROOM_ACCESS.origin.x + mid(ROOM_ACCESS.northDoor)), z: 0 },
+  accessNorth: { x: mid(ROOM_ACCESS.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
 } as const;
 
 export const BOARDROOM_DOOR_GATE = 'boardroom_door';

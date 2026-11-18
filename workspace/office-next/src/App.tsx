@@ -66,12 +66,15 @@ const FOCUS_ROOMS: ReadonlyArray<[StageRoom, string, string]> = [
   ['lobby', 'Lobi & Resepsionis', 'Lobby & Reception'],
   ['pantry', 'Pantry / Café', 'Pantry / Café'],
   ['lounge', 'Lounge', 'Lounge'],
+  ['focus', 'Focus Pods', 'Focus Pods'],
   ['server', 'Server / IT', 'Server / IT'],
   ['commons', 'Collaboration Commons', 'Collaboration Commons'],
+  ['studio', 'Studio / Content', 'Studio / Content'],
   ['garden', 'Digital Garden', 'Digital Garden'],
   ['workshop', 'Workshop / Training', 'Workshop / Training'],
   ['infowall', 'Information Wall', 'Information Wall'],
   ['collabpods', 'Collaboration Pods', 'Collaboration Pods'],
+  ['access', 'Digital Access Hub', 'Digital Access Hub'],
 ];
 
 export function App() {
@@ -232,7 +235,7 @@ export function App() {
             {t('Kantor 3D', '3D Office')}
           </strong>
           <span className="mono" style={{ fontSize: 12, color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>
-            {t('Lantai 1 · Jalan Utama + 13 ruangan', 'Floor 1 · Main Corridor + 13 rooms')}
+            {t('Lantai 1 · Jalan Utama + 16 ruangan', 'Floor 1 · Main Corridor + 16 rooms')}
           </span>
           {connectionChip && (
             <span className="chip mono" style={{ color: connectionChip.color, borderColor: connectionChip.color }}>

@@ -146,10 +146,10 @@ export const BUS_FRONTAGE_SOUTH: readonly BusFrontage[] = [
   { id: 'lobby',   xMin: -1, xMax: 4,  tahap: 3, built: true },
   { id: 'pantry',  xMin: 4,  xMax: 9,  tahap: 2, built: true },
   { id: 'lounge',  xMin: 9,  xMax: 14, tahap: 3, built: true },
-  { id: 'focus',   xMin: 14, xMax: 18, tahap: 6, built: false },
+  { id: 'focus',   xMin: 14, xMax: 18, tahap: 6, built: true },
   { id: 'server',  xMin: 18, xMax: 22, tahap: 3, built: true },
   { id: 'garden',  xMin: 22, xMax: 27, tahap: 4, built: true },
-  { id: 'access',  xMin: 27, xMax: 31, tahap: 6, built: false },
+  { id: 'access',  xMin: 27, xMax: 31, tahap: 6, built: true },
 ];
 
 /** Sisi utara ruas timur (dinding di Z dunia 4.76..5.00). Ruas barat milik ruang kerja & foyer. */
@@ -477,20 +477,21 @@ export const COMMONS = {
   ] as Array<{ spot: Spot; approach: Pt }>,
   sitY: 0.45,
   /**
-   * Whiteboard kaca beroda (Office_Whiteboard_Scrum.glb 1,62 × 1,80) di depan dinding utara, menghadap
-   * Selatan. Tahap 5: di tengah ruas solid dunia X 18.5..21 (lokal -1.5..1.0).
+   * Whiteboard kaca beroda (Office_Whiteboard_Scrum.glb 1,62 × 1,80). Tahap 6: dinding utara Commons kini
+   * selalu memudar (Studio di baliknya), jadi whiteboard pindah ke sisi barat daya, menghadap Timur ke meja
+   * kolaborasi (dunia (15.65, 3.65)); bayangan pandangnya jatuh di karpet kosong selatan ruang rapat.
    */
-  whiteboard: { x: -0.25, z: -2.42 },
+  whiteboard: { x: -4.35, z: 1.65, rotY: Math.PI / 2 },
   /**
    * Booth akustik setengah lingkaran (slot GLB `Office_Commons_Acoustic_Booth`: origin = pusat
    * lingkaran duduk di lantai, sisi terbuka +Z, R luar 0,95). Diputar 45° agar terbuka ke Tenggara.
    */
   booth: { x: -3.75, z: -1.75, rotY: Math.PI / 4, outerR: 0.95, backH: 1.25, seatH: 0.45 },
   plantNE: { x: 4.35, z: -2.35 },
-  snakePlant: { x: -4.4, z: 0.6 },
+  snakePlant: { x: -4.4, z: 0.2 },
   /** Lampu gantung linear (Office_Linear_Pendant_Light.glb 2,6 m) di atas meja. */
   pendant: { x: 0.55, z: 0.12 },
-  /** Tulisan dinding (lebar 2,2 m) di atas whiteboard, di ruas solid; papan "Segera" di atas pintu Studio. */
+  /** Tulisan dinding (lebar 2,2 m) di ruas barat dinding utara (memudar bersama dindingnya sejak Tahap 6). */
   sign: { x: -0.25, y: 2.55, w: 2.2 },
 } as const;
 
@@ -657,6 +658,118 @@ export const COLLABPODS = {
   sitY: 0.35,
   snakePlant: { x: -0.12, z: -1.3 },
   light: { x: 0, y: 2.6, z: -0.3 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Tahap 6 (penutup Lantai 1): Studio / Content (baris utara kedua, X 15..21), Focus Pods (selatan,
+// X 14..18, di antara Lounge & Server) dan Digital Access Hub (selatan, X 27..31, timur Garden).
+// ---------------------------------------------------------------------------
+export const ROOM_STUDIO = {
+  name: 'Room_StudioContent',
+  /** Bentang dunia X 15..21, Z -5..-1 (6 × 4 m). Dinding timur = dinding barat Information Wall. */
+  origin: { x: 18.0, z: -3.0 },
+  halfX: 3.0,
+  halfZ: 2.0,
+  /** = ROOM_COMMONS.northDoors[0], dunia X 17.5..18.5. */
+  southDoor: { xMin: -0.5, xMax: 0.5 },
+} as const satisfies NorthTierSpec;
+
+export const ROOM_FOCUS = {
+  name: 'Room_FocusPods',
+  /** Bentang dunia X 14..18, Z 7.4..13.4 (4 × 6 m). Barat = dinding timur Lounge, timur = dinding barat Server. */
+  origin: { x: 16.0, z: 10.4 },
+  halfX: 2.0,
+  halfZ: 3.0,
+  /** Pintu kaca geser otomatis 1,4 m, dunia X 15.3..16.7 (23 m tapak). */
+  northDoor: { xMin: -0.7, xMax: 0.7 },
+} as const satisfies SouthRoomSpec;
+
+export const ROOM_ACCESS = {
+  name: 'Room_AccessHub',
+  /** Bentang dunia X 27..31, Z 7.4..13.4 (4 × 6 m). Barat = dinding timur Garden. */
+  origin: { x: 29.0, z: 10.4 },
+  halfX: 2.0,
+  halfZ: 3.0,
+  /** Pintu kaca geser ganda otomatis 1,6 m, dunia X 28.2..29.8 (36 m tapak). */
+  northDoor: { xMin: -0.8, xMax: 0.8 },
+} as const satisfies SouthRoomSpec;
+
+/**
+ * Studio (LOKAL terhadap pusat Room_StudioContent). Lantai bersih X -2.76..3.0, Z -1.76..2.0.
+ * Dinding utara (perimeter) tetap solid; barat (ke ruang rapat) & timur (InfoWall) selalu memudar.
+ */
+export const STUDIO = {
+  /**
+   * Lorong polyline: koridor selatan z 1.45 (pintu & sutradara) → lorong tengah x 0.42 (0,37 m timur
+   * green screen, 0,6 m barat meja produksi) → tanda talent. Editor menyambung lurus dari lorong tengah.
+   */
+  lane: [{ x: -1.25, z: 1.45 }, { x: 0.42, z: 1.45 }, { x: 0.42, z: -0.72 }, { x: -1.25, z: -0.72 }] as Pt[],
+  /** Panggung cyclorama green screen (slot GLB `Office_Studio_Cyclorama_Stage` 2,60 × 2,35 × 1,75, origin belakang). */
+  cyclorama: { x: -1.25, z: -1.76, w: 2.6, h: 2.35, d: 1.75 },
+  /** Tanda "✕" talent di atas lantai lengkung (berdiri, menghadap Selatan). */
+  talent: { x: -1.25, z: -0.72, rotY: 0 } as Spot,
+  /** Rig kamera sinema + softbox (slot GLB `Office_Studio_Camera_Softbox_Rig` 1,30 × 1,68 × 0,80), menghadap Utara. */
+  rig: { x: -1.25, z: 0.52, rotY: Math.PI, w: 1.3, h: 1.68, d: 0.8 },
+  /** Sutradara / kameramen berdiri di belakang kamera, menghadap Utara. */
+  director: { x: -1.25, z: 1.35, rotY: Math.PI } as Spot,
+  /** Meja produksi & color-grading (slot GLB `Office_Studio_Production_Desk` 1,65 × 1,18 × 0,72, origin belakang). */
+  desk: { x: 1.85, z: -1.76, w: 1.65, h: 1.18, d: 0.72, top: 0.75 },
+  /** Kursi editor 0,32 m dari tepi meja (sama dengan kursi Commons; rencana z -0.58 = 0,46 m, tangan tak sampai keyboard). */
+  editor: { spot: { x: 1.85, z: -0.72, rotY: Math.PI } as Spot, approach: { x: 1.85, z: 0.05 } as Pt },
+  sitY: 0.45,
+  snakePlant: { x: 2.58, z: 1.55 },
+  lightShoot: { x: -1.25, y: 2.55, z: -0.2 },
+  lightEdit: { x: 1.85, y: 2.5, z: -0.6 },
+  /** Lampu "ON AIR" di dinding utara (solid) di antara green screen & meja produksi. */
+  onAir: { x: 0.55, y: 2.45 },
+} as const;
+
+/** Focus Pods (LOKAL terhadap pusat Room_FocusPods). Lantai bersih X -2.0..2.0, Z -2.76..2.76. */
+export const FOCUSPODS = {
+  /** Lorong L: pintu → koridor timur x 0.85; titik berdiri tiap bilik disambung lurus ke Barat. */
+  lane: [{ x: 0, z: -2.35 }, { x: 0.85, z: -2.35 }, { x: 0.85, z: 2.19 }] as Pt[],
+  /**
+   * 2 bilik fokus tunggal (slot GLB `Office_Focus_Solo_Pod` 1,36 × 1,48 × 1,16; meja & monitor di −Z, terbuka
+   * di +Z, tanpa atap) di sisi barat, diputar 45°: mulut menghadap Tenggara, searah kamera isometrik.
+   * Koreksi rencana (rotY +90°, mulut ke Timur): dari kamera Tenggara (elevasi ±26°, azimut ±42°) sirip depan
+   * & brow bilik menutupi agen yang duduk; mulut ke Selatan pun sama. Hanya mulut serong 45° yang memperlihatkan
+   * agen yang mengetik & monitor 34"-nya.
+   */
+  pods: [{ x: -1.05, z: -1.0 }, { x: -1.05, z: 1.3 }] as Pt[],
+  pod: { w: 1.36, h: 1.48, d: 1.16, rotY: Math.PI / 4 },
+  /** Dudukan GLB di lokal (0, +0.18) menghadap −Z (ke meja); berdiri dulu 0,36 m di depan mulut bilik. */
+  seatDZ: 0.18,
+  approachDZ: 0.94,
+  sitY: 0.35,
+  plants: [{ x: -1.72, z: 0.22 }, { x: 1.55, z: 2.3 }] as Pt[],
+  /** Papan "QUIET ZONE" di muka timur dinding barat (= dinding timur Lounge), di atas celah antar-bilik. */
+  sign: { x: -1.98, y: 2.15, z: 0.15 },
+  light: { x: 0.3, y: 2.6, z: 0.25 },
+  doorSense: 1.6,
+} as const;
+
+/** Digital Access Hub (LOKAL terhadap pusat Room_AccessHub). Lantai bersih X -2.0..1.76, Z -2.76..2.76. */
+export const ACCESS = {
+  lane: [{ x: 0, z: -2.35 }, { x: 0, z: -1.1 }, { x: -0.25, z: 1.25 }] as Pt[],
+  /** Portal lift Lantai 2 (slot GLB `Office_Access_Elevator_Portal` 1,70 × 2,45 × 0,28, origin belakang), menghadap Timur. */
+  lift: { x: -2.0, z: -1.1, rotY: Math.PI / 2, w: 1.7, h: 2.45, d: 0.28 },
+  liftSpot: { x: -1.05, z: -1.1, rotY: -Math.PI / 2 } as Spot,
+  /**
+   * Totem peta gedung (slot GLB `Office_Access_Floor_Map_Totem` 0,95 × 1,25 × 0,55); layar miring 30° bernama
+   * `Access_Map_Screen` (0,82 × 0,48, pusat lokal (0, 1.04, 0.02)) ditimpa kanvas peta scene.
+   */
+  totem: { x: -1.42, z: 1.25, rotY: Math.PI / 2, w: 0.95, h: 1.25, d: 0.55 },
+  mapSpot: { x: -0.62, z: 1.25, rotY: -Math.PI / 2 } as Spot,
+  /**
+   * Tangga melayang ke mezzanine Lantai 2 (slot GLB `Office_Access_Floor2_Staircase` 1,25 × 2,35 × 2,20; naik dari
+   * −Z lokal ke bordes +Z lokal, bordes 1,52). Koreksi rencana (kuadran tenggara, rotY 0): bordes setinggi 2,35 m
+   * menutupi agen pembaca totem dari kamera Tenggara. Kini di kuadran timur laut, diputar 180°: anak tangga pertama
+   * di selatan (z −0.16), bordes & gerbang "Lantai 2" di utara menghadap kamera; tidak menutupi lift, totem, maupun Garden.
+   */
+  stairs: { x: 1.02, z: -1.2, rotY: Math.PI, w: 1.25, h: 2.35, d: 2.2, landing: 1.52 },
+  monstera: { x: 1.3, z: 2.25 },
+  ring: { x: 0, y: 2.85, z: -0.4 },
+  doorSense: 1.6,
 } as const;
 
 // ---------------------------------------------------------------------------

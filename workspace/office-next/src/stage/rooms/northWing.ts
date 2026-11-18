@@ -179,7 +179,7 @@ export function buildNorthRoomShell(o: {
 }
 
 /**
- * Cangkang ruangan BARIS UTARA KEDUA (Tahap 5+: Information Wall, Collaboration Pods; kelak Studio).
+ * Cangkang ruangan BARIS UTARA KEDUA (Tahap 5–6: Information Wall, Collaboration Pods, Studio / Content).
  * Tapak dunia Z -5..-1. Tidak punya dinding selatan: dinding di Z -1.0..-0.76 milik ruangan di
  * selatannya (sudah memudar). Utara = dinding luar gedung (solid dari kamera Tenggara); barat / timur
  * dinding penuh, perimeter atau dinding dalam (`interiorSides`). Sisi yang dimiliki tetangga dilewati.
@@ -200,6 +200,8 @@ export function buildNorthTierShell(o: {
   solid?: SolidWallMaterials;
   interiorSides: readonly SideWall[];
   sides?: { west?: boolean; east?: boolean };
+  /** Material dinding samping per sisi (bawaan: `solid`), mis. gaya ruang rapat untuk dinding barat Studio. */
+  sideMats?: { west?: SolidWallMaterials; east?: SolidWallMaterials };
 }): NorthTierShell {
   const { spec, fader } = o;
   const T = WALL_THICKNESS;
@@ -230,7 +232,7 @@ export function buildNorthTierShell(o: {
   const hasEast = o.sides?.east !== false;
   const side = (which: SideWall) => alongZ(buildSolidWallX({
     name: which === 'west' ? 'West_Wall' : 'East_Wall',
-    xMin: -sideLen / 2, xMax: sideLen / 2, z: 0, mats, cap: CAP,
+    xMin: -sideLen / 2, xMax: sideLen / 2, z: 0, mats: o.sideMats?.[which] ?? mats, cap: CAP,
     base: which === 'west' ? { height: 0.12, north: 0.02 } : { height: 0.12, south: 0.02 },
   }), which === 'west' ? -hx + T / 2 : hx - T / 2, sideZ);
   const west = hasWest ? side('west') : new THREE.Group();

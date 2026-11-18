@@ -200,3 +200,76 @@ Tahap 6 menggunakan placeholder prosedural berdimensi kontrak terlebih dahulu me
 - [ ] Simulasi 600 detik menguji seluruh ruangan Tahap 1–6 (termasuk Studio, Focus Pods, Access Hub, pintu geser otomatis baru, dan relokasi whiteboard Commons) dengan **0 tabrakan dinding/perabot** dan tidak ada agen macet.
 - [ ] Kamera Tenggara memperlihatkan isi Studio (`commons_north_west`, `studio_west`, dan `infowall_west` + kanban memudar), kedua Focus Pods, serta Portal Lift & Tangga Lantai 2 di Access Hub tanpa menutupi agen di bangku Digital Garden.
 - [ ] Kios Direktori Lobi (15 ruangan, 2 kolom), `InfoWallScreen` (15 ruangan), dan dropdown fokus HUD (17 pilihan) tampil utuh tanpa teks terpotong.
+
+---
+
+## 8. Koreksi Analisa, Koordinat Final, & Status Implementasi (18 November 2026)
+
+Tahap 6 selesai: **Lantai 1 lengkap 16 / 16 zona + Jalan Utama**. Seluruh `BUS_FRONTAGE_SOUTH/NORTH` bernilai `built: true`. Tidak ada lagi dinding kaca sementara maupun papan "Segera · Tahap ..." di Lantai 1. Satu-satunya papan "Segera" yang tersisa adalah gerbang Lantai 2 di tangga, dan itu memang disengaja.
+
+### A. Koreksi terhadap rencana (§2–§5)
+
+1. **Focus Pods: bilik diputar 45°, bukan +90°.** Dengan rotY +90° (mulut ke Timur), sirip depan dan *brow* bilik menutupi agen yang duduk dari kamera Tenggara (elevasi ±26°, azimut ±42°). Yang terlihat hanya penanda di atas kepala. Mulut ke Selatan (rotY 0) juga sama tertutupnya. Hanya mulut serong 45° (searah kamera) yang memperlihatkan agen yang mengetik beserta monitor 34"-nya. Bilik dipindah ke `(-1.05, -1.0)` dan `(-1.05, +1.3)` agar muat. Titik duduk dan titik berdiri dihitung dari rotY bilik.
+2. **Focus Pods: titik berdiri (approach).** Rencana menulis `(+0.15, z)`, sehingga agen akan meluncur 1,33 m dalam 0,4 dtk saat duduk. Kini agen berdiri 0,36 m di depan mulut bilik (lokal bilik z +0,94), lalu meluncur 0,76 m ke dudukan (lokal z +0,18).
+3. **Access Hub: tangga dipindah ke kuadran timur laut dan diputar 180°.** Di kuadran tenggara, bordes 2,35 m berada tepat di garis pandang agen yang membaca totem peta. Agen itu tertutup bordes dan rangka hitam. Kini tangga berada di `(1.02, -1.2)` dengan rotY π:
+   - Anak tangga pertama di selatan (z −0,16).
+   - Bordes dan gerbang "Lantai 2" di utara, plakat `-Z` GLB menghadap kamera dan pendaki.
+   - Tangga tidak menutupi lift, totem, maupun bangku Garden.
+   - Monstera pindah ke sudut tenggara `(1.3, 2.25)`.
+4. **Studio: kursi editor `z -0.58` → `-0.72`.** Kursi di −0,58 berjarak 0,46 m dari tepi meja (z −1,04), sehingga tangan avatar tidak sampai ke keyboard. Kini jaraknya 0,32 m, sama dengan kursi Commons. Approach dipindah ke `(1.85, 0.05)`.
+5. **Studio: lorong digabung jadi satu polyline.** `polylineLane` tidak mendukung simpang T (koridor + cabang). Lorongnya kini `(-1.25, 1.45) → (0.42, 1.45) → (0.42, -0.72) → (-1.25, -0.72)`. Editor tersambung lurus dari lorong tengah.
+6. **Tangga: bordes 1,52 m** (mengikuti `tahap-6-3d-prompts.md`), bukan 1,55.
+7. **Material Auto-Fade.** `WallFader` mengkloning material dinding saat didaftarkan. Karena itu lampu "ON AIR" di dinding utara Studio diwarnai lewat material mesh yang aktif, bukan referensi material awal.
+8. **Tulisan dinding yang ikut memudar.** Dinding utara Commons kini selalu memudar. Akibatnya tulisan "COLLABORATION COMMONS" (15%) tampak samar menimpa green screen Studio. `WallFader` kini mendukung `userData.fadeHide`: papan atau tulisan dinding hilang penuh saat dindingnya memudar penuh, dan tampil utuh di mode jalan kaki. Ini dipakai untuk judul Commons dan papan "QUIET ZONE" Focus Pods.
+9. **Papan "QUIET ZONE".** Dinding barat Focus Pods adalah dinding timur Lounge, yang selalu memudar. Papan di-*attach* ke dinding itu (`focusPods.attachSign(...)` sebelum `lounge.bindWalls()`), bukan dibiarkan melayang.
+10. **Pose talent.** Pose `lounge` hanya bergestur bila agen duduk (k ≥ 1). Karena itu ditambahkan pose baru **`present`**: berdiri, satu tangan bergestur saat bicara. Pose ini dipakai talent di green screen.
+11. **Peran Studio.** Bila 2 agen datang, satu menjadi kameramen (`inspect`, di belakang rig) dan satu menjadi talent (`present`, di tanda ✕). Bila 1 agen, ia menjadi editor (`type`, duduk). Lampu "ON AIR" menyala selama talent berdiri di tanda ✕.
+12. **Access Hub.** Kunjungan terdiri dari 2 titik: totem peta (9–13 dtk), lalu portal lift (5–8 dtk). Tombol panggil lift (scene) menyala saat agen menunggu.
+13. **Totem.** Kanvas peta menampilkan 16 zona beserta jumlah agen live per ruangan dan "Anda di sini". Overlay disalin dari transform `Access_Map_Screen` relatif ke slot, lalu digeser 4 mm searah normal.
+
+Yang dikonfirmasi sesuai rencana: kepemilikan dinding & Auto-Fade (§2.B), relokasi whiteboard Commons ke `(-4.35, 1.65, rotY π/2)` (bayangan pandangnya jatuh di karpet kosong selatan ruang rapat, tidak menutupi apa pun), portal & konektor (§4), jadwal rutinitas (§5), dan kios / InfoWall / dropdown.
+
+### B. Koordinat final (lokal ruangan → dunia)
+
+| Titik | Lokal | Dunia |
+|---|---|---|
+| Studio: talent (✕, berdiri, menghadap S) | `(-1.25, -0.72)` | `(16.75, -3.72)` |
+| Studio: kameramen (berdiri, menghadap U) | `(-1.25, 1.35)` | `(16.75, -1.65)` |
+| Studio: editor (duduk, `sitY 0.45`) | `(1.85, -0.72)` | `(19.85, -3.72)` |
+| Focus Pod 0 / 1: pusat, rotY π/4 | `(-1.05, -1.0)` / `(-1.05, 1.3)` | `(14.95, 9.4)` / `(14.95, 11.7)` |
+| Focus Pod 0 / 1: duduk (`sitY 0.35`) | pusat + 0,18 ke arah mulut | `(15.08, 9.53)` / `(15.08, 11.83)` |
+| Access: pembaca totem | `(-0.62, 1.25)` | `(28.38, 11.65)` |
+| Access: penunggu lift | `(-1.05, -1.1)` | `(27.95, 9.3)` |
+| Commons: whiteboard (menghadap Timur) | `(-4.35, 1.65)` | `(15.65, 3.65)` |
+
+Portal: Commons ↔ Studio dunia `(18.0, -0.35) ↔ (18.0, -1.45)`; bus ↔ Focus `(16.0, 6.2) ↔ (16.0, 8.05)`; bus ↔ Access `(29.0, 6.2) ↔ (29.0, 8.05)`.
+
+### C. GLB Tahap 6 (sudah ada di `public/models/`, terverifikasi di scene)
+
+Ketujuh GLB termuat menggantikan placeholder. Bounding box dunia:
+
+| GLB | Bounding box dunia | Catatan |
+|---|---|---|
+| Cyclorama | `X 15.45..18.05, Z -4.76..-3.01, H 2.35` | |
+| Rig kamera | `X 16.10..17.40, Z -2.88..-2.08, H 1.68` | |
+| Meja produksi | `X 19.03..20.67, Z -4.76..-4.04, H 1.18` | |
+| Solo pod | 1,36 × 1,48 × 1,16 | `Focus_Status_LED` ditemukan dan diwarnai (hijau ↔ merah koral); kapsul scene disembunyikan |
+| Portal lift | `X 27.00..27.28, Z 8.45..10.15, H 2.45` | |
+| Totem | `X 27.30..27.86, Z 11.18..12.12, H 1.25` | Overlay kanvas jatuh ≤ 3 mm dari `Access_Map_Screen` |
+| Tangga (posisi baru) | `X 29.39..30.64, Z 8.10..10.30, H 2.35` | |
+
+Generator HTML Tahap 6 ditunda sesuai keputusan CEO.
+
+### D. Verifikasi
+
+- `npm run typecheck` (4 workspace) lulus.
+- `npm test` lulus 64/64.
+- `npm run build:next` dan `npm run build:next:demo` berhasil.
+- Simulasi 600 dtk (semua rutinitas Tahap 1–6, rapat, pemicu debug): 277 penghalang dicek (perabot sebagai OBB lokal slot + dinding), **0 tabrakan, 0 agen macet**. Lama tiap rutinitas: Studio 176 dtk, Focus 247 dtk, Access 204 dtk.
+- Kamera Tenggara:
+  - Studio terlihat penuh (talent di green screen, kameramen, meja produksi, ON AIR menyala); `commons_north_west`, `studio_west`, dan `infowall_west` + kanban memudar.
+  - Agen di kedua bilik terlihat mengetik dengan LED merah.
+  - Lift, totem (beserta pembacanya), dan tangga terlihat tanpa menutupi bangku Garden.
+- Kios Lobi (15 ruangan, 2 kolom, denah 16 ruangan), layar InfoWall (15 baris), dan dropdown HUD (17 pilihan) tampil utuh.
+- Mode jalan kaki: judul Commons dan papan QUIET ZONE tampil utuh.
+- Debug hooks baru: `studio(ids?)`, `focusPod(id?, podIdx?)`, `access(id?)`. `errandState()` kini juga memuat `{ studio, focus, access }`.

@@ -268,3 +268,13 @@ Create a complete, single-file HTML application using Three.js r128 (via CDN) an
    - Enable castShadow = true and receiveShadow = true. Keep triangle count under 16,000.
    - Include an automated verification panel checking exact outer bounds (1.25 × 2.35 × 2.20 m), `yMin = 0`, `yMax = 2.35 m`, ascent direction `-Z → +Z`, `emissiveIntensity <= 1.0`, and triangle budget, plus OrbitControls and "Export GLB" button saving "Office_Access_Floor2_Staircase.glb".
 ```
+
+---
+
+## 4. Status GLB & Penyesuaian Scene (18 November 2026)
+
+Ketujuh GLB sudah ada di `public/models/` dan diverifikasi di scene. Ukuran sesuai kontrak; `Focus_Status_LED` dan `Access_Map_Screen` ditemukan. Generator HTML Tahap 6 ditunda (keputusan CEO). Rincian ada di [tahap-6-studio-focus-access.md §8](./tahap-6-studio-focus-access.md).
+
+Ada dua penempatan scene yang berubah dari tabel §1. GLB tidak perlu diubah:
+- **`Office_Focus_Solo_Pod`** dipasang dengan **rotY π/4**, bukan +90°. Mulut bilik kini menghadap kamera Tenggara, karena pada +90° agen yang duduk tertutup sirip depan dan *brow*.
+- **`Office_Access_Floor2_Staircase`** dipasang di kuadran **timur laut** `(1.02, -1.2)` dengan **rotY π**. Di posisi rencana, bordesnya menutupi pembaca totem. Akibat rotasi ini, plakat gerbang yang menghadap −Z lokal kini menghadap +Z dunia, sehingga terbaca dari kamera Tenggara.

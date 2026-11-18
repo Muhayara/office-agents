@@ -416,3 +416,58 @@ export const PODS_CHAT: readonly string[] = [
   'Sip, aku lanjutkan dari bagian ini.',
   'Tambahkan tes untuk kasus tepi, ya.',
 ];
+
+// ---------------------------------------------------------------------------
+// Tahap 6: Studio / Content, Focus Pods, Digital Access Hub
+// ---------------------------------------------------------------------------
+export const STUDIO_GOING: readonly string[] = [
+  'Ke Studio dulu, rekam demo fitur baru.',
+  'Mau render & color-grading video rilis.',
+  'Ambil footage green screen sebentar.',
+];
+
+/** Talent di tanda ✕ green screen. */
+export const STUDIO_TALK: readonly string[] = [
+  'Halo! Hari ini kita demo fitur terbaru.',
+  'Take dua, aku ulang dari awal ya.',
+  'Fitur ini bikin kerja tim jauh lebih cepat.',
+  'Oke, satu kalimat penutup lagi.',
+];
+
+/** Kameramen & editor. */
+export const STUDIO_CREW: readonly string[] = [
+  'Rolling… dan, action!',
+  'Fokus aman, cahaya pas.',
+  'Warnanya kurang hangat, aku naikkan sedikit.',
+  'Render 4K tinggal 30%.',
+  'Cut! Yang tadi bagus.',
+];
+
+export const FOCUS_GOING: readonly string[] = [
+  'Masuk Focus Pod dulu, butuh deep work.',
+  'Debug bagian rumit ini di pod hening.',
+  'Jangan diganggu dulu ya, mode fokus.',
+];
+
+export const FOCUS_MUTTER: readonly string[] = [
+  'Hmm… ternyata race condition.',
+  'Satu tes lagi lulus.',
+  'Oke, alurnya mulai jelas.',
+];
+
+export const ACCESS_GOING: readonly string[] = [
+  'Cek peta ekspansi gedung di Access Hub.',
+  'Lihat rencana Lantai 2 sebentar.',
+  'Ke Digital Access Hub, cek totem peta.',
+];
+
+export const ACCESS_MAP: readonly string[] = [
+  '16 dari 16 zona Lantai 1 sudah aktif.',
+  'Lantai 2 nanti buat agen baru, ya.',
+  'Rute ke semua ruangan sudah lengkap.',
+];
+
+export const ACCESS_LIFT: readonly string[] = [
+  'Lift Lantai 2 masih "Segera".',
+  'Panel lift sudah siap, tinggal lantainya.',
+];

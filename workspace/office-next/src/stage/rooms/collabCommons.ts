@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COMMONS, DOOR_HEIGHT, ROOM_COMMONS, WALL_THICKNESS, type Spot } from '../layout';
+import { COMMONS, ROOM_COMMONS, type Spot } from '../layout';
 import type { WallFader } from '../camera/wallFade';
 import {
   box,
@@ -19,9 +19,9 @@ import { boardroomWallMats, glassWallMats } from './walls';
  * Ruang kerja kelompok terbuka: meja kolaborasi modular + 6 kursi kerja, whiteboard beroda,
  * booth akustik setengah lingkaran, lampu gantung linear.
  * - Selatan: kaca + bukaan terbuka 1,6 m ke Jalan Utama (selalu memudar, dinding sisi bus).
- * - Utara  : ruas barat X 15..21 solid (terlihat dari kamera Tenggara) dengan pintu TERTUTUP ke calon
- *            Studio (Tahap 6), papan "Segera", tulisan dinding; ruas timur X 21..25 selalu memudar dan
- *            pintunya terbuka ke Information Wall (Tahap 5).
+ * - Utara  : ruas barat X 15..21 (tulisan dinding, pintu terbuka ke Studio / Content, Tahap 6) dan ruas
+ *            timur X 21..25 (pintu terbuka ke Information Wall, Tahap 5). Keduanya dinding dalam ke baris
+ *            utara kedua → selalu memudar di tampilan rumah boneka.
  * - Barat  : partisi akustik baru di sisi timur ruang rapat & foyer (selalu memudar).
  * - Timur  : kaca ke calon Workshop / Training (Tahap 5, selalu memudar).
  */
@@ -42,10 +42,10 @@ export function buildCollabCommons(load: ModelLoader, fader: WallFader): CollabC
     sideMats: { west: boardroomWallMats() },
     sideKind: { east: 'glass' },
     interiorSides: ['west', 'east'],
-    // Tahap 5: ruas barat (X 15..21) perimeter solid dengan pintu Studio tertutup; ruas timur
-    // (X 21..25) berbatasan dengan Information Wall → selalu memudar, pintunya terbuka + ambang.
+    // Tahap 6: kedua ruas berbatasan dengan baris utara kedua (Studio | Information Wall) → selalu
+    // memudar, pintunya terbuka + ambang. Ruas tetap dipisah di X 21 (id fader lama tetap berlaku).
     northSegments: [
-      { id: 'north_west', xMin: -ROOM_COMMONS.halfX, xMax: ROOM_COMMONS.northSplitX, interior: false, doors: [ROOM_COMMONS.northDoors[0]!] },
+      { id: 'north_west', xMin: -ROOM_COMMONS.halfX, xMax: ROOM_COMMONS.northSplitX, interior: true, doors: [ROOM_COMMONS.northDoors[0]!], openDoors: true },
       { id: 'north_east', xMin: ROOM_COMMONS.northSplitX, xMax: ROOM_COMMONS.halfX, interior: true, doors: [ROOM_COMMONS.northDoors[1]!], openDoors: true },
     ],
   });
@@ -77,27 +77,14 @@ export function buildCollabCommons(load: ModelLoader, fader: WallFader): CollabC
     strip(b, D - 2 * b, inner.maxX - b / 2, 0, 'Oak_Border_E');
   }
 
-  // ---- Ruas barat dinding utara: daun pintu Studio tertutup + papan "Segera" + tulisan dinding ----
-  // (Pintu Information Wall di ruas timur kini terbuka: tanpa daun & papan.)
+  // ---- Tulisan dinding di ruas barat dinding utara (ikut memudar bersama dindingnya) ----
   {
-    const wallZ = -ROOM_COMMONS.halfZ + WALL_THICKNESS / 2;
-    const face = inner.minZ;
-    const labels: Array<[string, string]> = [['STUDIO / CONTENT', 'Segera · Tahap 6']];
-    [ROOM_COMMONS.northDoors[0]!].forEach((d, i) => {
-      const w = d.xMax - d.xMin, cx = (d.xMin + d.xMax) / 2;
-      const leaf = box(w - 0.1, DOOR_HEIGHT - 0.06, 0.045, oakMaterial(0.6), [cx, (DOOR_HEIGHT - 0.06) / 2, wallZ], `Future_Door_Leaf_${i}`);
-      leaf.castShadow = false;
-      const vision = box(0.12, 1.3, 0.05, std(0x22313a, 0.15, 0.3), [cx - w / 2 + 0.22, 1.35, wallZ], `Future_Door_Vision_${i}`);
-      const handle = box(0.16, 0.025, 0.03, std(0xc9d0d6, 0.25, 0.9), [cx + w / 2 - 0.2, 1.02, face + 0.035], `Future_Door_Handle_${i}`);
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.36), new THREE.MeshBasicMaterial({ map: doorSignTexture(labels[i]![0], labels[i]![1]), toneMapped: false }));
-      sign.name = `Future_Door_Sign_${i}`;
-      sign.position.set(cx, 2.86, face + 0.006);
-      northWest.add(leaf, vision, handle, sign);
-    });
     const s = COMMONS.sign;
     const title = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.w * 0.154), new THREE.MeshBasicMaterial({ map: wallTitleTexture(), transparent: true, toneMapped: false, depthWrite: false }));
     title.name = 'Wall_Title_Collaboration_Commons';
-    title.position.set(s.x, s.y, face + 0.006);
+    // Dinding memudar di tampilan rumah boneka: tulisan hilang penuh agar tidak menimpa green screen Studio.
+    title.userData.fadeHide = true;
+    title.position.set(s.x, s.y, inner.minZ + 0.006);
     northWest.add(title);
   }
 
@@ -124,7 +111,7 @@ export function buildCollabCommons(load: ModelLoader, fader: WallFader): CollabC
   // ---- Whiteboard kaca beroda (pakai ulang Office_Whiteboard_Scrum.glb) ----
   {
     const w = COMMONS.whiteboard;
-    mountAsset(slot(furniture, 'Ideation_Whiteboard', w.x, 0, w.z), '/models/Office_Whiteboard_Scrum.glb', new THREE.Group(), load);
+    mountAsset(slot(furniture, 'Ideation_Whiteboard', w.x, 0, w.z, w.rotY), '/models/Office_Whiteboard_Scrum.glb', new THREE.Group(), load);
   }
 
   // ---- Booth akustik setengah lingkaran + meja laptop kecil ----
@@ -215,20 +202,6 @@ function oakMaterial(roughness = 0.55) {
   const tex = canvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   return std(0xffffff, roughness, 0.03, { map: tex });
-}
-
-/** Papan pintu "Segera": nama ruangan tahap berikutnya. */
-function doorSignTexture(title: string, sub: string) {
-  const c = document.createElement('canvas'); c.width = 512; c.height = 194;
-  const x = c.getContext('2d')!;
-  x.fillStyle = '#16232b'; x.fillRect(0, 0, 512, 194);
-  x.fillStyle = '#5ed9e7'; x.fillRect(0, 0, 10, 194);
-  x.textBaseline = 'middle';
-  x.fillStyle = '#e2e8f0'; x.font = '700 40px "Inter", "Segoe UI", system-ui, sans-serif';
-  x.fillText(title, 32, 70);
-  x.fillStyle = '#fbbf24'; x.font = '600 30px "Inter", "Segoe UI", system-ui, sans-serif';
-  x.fillText(sub, 32, 132);
-  return canvasTexture(c);
 }
 
 /** Tulisan dinding "COLLABORATION COMMONS" (huruf terang, latar transparan). */

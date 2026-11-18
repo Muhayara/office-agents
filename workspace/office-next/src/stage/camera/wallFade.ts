@@ -26,6 +26,8 @@ interface FadeMat {
   baseOpacity: number;
   baseTransparent: boolean;
   baseDepthWrite: boolean;
+  /** Papan / tulisan dinding (`userData.fadeHide`): hilang penuh saat dindingnya memudar penuh. */
+  hide: boolean;
 }
 
 interface WallEntry {
@@ -131,7 +133,8 @@ export class WallFader {
         f.mat.needsUpdate = true;
       }
     }
-    for (const f of w.mats) f.mat.opacity = fading ? f.baseOpacity * w.opacity : f.baseOpacity;
+    const hideK = Math.max(0, (w.opacity - FADED_OPACITY) / (1 - FADED_OPACITY));
+    for (const f of w.mats) f.mat.opacity = fading ? f.baseOpacity * (f.hide ? hideK : w.opacity) : f.baseOpacity;
   }
 
   private restore(w: WallEntry) {
@@ -167,6 +170,7 @@ export class WallFader {
             baseOpacity: mat.opacity,
             baseTransparent: mat.transparent,
             baseDepthWrite: mat.depthWrite,
+            hide: mesh.userData.fadeHide === true,
           });
         }
       });

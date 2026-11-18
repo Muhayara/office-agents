@@ -18,7 +18,7 @@ import { buildNorthTierShell } from './northWing';
  *
  * Command-center telemetri tim, diakses dari pintu utara timur Collaboration Commons (dunia X 23).
  * - Utara : dinding luar gedung (solid dari kamera Tenggara) → layar komando panoramik.
- * - Barat : dinding ke tapak Studio yang belum dibangun (solid di Tahap 5) → papan kanban.
+ * - Barat : dinding ke Studio / Content (Tahap 6, selalu memudar) → papan kanban ikut memudar.
  * - Timur : partisi ke Collaboration Pods (selalu memudar).
  * - Selatan: dinding utara Commons ruas timur (milik Commons, selalu memudar).
  */
@@ -50,7 +50,7 @@ export interface InfoWall {
 }
 
 export function buildInfoWall(load: ModelLoader, fader: WallFader): InfoWall {
-  const shell = buildNorthTierShell({ spec: ROOM_INFOWALL, fader, fadeId: 'infowall', interiorSides: ['east'] });
+  const shell = buildNorthTierShell({ spec: ROOM_INFOWALL, fader, fadeId: 'infowall', interiorSides: ['west', 'east'] });
   const { group, sub, inner, walls } = shell;
   const floor = sub('SubLayer_Floor');
   const av = sub('SubLayer_Command_Display');
@@ -196,17 +196,17 @@ class InfoWallScreen {
     }
     // ---- Kolom 2: zona lantai 1 ----
     head(colW, 'ZONA LANTAI 1');
-    // Satu kolom 12 baris: nama ruangan kiri, jumlah agen rata kanan, garis tipis pemisah.
-    d.rooms.slice(0, 12).forEach(([name, n], i) => {
-      const x = colW + 24, y = 140 + i * 26, xr = colW * 2 - 24;
-      c.fillStyle = n > 0 ? '#e2e8f0' : '#475569'; c.font = `500 18px ${font}`; c.fillText(name, x, y);
-      c.fillStyle = n > 0 ? '#38bdf8' : '#334155'; c.font = `700 18px ${font}`; c.textAlign = 'right'; c.fillText(String(n), xr, y); c.textAlign = 'left';
-      c.fillStyle = '#0c1c26'; c.fillRect(x, y + 12, xr - x, 1);
+    // Satu kolom 15 baris (Tahap 6: semua ruangan kecuali foyer): nama kiri, jumlah agen rata kanan.
+    d.rooms.slice(0, 15).forEach(([name, n], i) => {
+      const x = colW + 24, y = 136 + i * 23, xr = colW * 2 - 24;
+      c.fillStyle = n > 0 ? '#e2e8f0' : '#475569'; c.font = `500 17px ${font}`; c.fillText(name, x, y);
+      c.fillStyle = n > 0 ? '#38bdf8' : '#334155'; c.font = `700 17px ${font}`; c.textAlign = 'right'; c.fillText(String(n), xr, y); c.textAlign = 'left';
+      c.fillStyle = '#0c1c26'; c.fillRect(x, y + 11, xr - x, 1);
     });
     c.fillStyle = d.meeting ? '#c084fc' : '#475569'; c.font = `700 19px ${font}`;
     let meet = d.meeting ? `Rapat: ${d.meeting}` : 'Ruang rapat tersedia';
     while (meet.length > 1 && c.measureText(meet).width > colW - 48) meet = `${meet.slice(0, -2)}…`;
-    c.fillText(meet, colW + 24, 470);
+    c.fillText(meet, colW + 24, 512);
     // ---- Kolom 3: aktivitas agen ----
     head(colW * 2, 'AKTIVITAS AGEN');
     d.agents.slice(0, 10).forEach((a, i) => {
