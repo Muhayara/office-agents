@@ -17,8 +17,11 @@
 | 4 | **Sofa Sudut Mewah (Sectional L)** | `Office_Lounge_Sectional_Sofa.glb` | $2.60 \times 1.80 \times 0.78\text{ m}$ | Lounge sudut barat daya ($X: 10.5, Z: 11.5$) | Sofa sudut empuk kain woven fabric abu-abu hangat, bantal aksen mustard & teal, kaki kayu rendah. |
 | 5 | **Meja Kopi Rendah Kayu** | `Office_Lounge_Coffee_Table.glb` | $1.10 \times 0.65 \times 0.42\text{ m}$ | Lounge depan sofa ($X: 11.6, Z: 10.8$) | Meja kopi rendah kayu walnut solid chamfered, rangka silang baja hitam matte, majalah arsitektur di atasnya. |
 | 6 | **Lampu Lantai Melengkung (Arc)** | `Office_Lounge_Arc_Floor_Lamp.glb` | $1.20 \times 0.45 \times 2.15\text{ m}$ | Lounge sudut ruangan ($X: 9.6, Z: 12.6$) | Lampu tiang lengkung kubah kuningan, dasar marmer hitam pemberat, cahaya temaram warm white. |
-| 7 | **Unit Pendingin Server (CRAC)** | `Office_Server_CRAC_Unit.glb` | $1.20 \times 0.75 \times 2.05\text{ m}$ | Server Room dinding timur ($X: 21.3, Z: 10.4$) | AC presisi industri data center, kisi-kisi intake logam, display digital suhu 18°C berlampu biru. |
-| 8 | **Konsol Meja IT Admin** | `Office_Server_Admin_Console.glb` | $1.40 \times 0.70 \times 1.25\text{ m}$ | Server Room dinding barat ($X: 18.7, Z: 10.4$) | Workstation teknis sempit rangka baja, dual monitor lengkung dengan grafik terminal data, keyboard & mouse. |
+| 7 | **Unit Pendingin Server (CRAC)** | `Office_Server_CRAC_Unit.glb` | $1.20 \times 0.75 \times 2.05\text{ m}$ | Server Room dinding barat ($X: 18.3, Z: 11.4$) | AC presisi industri data center, kisi-kisi intake logam, display digital suhu 18°C berlampu biru. |
+| 8 | **Konsol Meja IT Admin** | `Office_Server_Admin_Console.glb` | $1.40 \times 0.70 \times 1.25\text{ m}$ | Server Room dinding selatan ($X: 20.8, Z: 13.1$) | Workstation teknis sempit rangka baja, dual monitor lengkung dengan grafik terminal data, keyboard & mouse. |
+| 9 | **Meja Samping Lobi Marmer** | `Office_Lobby_Side_Table.glb` | $0.60 \times 0.60 \times 0.54\text{ m}$ | Lobi sayap timur ($X: 2.5, Z: 11.2$) | Meja bundar aksen marmer Carrara putih, tiang kuningan satin elegan, vas bunga minimalis. |
+| 10 | **Palem Hias Areca Palm** | `Office_Plant_Areca_Palm.glb` | $1.10 \times 1.10 \times 1.70\text{ m}$ | Lounge sudut ruangan ($X: 9.6, Z: 10.2$) | Tanaman palem tropis rimbun berpelepah melengkung indah dalam pot silinder terakota. |
+| 11 | **Rak Majalah Lounge** | `Office_Lounge_Magazine_Rack.glb` | $0.34 \times 0.30 \times 0.90\text{ m}$ | Lounge dekat sofa ($X: 12.8, Z: 12.4$) | Rak display majalah 3 tingkat baja stainless minimalis dengan buku & majalah arsitektur berwarna. |
 
 > [!NOTE]
 > **Aset Eksisting yang Digunakan Kembali:**
@@ -242,6 +245,83 @@ Create a complete, single-file HTML application using Three.js r128 (via CDN) an
 3. SCENE HIERARCHY & EXPORT REQUIREMENTS:
    - Root THREE.Group named: "Office_Server_Admin_Console".
    - Under 20k triangles. "Export GLB" button.
+```
+
+---
+
+### PROMPT 9: Meja Samping Lobi Marmer (`Office_Lobby_Side_Table.glb`)
+
+```markdown
+Create a complete, single-file HTML application using Three.js r128 (via CDN) and GLTFExporter to procedurally generate, preview, and export a high-fidelity 3D PBR model: "Office_Lobby_Side_Table" (Modern Round Marble & Brass Accent Side Table for Corporate Lobby).
+
+1. METRIC SCALING & DIMENSIONS:
+   - Tabletop Diameter: 0.60 m (radius 0.30 m).
+   - Tabletop Thickness: 25 mm.
+   - Total Height (Y): 0.54 m.
+   - Base Plate Diameter: 0.38 m.
+   - Origin (0,0,0): Floor center beneath the table base.
+
+2. DETAILED PROCEDURAL GEOMETRIES:
+   - Round Marble Top: Honed white Carrara marble with soft subtle grey veining (MeshStandardMaterial: color #f1f5f9, roughness 0.2, metalness 0.05), fine edge bevel.
+   - Slender Central Pedestal Stem: Fluted or smooth solid brass pillar (diameter 50 mm, height 0.50 m, color #c9a24a, roughness 0.28, metalness 0.88).
+   - Weighted Base Plate: Heavy beveled circular brass base (diameter 0.38 m, thickness 15 mm) with black felt glide ring underneath.
+   - Tabletop Decorative Prop: A compact minimalist fluted amber glass bud vase (height 14 cm) holding a single stylized white calla lily stem.
+
+3. SCENE HIERARCHY & EXPORT REQUIREMENTS:
+   - Root THREE.Group named: "Office_Lobby_Side_Table".
+   - Set castShadow = true and receiveShadow = true. Single-click "Export GLB" button.
+```
+
+---
+
+### PROMPT 10: Tanaman Hias Areca Palm (`Office_Plant_Areca_Palm.glb`)
+
+```markdown
+Create a complete, single-file HTML application using Three.js r128 (via CDN) and GLTFExporter to procedurally generate, preview, and export a high-fidelity 3D PBR model: "Office_Plant_Areca_Palm" (Potted Indoor Tropical Areca Butterfly Palm in Terracotta Planter).
+
+1. METRIC SCALING & DIMENSIONS:
+   - Pot Diameter: Top 0.44 m, Bottom 0.34 m, Pot Height: 0.42 m.
+   - Total Plant Height (Y): ~1.70 m.
+   - Canopy Spread: ~1.10 m diameter.
+   - Origin (0,0,0): Floor center at bottom of the planter.
+
+2. DETAILED PROCEDURAL GEOMETRIES:
+   - Terracotta Planter Pot: Slightly tapered circular architectural planter in warm matte terracotta clay finish (MeshStandardMaterial: color #b5613b, roughness 0.72, metalness 0.0), subtle drainage rim.
+   - Potting Medium: Dark rich damp potting soil layer (color #1c1917, roughness 0.9) slightly recessed beneath the pot rim.
+   - Clustered Canes & Stems: 6-8 clustered bamboo-like ringed canes of varying heights (diameter 15-25 mm, color #6b7a3a, roughness 0.6) rising from the soil center.
+   - Feathered Fronds & Foliage: Gracefully arching pinnate palm fronds with dozens of slender, linear-lanceolate leaflets. Lush tropical botanical green (color #3b6b2c with subtle sunlit yellow-green highlights, roughness 0.55).
+   - Frond Distribution: Naturally asymmetrical 360-degree spread with varying curvature angles.
+
+3. SCENE HIERARCHY & EXPORT REQUIREMENTS:
+   - Root THREE.Group named: "Office_Plant_Areca_Palm".
+   - Polygon optimization (under 25k triangles with smooth normals). "Export GLB" button.
+```
+
+---
+
+### PROMPT 11: Rak Majalah Lounge (`Office_Lounge_Magazine_Rack.glb`)
+
+```markdown
+Create a complete, single-file HTML application using Three.js r128 (via CDN) and GLTFExporter to procedurally generate, preview, and export a high-fidelity 3D PBR model: "Office_Lounge_Magazine_Rack" (Modern Stainless Steel Tiered Floor Magazine Rack for Executive Lounge).
+
+1. METRIC SCALING & DIMENSIONS:
+   - Width (X): 0.34 m.
+   - Depth (Z): 0.30 m.
+   - Height (Y): 0.90 m.
+   - Origin (0,0,0): Bottom center on floor. Faces towards +Z.
+
+2. DETAILED PROCEDURAL GEOMETRIES:
+   - Structural Side Uprights: Dual vertical side frames formed by 15×15 mm satin brushed stainless steel bars (color #cbd5e1, metalness 0.9, roughness 0.22) rising 0.90 m.
+   - 3-Tier Angled Display Trays: 3 horizontal perforated steel sheet shelves (width 0.34 m, depth 0.22 m) tilted backward at 20 degrees with a front retention lip (height 25 mm).
+   - High-Quality Magazine Props:
+     - Tier 1 (Top): Hardcover architectural design monograph with warm terracotta cover ("ARCHITECTURE TODAY").
+     - Tier 2 (Middle): Tech lifestyle magazine with deep teal cover ("AI SYSTEMS").
+     - Tier 3 (Bottom): Business leadership periodical with mustard gold spine.
+   - Base Stability: Horizontal bottom stabilizer feet with rubber caps.
+
+3. SCENE HIERARCHY & EXPORT REQUIREMENTS:
+   - Root THREE.Group named: "Office_Lounge_Magazine_Rack".
+   - Triangle count under 10k triangles. Single-click "Export GLB" button.
 ```
 
 ---
