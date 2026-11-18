@@ -230,3 +230,35 @@ Create a complete, single-file HTML application using Three.js r128 (via CDN) an
    - Enable castShadow = true and receiveShadow = true. Keep triangle count under 20,000.
    - Include an automated verification panel checking max radial extent <= 0.400 m (diameter <= 0.80 m), pot Ø 0.42 × 0.45 m, yMin = 0, yMax ≈ 2.00 m, and triangle budget, plus OrbitControls and "Export GLB" button saving "Office_Plant_Fiddle_Leaf_Fig.glb".
 ```
+
+---
+
+## 4. Status Generator & Kontrak Terverifikasi (18 November 2026)
+
+**Status:** keenam generator sudah dibuat di `tools/3d-generator/<Nama>.html` (gitignored, lokal saja). Setiap halaman punya panel **Contract check** yang menampilkan **PASS** bila semua batas terpenuhi. Klik **Export GLB**, lalu salin ke `public/models/`; GLB otomatis menggantikan placeholder prosedural.
+
+Semua generator memakai satu template bersama (UI, lighting studio, panel cek, ekspor `GLTFExporter` biner) dan helper prosedural yang sama, jadi tampilannya konsisten.
+
+### A. Catatan terhadap prompt
+
+| # | Prompt | Catatan | Keputusan |
+|---|---|---|---|
+| 1 | Living wall `emissiveIntensity 1.1` | `GLTFExporter` r128 memotong emisi di atas 1,0. | Strip LED memakai emisi 1,0 (warna `#fff6dc`); cahaya taman tetap dari PointLight scene. |
+| 2 | Living wall "≤ 8 meshes" | — | Tepat 8 mesh: rangka, LED, felt, bak, kerikil, lumut, pakis (matte), philodendron/pothos (glossy). Daun digabung per material dengan warna per verteks. |
+| 3 | Batu (cairn, kerikil, lumut) dengan jitter | Polihedron three.js tidak berindeks; jitter acak per verteks membuat sisi "retak". | Jitter dikunci ke posisi verteks + normal halus. Perbaikan yang sama diterapkan ke batu zen placeholder di `digitalGarden.ts`. |
+| 4 | Meja kolaborasi: spine dengan 6 modul port | 42 bagian kecil = banyak draw call. | Modul port digabung per material (35 mesh total). |
+
+### B. Hasil cek per GLB
+
+| GLB | Ukuran terukur | Cek kunci | Segitiga | Ukuran file |
+|---|---|---|---|---|
+| `Office_Commons_Collab_Table` | 3,200 × 0,774 × 1,200 | Worktop 0,740; spine 0,774 × 0,121; zona props bersih; tiang tengah z ±0,240 | 1,2k | ±250 KB |
+| `Office_Commons_Acoustic_Booth` | R maks 0,950; tinggi 1,270 | Dudukan 0,450; meja 0,620; terbuka ke +Z | 10,8k | ±780 KB |
+| `Office_Garden_Living_Wall` | X ±1,500; Y 0..2,400; Z 0..0,163 | Tidak ada z < 0; 8 mesh | 19k | ±2,3 MB |
+| `Office_Garden_Zen_Fountain` | 0,900 × 0,850 × 0,550 | Bibir 0,420; mulut pancuran tepat (0.03, 0.655, 0.05), Δ 0 mm; kerikil maks 0,24; 0 mesh air | 6,2k | ±680 KB |
+| `Office_Garden_Teak_Bench` | 1,800 × 0,450 × 0,420 | Tanpa sandaran (yMax 0,450) | 0,9k | ±130 KB |
+| `Office_Plant_Fiddle_Leaf_Fig` | R maks 0,375; tinggi 2,000 | Pot Ø0,42 (bawah Ø0,35) × 0,45 | 8,2k | ±780 KB |
+
+### C. Verifikasi di scene
+- Keenam GLB dibangun dari generator lalu disajikan ke halaman kantor lewat `page.route`. Semuanya termuat menggantikan placeholder, dengan bounding box dunia: meja `X 18.95..22.15, Z 1.52..2.72`; booth `X 15.30..16.92, Z -0.70..0.92` (6 cm dari dinding barat & utara); green wall `X 22.00..22.18, Z 7.90..10.90`; fountain `X 22.08..22.63, Z 11.55..12.45` (overlay air scene tetap terpasang); bangku `X 24.55..26.35, Z 11.11..11.53`; fig `X 26.01..26.65, Z 7.83..8.53` (11 cm dari dinding timur, 19 cm dari kaca utara).
+- Diskusi Commons dan rehat Garden tetap berjalan dengan GLB terpasang (agen duduk di kursi meja dan bangku).

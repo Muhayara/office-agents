@@ -155,7 +155,7 @@ export const BUS_FRONTAGE_SOUTH: readonly BusFrontage[] = [
 /** Sisi utara ruas timur (dinding di Z dunia 4.76..5.00). Ruas barat milik ruang kerja & foyer. */
 export const BUS_FRONTAGE_NORTH: readonly BusFrontage[] = [
   { id: 'commons',  xMin: 15, xMax: 25, tahap: 4, built: true },
-  { id: 'workshop', xMin: 25, xMax: 31, tahap: 5, built: false },
+  { id: 'workshop', xMin: 25, xMax: 31, tahap: 5, built: true },
 ];
 
 // ---------------------------------------------------------------------------
@@ -433,6 +433,8 @@ export interface NorthRoomSpec {
   southDoor: DoorSpan;
   /** Kusen pintu di dinding utara ke ruangan tahap berikutnya (lokal). */
   northDoors?: readonly DoorSpan[];
+  /** X lokal pemecah dinding utara menjadi 2 ruas (Auto-Fade berbeda per ruas). */
+  northSplitX?: number;
 }
 
 /** Z lokal titik berdiri di dalam ruangan utara tepat di depan pintu selatan (Commons: dunia Z 4.35). */
@@ -447,10 +449,16 @@ export const ROOM_COMMONS = {
   /** Bukaan terbuka 1,6 m di tengah, dunia X 19.2..20.8 (27 m tapak), segaris pintu Server. */
   southDoor: { xMin: -0.8, xMax: 0.8 },
   /**
-   * Kusen pintu dinding utara ke calon Studio (dunia X 18, Tahap 6) & Information Wall
-   * (dunia X 23, Tahap 5). Daun pintu tertutup dan BUKAN jalur navigasi sampai ruangannya dibangun.
+   * Kusen pintu dinding utara: [0] ke calon Studio (dunia X 18, Tahap 6, daun tertutup, bukan jalur
+   * navigasi) dan [1] ke Information Wall (dunia X 23, Tahap 5: bukaan terbuka + pelat ambang).
    */
   northDoors: [{ xMin: -2.5, xMax: -1.5 }, { xMin: 2.5, xMax: 3.5 }] as readonly DoorSpan[],
+  /**
+   * Tahap 5: dinding utara dipecah di dunia X 21 (lokal +1.0). Ruas barat (X 15..21) tetap dinding
+   * perimeter solid (Studio belum dibangun); ruas timur (X 21..25) berbatasan dengan Information Wall
+   * dan selalu memudar, karena dinding 3,2 m di Z -1 menutupi seluruh kedalaman baris utara dari kamera.
+   */
+  northSplitX: 1.0,
 } as const satisfies NorthRoomSpec;
 
 /** Commons (LOKAL terhadap pusat Room_CollabCommons). Lantai bersih X -4.76..4.76, Z -2.76..2.76. */
@@ -468,8 +476,11 @@ export const COMMONS = {
     ...[-0.5, 0.55, 1.6].map((x) => ({ spot: { x, z: 1.04, rotY: Math.PI }, approach: { x, z: 1.8 } })),
   ] as Array<{ spot: Spot; approach: Pt }>,
   sitY: 0.45,
-  /** Whiteboard kaca beroda (Office_Whiteboard_Scrum.glb 1,62 × 1,80) di depan dinding utara, menghadap Selatan. */
-  whiteboard: { x: 0.55, z: -2.42 },
+  /**
+   * Whiteboard kaca beroda (Office_Whiteboard_Scrum.glb 1,62 × 1,80) di depan dinding utara, menghadap
+   * Selatan. Tahap 5: di tengah ruas solid dunia X 18.5..21 (lokal -1.5..1.0).
+   */
+  whiteboard: { x: -0.25, z: -2.42 },
   /**
    * Booth akustik setengah lingkaran (slot GLB `Office_Commons_Acoustic_Booth`: origin = pusat
    * lingkaran duduk di lantai, sisi terbuka +Z, R luar 0,95). Diputar 45° agar terbuka ke Tenggara.
@@ -479,8 +490,8 @@ export const COMMONS = {
   snakePlant: { x: -4.4, z: 0.6 },
   /** Lampu gantung linear (Office_Linear_Pendant_Light.glb 2,6 m) di atas meja. */
   pendant: { x: 0.55, z: 0.12 },
-  /** Tulisan dinding di atas whiteboard & papan "Segera" di atas pintu utara. */
-  sign: { x: 0.55, y: 2.55 },
+  /** Tulisan dinding (lebar 2,2 m) di atas whiteboard, di ruas solid; papan "Segera" di atas pintu Studio. */
+  sign: { x: -0.25, y: 2.55, w: 2.2 },
 } as const;
 
 /** Digital Garden: sisi selatan bus, timur Server / IT. */
@@ -522,6 +533,130 @@ export const GARDEN = {
   window: { xMin: -2.1, xMax: 1.9, yMin: 0.45, yMax: 2.75 },
   light: { x: 0, y: 2.8, z: 0.4 },
   doorSense: 1.6,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Tahap 5: Workshop / Training (utara bus, timur Commons) + baris utara kedua (Z -5..-1):
+// Information Wall (di atas Commons & Workshop) dan Collaboration Pods (di atas Workshop).
+//
+// Baris utara kedua tidak punya dinding selatan sendiri: dinding di dunia Z -1.0..-0.76 milik
+// ruangan di selatannya (Commons ruas timur, Workshop), dan keduanya selalu memudar.
+// ---------------------------------------------------------------------------
+export const ROOM_WORKSHOP = {
+  name: 'Room_WorkshopTraining',
+  /** Bentang dunia X 25..31, Z -1..5 (6 × 6 m). Dinding barat = dinding kaca timur Commons. */
+  origin: { x: 28.0, z: 2.0 },
+  halfX: 3.0,
+  halfZ: 3.0,
+  /** Bukaan terbuka 1,6 m ke Jalan Utama, dunia X 27.2..28.8 (35 m tapak). */
+  southDoor: { xMin: -0.8, xMax: 0.8 },
+  /** Bukaan terbuka 1,2 m ke Collaboration Pods, dunia X 27.9..29.1 (35,5 m tapak). */
+  northDoors: [{ xMin: -0.1, xMax: 1.1 }] as readonly DoorSpan[],
+} as const satisfies NorthRoomSpec;
+
+/** Ruangan baris utara kedua: pintu di dinding SELATAN milik ruangan di bawahnya (lokal X). */
+export interface NorthTierSpec {
+  name: string;
+  origin: Pt;
+  halfX: number;
+  halfZ: number;
+  southDoor: DoorSpan;
+}
+
+/** Z lokal titik berdiri di dalam ruangan baris utara kedua tepat di depan pintu selatan (dunia Z -1.45). */
+export const NORTH_TIER_SOUTH_DOOR_INSIDE_Z = 1.55;
+
+export const ROOM_INFOWALL = {
+  name: 'Room_InfoWall',
+  /** Bentang dunia X 21..26, Z -5..-1 (5 × 4 m). */
+  origin: { x: 23.5, z: -3.0 },
+  halfX: 2.5,
+  halfZ: 2.0,
+  /** = ROOM_COMMONS.northDoors[1], dunia X 22.5..23.5. */
+  southDoor: { xMin: -1.0, xMax: 0.0 },
+} as const satisfies NorthTierSpec;
+
+export const ROOM_COLLABPODS = {
+  name: 'Room_CollabPods',
+  /** Bentang dunia X 26..31, Z -5..-1 (5 × 4 m). Dinding barat = dinding timur Information Wall. */
+  origin: { x: 28.5, z: -3.0 },
+  halfX: 2.5,
+  halfZ: 2.0,
+  /** = ROOM_WORKSHOP.northDoors[0], dunia X 27.9..29.1. */
+  southDoor: { xMin: -0.6, xMax: 0.6 },
+} as const satisfies NorthTierSpec;
+
+/**
+ * Workshop (LOKAL terhadap pusat Room_WorkshopTraining). Lantai bersih X -3.0..2.76, Z -2.76..2.76.
+ * Panggung di sisi BARAT menghadap Timur (dinding utara, selatan, timur memudar dari kamera Tenggara).
+ */
+export const WORKSHOP = {
+  /** Lorong cincin di antara 2 baris meja & koridor timur; cabang ke belakang podium (x < -1.8). */
+  ring: { minX: -0.22, maxX: 1.85, minZ: -1.95, maxZ: 2.05 },
+  stageBranch: [{ x: -0.22, z: 2.05 }, { x: -2.55, z: 2.05 }, { x: -2.55, z: 1.38 }] as Pt[],
+  /** Panel latar kisi walnut berdiri sendiri (Z -1.30..1.70, tinggi 2,3) di depan kaca Commons. */
+  backdrop: { x: -2.92, z: 0.2, w: 3.0, h: 2.3, t: 0.06 },
+  /** Layar 85" (Office_Presentation_Display_85.glb, skala 0,88), menghadap Timur. */
+  display: { x: -2.86, y: 1.46, z: 0.2, scale: 0.88 },
+  /** Podium (slot GLB `Office_Workshop_Lectern_Podium` 0,62 × 1,12 × 0,48; pembaca di −Z, audiens +Z). */
+  podium: { x: -2.12, z: 1.38, rotY: Math.PI / 2, w: 0.62, h: 1.12, d: 0.48 },
+  /** Titik berdiri pembicara di belakang podium, menghadap Timur (sitY 0: approach = spot). */
+  presenter: { x: -2.55, z: 1.38, rotY: Math.PI / 2 } as Spot,
+  /**
+   * 2 meja pelatihan (slot GLB `Office_Workshop_Training_Table` 1,80 × 0,74 × 0,55; modesty panel di −Z,
+   * kursi di +Z). rotY +90° (BUKAN −90°): sisi kursi (+Z GLB) menghadap Timur, ke peserta.
+   */
+  tables: [{ x: -1.3, z: 0.2 }, { x: 0.5, z: 0.2 }] as Pt[],
+  table: { rotY: Math.PI / 2, w: 1.8, d: 0.55, h: 0.74 },
+  /** 6 kursi peserta menghadap Barat (ke panggung); baris depan berdiri dulu di x -0.22, belakang di x 1.85. */
+  seats: [
+    ...[-0.38, 0.2, 0.78].map((z) => ({ spot: { x: -0.78, z, rotY: -Math.PI / 2 }, approach: { x: -0.22, z } })),
+    ...[-0.38, 0.2, 0.78].map((z) => ({ spot: { x: 1.02, z, rotY: -Math.PI / 2 }, approach: { x: 1.85, z } })),
+  ] as Array<{ spot: Spot; approach: Pt }>,
+  sitY: 0.45,
+  pendant: { x: -0.4, z: 0.2, rotY: Math.PI / 2 },
+  /** Monstera di ujung utara panel panggung (di pojok barat laut ia berdempetan dengan monstera Commons di balik kaca). */
+  plantNW: { x: -2.5, z: -1.75 },
+  snakeSE: { x: 2.3, z: 2.25 },
+} as const;
+
+/**
+ * Information Wall (LOKAL terhadap pusat Room_InfoWall). Lantai bersih X -2.26..2.26, Z -1.76..2.0.
+ * Dinding utara (perimeter) & barat (ke tapak Studio) tetap solid; dinding timur selalu memudar.
+ */
+export const INFOWALL = {
+  laneZ: 0.65,
+  /**
+   * Layar komando (slot GLB `Office_InfoWall_Command_Display` 3,80 × 2,10 × 0,30, origin tengah sisi
+   * BELAKANG di lantai, layar +Z). Mesh layar aktif `Command_Screen_Active` (X ±1,80, Y 0,65..2,02,
+   * muka di z 0,155) ditimpa kanvas live scene.
+   */
+  display: { x: 0.1, z: -1.76, w: 3.8, h: 2.1, d: 0.3, screen: { w: 3.6, yMin: 0.65, yMax: 2.02, z: 0.155 } },
+  /** Papan kanban (slot GLB `Office_InfoWall_Kanban_Board` 1,80 × 1,15 × 0,06, origin tengah belakang). */
+  kanban: { x: -2.25, y: 1.55, z: -0.05, rotY: Math.PI / 2, w: 1.8, h: 1.15, d: 0.06 },
+  /** 3 titik berdiri pengamat menghadap layar (Utara), 1,6 m dari muka layar. */
+  observers: [{ x: -1.05, z: 0.15, rotY: Math.PI }, { x: 0.1, z: 0.15, rotY: Math.PI }, { x: 1.25, z: 0.15, rotY: Math.PI }] as Spot[],
+  /** Snake plant (digeser dari (1.90, -1.38): di sana pot bertumpuk ujung konsol layar). */
+  snakePlant: { x: 2.0, z: -0.95 },
+  light: { x: 0.1, y: 2.6, z: 0.2 },
+} as const;
+
+/** Collaboration Pods (LOKAL terhadap pusat Room_CollabPods). Lantai bersih X -2.5..2.26, Z -1.76..2.0. */
+export const COLLABPODS = {
+  laneZ: 0.6,
+  /**
+   * 2 diner pod (slot GLB `Office_Collab_Diner_Pod` 1,90 × 1,32 × 1,30; punggung −Z, terbuka +Z, bangku di
+   * x ±0,71 dudukan 0,45, meja tengah 0,52 × 1,10 tinggi 0,72). Lampu okupansi milik scene di atas punggung.
+   */
+  pods: [{ x: -1.38, z: -0.98 }, { x: 1.14, z: -0.98 }] as Pt[],
+  pod: { w: 1.9, h: 1.32, d: 1.3, benchX: 0.71, seatH: 0.45, tableW: 0.52, tableD: 1.1, tableH: 0.72 },
+  /** Agen duduk 0,62 m dari sumbu pod, saling berhadapan; berdiri dulu 0,45 m di depan bibir pod. */
+  seatOffsetX: 0.62,
+  approachZ: 0.12,
+  /** Dudukan 0,45 → avatar di y 0,35 (sama dengan sofa Lounge & bangku Garden). */
+  sitY: 0.35,
+  snakePlant: { x: -0.12, z: -1.3 },
+  light: { x: 0, y: 2.6, z: -0.3 },
 } as const;
 
 // ---------------------------------------------------------------------------

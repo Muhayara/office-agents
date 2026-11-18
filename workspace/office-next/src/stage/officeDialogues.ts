@@ -356,3 +356,63 @@ export const GARDEN_CHAT: readonly string[] = [
   'Duduk sebentar di sini, ide baru biasanya muncul.',
   'Rumputnya sintetis, tapi segarnya terasa asli.',
 ];
+
+// Tahap 5: sesi Workshop / Tech Demo
+export const WORKSHOP_TOPICS: readonly string[] = [
+  'Arsitektur multi-agen & router gedung',
+  'Rendering 2.5D dengan Three.js',
+  'Keamanan run_command & izin CEO',
+  'Riset pengguna untuk dasbor baru',
+  'Desain UI: komponen kartu tugas',
+  'Review sprint & rencana rilis',
+];
+
+export const WORKSHOP_GOING: readonly string[] = [
+  'Ada sesi tech demo di Workshop, ikut yuk.',
+  'Ke Workshop dulu, mau lihat demo terbaru.',
+  'Sesi berbagi ilmu sebentar, bawa catatan.',
+];
+
+export const WORKSHOP_TALK: readonly string[] = [
+  'Slide berikutnya: alur data dari router ke ruangan.',
+  'Perhatikan bagian ini, ini yang sering bikin bug.',
+  'Demo langsung ya, semoga tidak error di depan kalian.',
+  'Pertanyaan boleh di akhir, atau sela saja.',
+  'Intinya: setiap ruangan punya navigasi lokal sendiri.',
+];
+
+export const WORKSHOP_CHAT: readonly string[] = [
+  'Oh, jadi portalnya di dalam ruangan ya.',
+  'Boleh minta slide-nya nanti?',
+  'Ini bisa dipakai juga di proyekku.',
+  'Catat: cek izin sebelum menjalankan perintah.',
+];
+
+// Tahap 5: cek metrik di Information Wall
+export const INFOWALL_GOING: readonly string[] = [
+  'Cek Information Wall dulu, lihat status tim.',
+  'Mau lihat papan kanban & metrik terbaru.',
+  'Ke ruang telemetri sebentar.',
+];
+
+export const INFOWALL_CHAT: readonly string[] = [
+  'Siapa yang masih menunggu izin CEO?',
+  'Kolom Review mulai penuh, perlu dibantu.',
+  'Grafik aktivitas naik, tim lagi produktif.',
+  'Kartu ini sudah bisa pindah ke Done.',
+];
+
+// Tahap 5: pair huddle di Collaboration Pods
+export const PODS_GOING: readonly string[] = [
+  'Pair sebentar di pod yuk, lebih cepat.',
+  'Bahas berdua di Collaboration Pods saja.',
+  'Pod kosong tuh, kita review di sana.',
+];
+
+export const PODS_CHAT: readonly string[] = [
+  'Coba share layar, aku lihat kodenya.',
+  'Fungsi ini bisa dipecah jadi dua.',
+  'Desainnya oke, tinggal jarak antar-elemen.',
+  'Sip, aku lanjutkan dari bagian ini.',
+  'Tambahkan tes untuk kasus tepi, ya.',
+];

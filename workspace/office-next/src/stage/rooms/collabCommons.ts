@@ -19,8 +19,9 @@ import { boardroomWallMats, glassWallMats } from './walls';
  * Ruang kerja kelompok terbuka: meja kolaborasi modular + 6 kursi kerja, whiteboard beroda,
  * booth akustik setengah lingkaran, lampu gantung linear.
  * - Selatan: kaca + bukaan terbuka 1,6 m ke Jalan Utama (selalu memudar, dinding sisi bus).
- * - Utara  : dinding solid (terlihat dari kamera Tenggara) dengan 2 kusen pintu TERTUTUP ke calon
- *            Studio (Tahap 6) & Information Wall (Tahap 5), papan "Segera", tulisan dinding.
+ * - Utara  : ruas barat X 15..21 solid (terlihat dari kamera Tenggara) dengan pintu TERTUTUP ke calon
+ *            Studio (Tahap 6), papan "Segera", tulisan dinding; ruas timur X 21..25 selalu memudar dan
+ *            pintunya terbuka ke Information Wall (Tahap 5).
  * - Barat  : partisi akustik baru di sisi timur ruang rapat & foyer (selalu memudar).
  * - Timur  : kaca ke calon Workshop / Training (Tahap 5, selalu memudar).
  */
@@ -41,9 +42,15 @@ export function buildCollabCommons(load: ModelLoader, fader: WallFader): CollabC
     sideMats: { west: boardroomWallMats() },
     sideKind: { east: 'glass' },
     interiorSides: ['west', 'east'],
-    northDoors: ROOM_COMMONS.northDoors,
+    // Tahap 5: ruas barat (X 15..21) perimeter solid dengan pintu Studio tertutup; ruas timur
+    // (X 21..25) berbatasan dengan Information Wall → selalu memudar, pintunya terbuka + ambang.
+    northSegments: [
+      { id: 'north_west', xMin: -ROOM_COMMONS.halfX, xMax: ROOM_COMMONS.northSplitX, interior: false, doors: [ROOM_COMMONS.northDoors[0]!] },
+      { id: 'north_east', xMin: ROOM_COMMONS.northSplitX, xMax: ROOM_COMMONS.halfX, interior: true, doors: [ROOM_COMMONS.northDoors[1]!], openDoors: true },
+    ],
   });
-  const { group, sub, inner, walls } = shell;
+  const { group, sub, inner } = shell;
+  const northWest = shell.northSegments.north_west!;
   const floor = sub('SubLayer_Floor');
   const furniture = sub('SubLayer_Furniture');
   const decor = sub('SubLayer_Decor');
@@ -70,12 +77,13 @@ export function buildCollabCommons(load: ModelLoader, fader: WallFader): CollabC
     strip(b, D - 2 * b, inner.maxX - b / 2, 0, 'Oak_Border_E');
   }
 
-  // ---- Dinding utara: daun pintu tertutup + papan "Segera" + tulisan dinding (ikut dinding) ----
+  // ---- Ruas barat dinding utara: daun pintu Studio tertutup + papan "Segera" + tulisan dinding ----
+  // (Pintu Information Wall di ruas timur kini terbuka: tanpa daun & papan.)
   {
     const wallZ = -ROOM_COMMONS.halfZ + WALL_THICKNESS / 2;
     const face = inner.minZ;
-    const labels: Array<[string, string]> = [['STUDIO / CONTENT', 'Segera · Tahap 6'], ['INFORMATION WALL', 'Segera · Tahap 5']];
-    ROOM_COMMONS.northDoors.forEach((d, i) => {
+    const labels: Array<[string, string]> = [['STUDIO / CONTENT', 'Segera · Tahap 6']];
+    [ROOM_COMMONS.northDoors[0]!].forEach((d, i) => {
       const w = d.xMax - d.xMin, cx = (d.xMin + d.xMax) / 2;
       const leaf = box(w - 0.1, DOOR_HEIGHT - 0.06, 0.045, oakMaterial(0.6), [cx, (DOOR_HEIGHT - 0.06) / 2, wallZ], `Future_Door_Leaf_${i}`);
       leaf.castShadow = false;
@@ -84,13 +92,13 @@ export function buildCollabCommons(load: ModelLoader, fader: WallFader): CollabC
       const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.36), new THREE.MeshBasicMaterial({ map: doorSignTexture(labels[i]![0], labels[i]![1]), toneMapped: false }));
       sign.name = `Future_Door_Sign_${i}`;
       sign.position.set(cx, 2.86, face + 0.006);
-      walls.north.add(leaf, vision, handle, sign);
+      northWest.add(leaf, vision, handle, sign);
     });
     const s = COMMONS.sign;
-    const title = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.4), new THREE.MeshBasicMaterial({ map: wallTitleTexture(), transparent: true, toneMapped: false, depthWrite: false }));
+    const title = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.w * 0.154), new THREE.MeshBasicMaterial({ map: wallTitleTexture(), transparent: true, toneMapped: false, depthWrite: false }));
     title.name = 'Wall_Title_Collaboration_Commons';
     title.position.set(s.x, s.y, face + 0.006);
-    walls.north.add(title);
+    northWest.add(title);
   }
 
   // ---- Meja kolaborasi modular + 6 kursi kerja + laptop ----

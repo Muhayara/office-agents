@@ -136,9 +136,11 @@ export function buildDigitalGarden(load: ModelLoader, fader: WallFader): Digital
     const rock = std(0x6b6f72, 0.9, 0.02);
     const r = rnd(5);
     ([[-1.6, 0.62, 0.26, 0.17], [-1.35, 2.42, 0.2, 0.13], [-1.95, -2.45, 0.22, 0.15]] as const).forEach(([x, z, s, h], i) => {
+      // Polihedron three.js tidak berindeks: jitter dikunci ke POSISI verteks supaya sisi tidak retak.
       const geo = new THREE.IcosahedronGeometry(1, 1);
-      const p = geo.getAttribute('position');
-      for (let k = 0; k < p.count; k++) { const f2 = 0.85 + r() * 0.3; p.setXYZ(k, p.getX(k) * f2, p.getY(k) * f2, p.getZ(k) * f2); }
+      const p = geo.getAttribute('position'), seed = r() * 100;
+      const hash = (x: number, y: number, z: number) => { const v = Math.sin(Math.round(x * 1e4) * 12.9898 + Math.round(y * 1e4) * 78.233 + Math.round(z * 1e4) * 37.719 + seed) * 43758.5453; return v - Math.floor(v); };
+      for (let k = 0; k < p.count; k++) { const f2 = 0.85 + hash(p.getX(k), p.getY(k), p.getZ(k)) * 0.3; p.setXYZ(k, p.getX(k) * f2, p.getY(k) * f2, p.getZ(k) * f2); }
       geo.computeVertexNormals();
       const mesh = new THREE.Mesh(geo, rock);
       mesh.name = `Zen_Boulder_${i}`;

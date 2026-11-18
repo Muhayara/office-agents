@@ -277,6 +277,7 @@ function logoTexture() {
 const ROOM_LABELS: Array<[string, string]> = [
   ['main', 'Ruang Kerja'], ['boardroom', 'Ruang Rapat'], ['manager', 'Manajer'], ['pantry', 'Pantry'],
   ['lounge', 'Lounge'], ['server', 'Server / IT'], ['lobby', 'Lobi'], ['commons', 'Commons'], ['garden', 'Garden'],
+  ['workshop', 'Workshop'], ['infowall', 'Info Wall'], ['collabpods', 'Pods'],
 ];
 
 class DirectoryScreen {
@@ -329,6 +330,9 @@ class DirectoryScreen {
     rect(18, 7.4, 22, 13.4, '#123544', 'IT');
     rect(15, -1, 25, 5, '#123544', 'Commons');
     rect(22, 7.4, 27, 13.4, '#1d4a3a', 'Garden');
+    rect(25, -1, 31, 5, '#123544', 'Wrkshp');
+    rect(21, -5, 26, -1, '#123544', 'Info');
+    rect(26, -5, 31, -1, '#123544', 'Pods');
     c.fillStyle = '#fbbf24'; c.font = '700 14px "Inter", system-ui, sans-serif';
     c.fillText('▲ Anda di sini', ox + (1.5 + 7) * sx - 40, oy + 18.4 * sz + 16);
 
@@ -344,13 +348,14 @@ class DirectoryScreen {
     c.fillStyle = '#94a3b8'; c.font = '500 24px "Inter", system-ui, sans-serif';
     c.fillText(`/ ${info.total} hadir`, 22 + c.measureText(`${info.present}`).width * 2.4 + 8, y + 6);
     y += 48;
-    c.font = '500 18px "Inter", system-ui, sans-serif';
-    ROOM_LABELS.forEach(([id, label]) => {
-      const n = info.rooms[id] ?? 0;
-      c.fillStyle = '#cbd5e1'; c.fillText(label, 22, y);
-      c.fillStyle = n > 0 ? '#e2e8f0' : '#475569'; c.textAlign = 'right'; c.fillText(String(n), W - 24, y); c.textAlign = 'left';
-      c.fillStyle = '#12303f'; c.fillRect(22, y + 12, W - 44, 2);
-      y += 26;
+    // Grid 2 kolom (12 ruangan sejak Tahap 5; muat sampai 16 ruangan sebelum melewati kanvas).
+    c.font = '500 17px "Inter", system-ui, sans-serif';
+    const colW = (W - 44 - 16) / 2, rowsN = Math.ceil(ROOM_LABELS.length / 2);
+    ROOM_LABELS.forEach(([id, label], i) => {
+      const n = info.rooms[id] ?? 0, col = Math.floor(i / rowsN), x = 22 + col * (colW + 16), yy = y + (i % rowsN) * 30;
+      c.fillStyle = '#cbd5e1'; c.fillText(label, x, yy);
+      c.fillStyle = n > 0 ? '#e2e8f0' : '#475569'; c.textAlign = 'right'; c.fillText(String(n), x + colW, yy); c.textAlign = 'left';
+      c.fillStyle = '#12303f'; c.fillRect(x, yy + 12, colW, 2);
     });
     c.fillStyle = '#38bdf8'; c.fillRect(0, H - 6, W, 6);
     this.tex.needsUpdate = true;

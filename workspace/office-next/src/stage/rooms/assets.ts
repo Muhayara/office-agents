@@ -182,6 +182,39 @@ export function mountAsset(
   );
 }
 
+/**
+ * Pas-kan overlay kanvas (PlaneGeometry baseW × baseH, menghadap +Z lokal `mount`) ke mesh layar GLB:
+ * dicari lewat nama persis (satu atau beberapa, berurutan), lalu nama yang cocok `pattern`. Overlay diletakkan 4 mm di depan layar.
+ */
+export function fitOverlay(
+  mount: THREE.Object3D,
+  model: THREE.Object3D,
+  overlay: THREE.Mesh,
+  baseW: number,
+  baseH: number,
+  exactName?: string | readonly string[],
+  pattern = /screen/i,
+) {
+  let screen: THREE.Object3D | undefined;
+  for (const n of typeof exactName === 'string' ? [exactName] : exactName ?? []) { screen = model.getObjectByName(n) ?? undefined; if (screen) break; }
+  if (!screen) model.traverse((o) => { if (!screen && (o as THREE.Mesh).isMesh && pattern.test(o.name)) screen = o; });
+  if (!screen) return false;
+  mount.updateWorldMatrix(true, true);
+  const bb = new THREE.Box3().setFromObject(screen);
+  const lo = new THREE.Vector3(Infinity, Infinity, Infinity);
+  const hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+  for (const x of [bb.min.x, bb.max.x]) for (const y of [bb.min.y, bb.max.y]) for (const z of [bb.min.z, bb.max.z]) {
+    const p = mount.worldToLocal(new THREE.Vector3(x, y, z));
+    lo.min(p);
+    hi.max(p);
+  }
+  const w = hi.x - lo.x, h = hi.y - lo.y;
+  if (w < 0.1 || h < 0.1) return false;
+  overlay.position.set((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, hi.z + 0.004);
+  overlay.scale.set(w / baseW, h / baseH, 1);
+  return true;
+}
+
 /** CanvasTexture sRGB siap pakai untuk material layar / karpet. */
 export function canvasTexture(canvas: HTMLCanvasElement) {
   const tex = new THREE.CanvasTexture(canvas);

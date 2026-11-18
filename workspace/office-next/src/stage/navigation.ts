@@ -11,17 +11,23 @@
 import {
   AGENT_3D_POSITIONS,
   BOARDROOM,
+  COLLABPODS,
   COMMONS,
   CORRIDOR_BUS,
   GARDEN,
+  INFOWALL,
   LOBBY,
   LOUNGE,
   MANAGER,
   NORTH_ROOM_DOOR_INSIDE_Z,
+  NORTH_TIER_SOUTH_DOOR_INSIDE_Z,
   PANTRY,
+  ROOM_COLLABPODS,
   ROOM_COMMONS,
   ROOM_FOYER,
   ROOM_GARDEN,
+  ROOM_INFOWALL,
+  ROOM_WORKSHOP,
   ROOM_LOBBY,
   ROOM_LOUNGE,
   ROOM_MAIN,
@@ -30,6 +36,7 @@ import {
   ROOM_SERVER,
   SERVER,
   SOUTH_ROOM_DOOR_INSIDE_Z,
+  WORKSHOP,
   type DeskSpot,
   type Pt,
 } from './layout';
@@ -234,6 +241,39 @@ export const commonsPath = ringLane(COMMONS.ring);
 /** Room_DigitalGarden — lorong batu pijakan: pintu → selatan (X -0.55) → depan bangku teak. */
 export const gardenPath = polylineLane(GARDEN.lane);
 
+/**
+ * Lorong cincin + cabang buntu (Tahap 5). Titik yang memenuhi `onBranch` disambung lewat cabang
+ * (polyline yang titik pertamanya ada di cincin); titik lain memakai cincin biasa.
+ */
+export function ringWithBranch(
+  r: { minX: number; maxX: number; minZ: number; maxZ: number },
+  branch: readonly Pt[],
+  onBranch: (p: Pt) => boolean,
+) {
+  const ring = ringLane(r);
+  const spur = polylineLane(branch);
+  const j = branch[0]!;
+  return (from: Pt, to: Pt): NavPt[] => {
+    const fb = onBranch(from), tb = onBranch(to);
+    if (fb && tb) return spur(from, to);
+    if (fb) return dedupe([...spur(from, j), ...ring(j, to).slice(1)]);
+    if (tb) return dedupe([...ring(from, j), ...spur(j, to).slice(1)]);
+    return ring(from, to);
+  };
+}
+
+/**
+ * Room_WorkshopTraining — cincin di antara 2 baris meja & koridor timur; titik di barat podium
+ * (pembicara, x < -1.8) lewat cabang yang memutari sisi selatan podium.
+ */
+export const workshopPath = ringWithBranch(WORKSHOP.ring, WORKSHOP.stageBranch, (p) => p.x < -1.8);
+
+/** Room_InfoWall — lorong lurus dunia Z -2.35: pintu selatan & 3 titik pengamat layar. */
+export const infoWallPath = laneZ(INFOWALL.laneZ);
+
+/** Room_CollabPods — lorong lurus dunia Z -2.40 di depan kedua pod. */
+export const collabPodsPath = laneZ(COLLABPODS.laneZ);
+
 // ============================================================================
 // Room_Boardroom_10p — promenade selatan, lorong utara, lorong barat & timur
 // ============================================================================
@@ -436,6 +476,15 @@ export const FLOOR1_PORTALS = {
   /** Dunia (24.5, 6.2) ↔ (24.5, 8.05). */
   busGardenDoor: { x: busX(ROOM_GARDEN.origin.x + mid(ROOM_GARDEN.northDoor)), z: 0 },
   gardenNorth: { x: mid(ROOM_GARDEN.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
+  /** Tahap 5. Jalan Utama ↔ Workshop: dunia (28.0, 6.2) ↔ (28.0, 4.35). */
+  busWorkshopDoor: { x: busX(ROOM_WORKSHOP.origin.x + mid(ROOM_WORKSHOP.southDoor)), z: 0 },
+  workshopSouth: { x: mid(ROOM_WORKSHOP.southDoor), z: NORTH_ROOM_DOOR_INSIDE_Z },
+  /** Commons ↔ Information Wall lewat ROOM_COMMONS.northDoors[1]: dunia (23.0, -0.35) ↔ (23.0, -1.45). */
+  commonsNorthInfo: { x: mid(ROOM_COMMONS.northDoors[1]!), z: -NORTH_ROOM_DOOR_INSIDE_Z },
+  infoWallSouth: { x: mid(ROOM_INFOWALL.southDoor), z: NORTH_TIER_SOUTH_DOOR_INSIDE_Z },
+  /** Workshop ↔ Collaboration Pods lewat ROOM_WORKSHOP.northDoors[0]: dunia (28.5, -0.35) ↔ (28.5, -1.45). */
+  workshopNorthPods: { x: mid(ROOM_WORKSHOP.northDoors[0]!), z: -NORTH_ROOM_DOOR_INSIDE_Z },
+  collabPodsSouth: { x: mid(ROOM_COLLABPODS.southDoor), z: NORTH_TIER_SOUTH_DOOR_INSIDE_Z },
 } as const;
 
 export const BOARDROOM_DOOR_GATE = 'boardroom_door';

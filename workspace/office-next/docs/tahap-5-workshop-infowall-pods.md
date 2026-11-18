@@ -204,3 +204,88 @@ Seperti Tahap 2–4, Tahap 5 dibangun terlebih dahulu dengan placeholder prosedu
 - [ ] Simulasi 600 detik mencakup rapat, diskusi Commons, rehat Garden, sesi Workshop, inspeksi InfoWall, dan diskusi berpasangan di Collaboration Pods dengan **0 tabrakan dinding/perabot** dan tidak ada agen macet.
 - [ ] Kamera Tenggara memperlihatkan isi `Room_InfoWall` (ruas timur dinding utara Commons memudar, ruas barat tetap solid), `Room_CollabPods` (dinding utara Workshop memudar), dan layar presentasi `Room_Workshop` tanpa terhalang dinding.
 - [ ] Kios direktori Lobi menampilkan 12 ruangan dalam format 2 kolom tanpa teks terpotong di tepi bawah kanvas.
+
+---
+
+## 8. Koreksi & Keputusan (dicek terhadap kode, 18 November 2026)
+
+Rencana ini sudah memakai portal lokal, pemudaran dinding yang benar, dan konstanta kode yang ada. Analisa menemukan 4 kesalahan, ditambah 3 temuan saat verifikasi.
+
+### A. Koreksi terhadap rencana
+
+| # | Bagian | Masalah (bukti) | Keputusan |
+|---|---|---|---|
+| 1 | §3.A meja pelatihan `rotY = -π/2` | Kontrak §6 menaruh kursi di +Z GLB. `rotY -π/2` memetakan +Z ke Barat, padahal kursi peserta ada di Timur meja. Akibatnya modesty panel menghalangi kaki peserta. | `rotY = +π/2`: sisi kursi menghadap Timur. Kontrak GLB tetap (kursi di +Z). |
+| 2 | §3.B snake plant InfoWall `(1.90, -1.38)` | Pot (Z -1.57..-1.17, X 1.69..2.15) bertumpuk dengan ujung timur konsol layar komando (X ≤ 2.00, muka di Z -1.46). | Digeser ke `(2.0, -0.95)` (dunia `(25.5, -3.95)`). |
+| 3 | §3.C `sitY = 0.42` untuk dudukan 0,45 | Konvensi proyek: dudukan 0,44–0,45 → avatar di y 0,34–0,35 (sofa Lounge, bangku Garden). Dengan 0,42 avatar melayang ±7 cm. | `sitY 0.35`. |
+| 4 | §3.C lampu okupansi pod "di-update dari scene" | Tidak ada kontrak nama mesh lampu di GLB. | Scene punya kapsul lampu sendiri (hijau/amber). Bila GLB berisi mesh `Pod_Occupancy_LED` (seperti di `tahap-5-3d-prompts.md`), kapsul disembunyikan dan LED GLB yang diwarnai. |
+| 5 | (verifikasi) Monstera Workshop di pojok barat laut `(-2.50, -2.25)` | Berdempetan dengan monstera Commons `(24.35, -0.35)` di balik kaca (jarak 1,15 m), terlihat dobel. | Dipindah ke ujung utara panel panggung `(-2.50, -1.75)`, dunia `(25.5, 0.25)`. |
+| 6 | (verifikasi) Kaki panel panggung | Bilah kaki 0,32 m hanya ±9 cm dari jalur pembicara (`x -2.55`). | Kaki diperpendek ke 0,22 m. |
+| 7 | (verifikasi) Layar komando: baris "Zona Lantai 1" 2 kolom | Angka kolom kiri menempel ke label kolom kanan. | Satu kolom 12 baris. |
+
+### B. Keputusan CEO (sebelum coding)
+
+| Pertanyaan | Keputusan |
+|---|---|
+| Batas kepadatan rutinitas (perkiraan ±8 dari 10 agen sering di luar meja di demo) | **Tanpa batas**: jadwal mengikuti rencana. |
+| Pemicu pair huddle mode live | Jadwal 95–145 dtk (demo & live) **dan** pasangan yang baru berbalas pesan (event kunjungan meja) diingat 90 dtk; bila keduanya idle di meja, mereka ke pod kosong. |
+| Kolom "Build & Security Health" layar komando | Mode live hanya data nyata (status 10 agen, hitungan bekerja/santai/tunggu izin/error/rapat/offline, ruangan, rapat). Angka build/tes contoh hanya di demo, berlabel **CONTOH (SIMULASI)**. |
+| Aset 3D Tahap 5 | Placeholder prosedural + slot GLB bernama; kontrak di §8.E. |
+
+### C. Koordinat final (dunia)
+
+| Elemen | Nilai |
+|---|---|
+| `Room_WorkshopTraining` | Pusat `(28, 2)`, tapak X 25..31, Z -1..5; selatan kaca + bukaan `X 27.2..28.8`; utara dinding dalam (selalu pudar) + bukaan `X 27.9..29.1` ke Pods; timur dinding luar `X 30.76..31.0`; barat = kaca timur Commons |
+| Panggung | Panel kisi walnut `X 25.05..25.11, Z 0.7..3.7` (tinggi 2,3); layar 85" (skala 0,88) pusat `(25.14, y 1.46, 2.2)` menghadap Timur; podium `X 25.64..26.12, Z 3.07..3.69`; pembicara berdiri di `(25.45, 3.38)` menghadap Timur |
+| Meja & kursi Workshop | Meja `(26.7, 2.2)` & `(28.5, 2.2)` (`Z 1.3..3.1`), rotY +90°; kursi baris depan `X 27.22`, belakang `X 29.02`, `Z 1.62 / 2.2 / 2.78`, menghadap Barat; berdiri dulu di `X 27.78` / `29.85` |
+| Lorong Workshop | Cincin `X 27.78..29.85, Z 0.05..4.05` + cabang `(27.78, 4.05) → (25.45, 4.05) → (25.45, 3.38)` khusus pembicara |
+| `Room_InfoWall` | Pusat `(23.5, -3)`, tapak X 21..26, Z -5..-1; utara & barat solid, timur pudar; pintu = kusen Commons `X 22.5..23.5` (ambang baru) |
+| Layar komando / kanban | `X 21.7..25.5, Z -4.76..-4.46`, layar y 0,65..2,02 / dinding barat `X 21.25`, `Z -3.95..-2.15`, y 1,55 (anak `walls.west`) |
+| Pengamat InfoWall | `(22.45 / 23.6 / 24.75, -2.85)` menghadap Utara; lorong `Z -2.35` |
+| `Room_CollabPods` | Pusat `(28.5, -3)`, tapak X 26..31, Z -5..-1; utara solid, timur dinding luar (pudar dari kamera) |
+| Pod A / B | `(27.12, -3.98)` `X 26.17..28.07` / `(29.64, -3.98)` `X 28.69..30.59`, `Z -4.63..-3.33`; kursi `(26.50, 27.74 / 29.02, 30.26; Z -3.98)` saling berhadapan, berdiri dulu di `Z -2.88`; lorong `Z -2.40` |
+| Commons (perubahan) | Dinding utara dipecah di `X 21`: ruas barat solid (pintu Studio tertutup), ruas timur selalu pudar; whiteboard & tulisan dinding (2,2 m) di `X 19.75` |
+
+### D. Peta file
+
+| File | Isi |
+|---|---|
+| `src/stage/layout.ts` | `ROOM_WORKSHOP`, `NorthTierSpec`, `NORTH_TIER_SOUTH_DOOR_INSIDE_Z`, `ROOM_INFOWALL`, `ROOM_COLLABPODS`, `WORKSHOP`, `INFOWALL`, `COLLABPODS`; frontage `workshop` `built: true`; `ROOM_COMMONS.northSplitX` |
+| `src/stage/rooms/northWing.ts` | `buildNorthRoomShell` dengan ruas dinding utara (`northSegments`, pintu terbuka + ambang); `buildNorthTierShell` baru (baris utara kedua) |
+| `src/stage/rooms/workshopTraining.ts` *(baru)* | Karpet tenun + list oak, panggung (panel kisi walnut, layar 85" + slide kanvas, podium), 2 meja pelatihan, 6 kursi, buku catatan, lampu linear, tanaman |
+| `src/stage/rooms/infoWall.ts` *(baru)* | Karpet antrasit + garis cyan, layar komando + kanvas live (3 kolom), papan kanban (ikut dinding barat), snake plant |
+| `src/stage/rooms/collabPods.ts` *(baru)* | Karpet hijau-abu + karpet aksen, 2 diner pod + lampu okupansi, snake plant |
+| `src/stage/rooms/collabCommons.ts` | Pemecahan dinding utara, pintu Info Wall terbuka |
+| `src/stage/rooms/assets.ts` | `fitOverlay` (kanvas live dipaskan ke mesh layar GLB) |
+| `src/stage/navigation.ts` | `ringWithBranch`, `workshopPath`, `infoWallPath`, `collabPodsPath`, 6 portal baru |
+| `src/stage/IsometricOfficeStage.tsx` | Merakit 3 ruangan + zona + 3 konektor. Errand `workshop` (pembicara pose `inspect` + peserta `discuss`), `infowall`, `pods`; jadwal; memori pasangan pesan (live); data layar komando & slide Workshop; lampu pod; debug `workshop()`, `infowall()`, `pod()`, `errandState()` diperluas |
+| `src/stage/officeDialogues.ts` | `WORKSHOP_TOPICS/GOING/TALK/CHAT`, `INFOWALL_GOING/CHAT`, `PODS_GOING/CHAT` |
+| `src/stage/rooms/lobbyReception.ts` | Kios: denah + 3 ruangan baru, daftar kehadiran grid 2 kolom (muat sampai 16 ruangan) |
+| `src/App.tsx` | Dropdown fokus 14 pilihan; label "Jalan Utama + 13 ruangan" |
+
+### E. Kontrak slot GLB Tahap 5 (placeholder prosedural)
+
+| Slot GLB | Ukuran W × H × D | Origin & arah | Penempatan |
+|---|---|---|---|
+| `Office_Workshop_Lectern_Podium` | 0,62 × 1,12 × 0,48 | Lantai tengah; muka baca miring menghadap −Z (pembicara), panel depan +Z (audiens) | Workshop, rotY +90° |
+| `Office_Workshop_Training_Table` (2×) | 1,80 × 0,74 × 0,55 | Lantai tengah; sisi panjang X; modesty panel di −Z, kursi di +Z | Workshop, rotY **+90°** |
+| `Office_InfoWall_Command_Display` | 3,80 × 2,10 × 0,30 | Tengah sisi BELAKANG di lantai; layar +Z; mesh layar aktif bernama **`InfoWall_Main_Screen`** (sesuai `tahap-5-3d-prompts.md`; `Command_Screen_Active` juga diterima; X ±1,80, Y 0,65..2,02, muka z ±0,156): kanvas live scene dipaskan ke mesh ini | InfoWall, rotY 0 |
+| `Office_InfoWall_Kanban_Board` | 1,80 × 1,15 × 0,06 | Tengah sisi BELAKANG, y 0 di tengah tinggi papan; muka +Z | InfoWall (`walls.west`), rotY +90° |
+| `Office_Collab_Diner_Pod` (2×) | 1,90 × 1,32 × 1,30 | Lantai tengah; punggung + layar mini di −Z, terbuka +Z; bangku x ±0,71 (dudukan 0,45, sandaran tinggi di sisi luar); meja 0,52 × 1,10 setinggi 0,72. Lampu okupansi: mesh opsional **`Pod_Occupancy_LED`** (sesuai `tahap-5-3d-prompts.md`) diwarnai scene hijau/amber; tanpa mesh itu scene memasang kapsul lampu sendiri di y ±1,36 | Pods, rotY 0 |
+
+Dipakai ulang: `Office_Presentation_Display_85` (skala 0,88, overlay ke `Screen_ActiveArea_4K`), `Office_Ergonomic_Chair` (6×), `Office_Linear_Pendant_Light`, `Office_Indoor_Plant`, `Office_Indoor_Plant_SnakePlant` (3×).
+
+### F. Hasil verifikasi
+
+- [x] `npm run typecheck` lulus di 4 workspace; `npm test` 10 file / 64 test lulus; `build:next` dan `build:next:demo` lulus.
+- [x] Simulasi 600 detik + 90 detik: rapat, diskusi Commons, rehat Garden, sesi Workshop, cek InfoWall, dan pair huddle (dipicu hook debug + jadwal otomatis). Pemeriksa tabrakan (agen berjalan vs perabot 8 ruangan sejak Tahap 3 + badan dinding/kaca/curb/kusen di bawah 2 m): **0 tabrakan**, tidak ada agen macet. Durasi aktif per rutinitas: Commons ±250 dtk, Garden ±240, Workshop ±120, InfoWall ±185, Pods ±145.
+- [x] Rute: Ruang Kerja → InfoWall lewat Commons dan pintu X 23; → Pods lewat Workshop dan pintu X 28.5; pembicara memutari sisi selatan podium.
+- [x] Isometrik: ruas timur dinding utara Commons dan dinding utara Workshop memudar, isi InfoWall & Pods terlihat; dinding utara & barat InfoWall tetap solid (layar komando, kanban); ruas barat dinding utara Commons tetap solid.
+- [x] Kios Lobi: 12 ruangan dalam grid 2 kolom, tidak terpotong. Layar komando: label SIMULASI di demo.
+- [ ] Pemicu pair huddle dari pasangan pesan & data layar mode live belum diuji dengan server nyata (logikanya memakai peta status & event kunjungan yang sama dengan Tahap 3–4).
+
+### G. Catatan untuk Tahap 6
+- **Studio / Content** (X 15..21, Z -5..-1): `buildNorthTierShell` dengan `sides: { east: false }` (dinding barat InfoWall `X 21.0..21.24` sudah ada). Ubah InfoWall menjadi `interiorSides: ['west', 'east']` (papan kanban ikut memudar karena anak `walls.west`). Ruas barat dinding utara Commons (`north_west`) harus menjadi `interior: true`, pintu Studio `northDoors[0]` dibuka (`openDoors`, lepas daun & papan "Segera"), dan tulisan dinding + whiteboard dipindah karena ruas itu akan selalu pudar. Sisi timur ruang rapat Z -5..-1 (masih curb) ditutup dinding barat Studio.
+- **Focus Pods** (X 14..18, selatan) dan **Digital Access Hub** (X 27..31, selatan): `buildSouthRoomShell`; frontage `focus` & `access` `built: true`. Dinding barat Server (`X 18.0..18.24`) dan dinding timur Garden (`X 26.76..27.0`) sudah ada → `sides` melewatinya.
+- Kios 2 kolom muat sampai 16 ruangan; setelah Tahap 6 ada 15.
