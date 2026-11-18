@@ -5,10 +5,11 @@ import {
   box,
   canvasTexture,
   enableShadow,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { slidingGlassDoor } from './doors';
 import { buildSouthRoomShell } from './southWing';
@@ -104,7 +105,7 @@ export function buildDigitalGarden(load: ModelLoader, fader: WallFader): Digital
   {
     const w = GARDEN.livingWall;
     mountAsset(slot(green, 'Living_Green_Wall', w.x, 0, w.z, w.rotY), '/models/Office_Garden_Living_Wall.glb', livingWallPlaceholder(w.w, w.h, w.d), load);
-    const grow = new THREE.PointLight(0xeaffd8, 6, 3.4, 1.8);
+    const grow = lightAnchor(0xeaffd8, 6, 3.4, 1.8);
     grow.name = 'Grow_Light_Glow';
     grow.position.set(w.x + 0.45, w.h - 0.25, w.z);
     decor.add(grow);
@@ -170,7 +171,7 @@ export function buildDigitalGarden(load: ModelLoader, fader: WallFader): Digital
   // ---- Cahaya hangat "matahari" taman ----
   {
     const l = GARDEN.light;
-    const sun = new THREE.PointLight(0xfff1d6, 10, 6.5, 1.6);
+    const sun = lightAnchor(0xfff1d6, 10, 6.5, 1.6);
     sun.name = 'Garden_Warm_Light';
     sun.position.set(l.x, l.y, l.z);
     decor.add(sun);

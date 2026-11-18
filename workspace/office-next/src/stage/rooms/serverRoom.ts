@@ -5,11 +5,12 @@ import {
   box,
   canvasTexture,
   enableShadow,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
   stdLin,
-  type ModelLoader,
 } from './assets';
 import { swingSteelDoor } from './doors';
 import { buildSouthRoomShell } from './southWing';
@@ -29,7 +30,8 @@ export interface ServerRoom {
   bindWalls: () => void;
   inspectWorld: () => Spot;
   consoleSeatWorld: () => { spot: Spot; approach: Spot };
-  update: (time: number, dt: number, agents: readonly Pt[]) => void;
+  /** `screenVisible` = ruangan terlihat kamera (false: layar NOC tidak digambar ulang). */
+  update: (time: number, dt: number, agents: readonly Pt[], screenVisible?: boolean) => void;
   focusPoint: () => THREE.Vector3;
 }
 
@@ -92,15 +94,10 @@ export function buildServerRoom(load: ModelLoader, fader: WallFader): ServerRoom
     walls.east.add(meterBox(sideLen, h, 0.03, panels, [0, 0.15 + h / 2, 0.12 + 0.015], 'Acoustic_Panels_E'));
   }
 
-  // ---- 2× Server Rack 42U (pindahan resmi dari Ruang Kerja) + LED status berdenyut ----
-  const leds: THREE.PointLight[] = [];
+  // ---- 2× Server Rack 42U (pindahan resmi dari Ruang Kerja) ----
+  // Optimasi 3D: LED status cukup emissive bawaan GLB rak (PointLight LED berdenyut dihapus).
   SERVER.racks.forEach((r, i) => {
     mountAsset(slot(it, `ServerRack_${i}`, r.x, 0, r.z), '/models/Server_Rack_42U.glb', rackPlaceholder(), load);
-    const led = new THREE.PointLight(i === 0 ? 0x5dbb8a : 0x4da8da, 4.5, 3.5, 2);
-    led.position.set(r.x, 1.2, r.z + 0.65);
-    led.userData = { offset: i * 2.5 };
-    it.add(led);
-    leds.push(led);
   });
 
   // ---- Tray kabel fiber di atas rak, menuju dinding utara ----
@@ -187,7 +184,7 @@ export function buildServerRoom(load: ModelLoader, fader: WallFader): ServerRoom
   // ---- Lampu putih dingin (scene tanpa plafon: tidak ada armatur melayang) ----
   {
     const l = SERVER.light;
-    const lamp = new THREE.PointLight(0xdbeafe, 10, 6, 1.6);
+    const lamp = lightAnchor(0xdbeafe, 10, 6, 1.6);
     lamp.name = 'Server_Cool_Light';
     lamp.position.set(l.x, l.y, l.z);
     decor.add(lamp);
@@ -211,10 +208,10 @@ export function buildServerRoom(load: ModelLoader, fader: WallFader): ServerRoom
       spot: toWorld(SERVER.consoleSeat.spot, SERVER.consoleSeat.spot.rotY),
       approach: toWorld(SERVER.consoleSeat.approach, SERVER.consoleSeat.spot.rotY),
     }),
-    update: (time, dt, agents) => {
+    update: (time, dt, agents, screenVisible = true) => {
       door.update(dt, agents);
-      for (const led of leds) led.intensity = 2.8 + Math.sin(time * 5 + (led.userData.offset as number)) * 1.8;
-      if (time - nocT > 0.5) { nocT = time; noc.draw(time); }
+      // Optimasi 3D: kanvas NOC tidak digambar ulang (dan tidak diunggah ke GPU) saat ruangan di luar kamera.
+      if (screenVisible && time - nocT > 0.5) { nocT = time; noc.draw(time); }
     },
     focusPoint: () => shell.local(0, 1.05, 0.4),
   };

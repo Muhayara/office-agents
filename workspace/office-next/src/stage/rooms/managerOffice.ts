@@ -6,10 +6,11 @@ import {
   canvasTexture,
   createCarpetFloor,
   enableShadow,
+  lightAnchor,
+  type ModelLoader,
   mountAsset,
   std,
   stdLin,
-  type ModelLoader,
 } from './assets';
 import { buildSouthRoomShell } from './southWing';
 import { smokedGlassWallMats } from './walls';
@@ -230,7 +231,7 @@ export function buildManagerOffice(load: ModelLoader, fader: WallFader): Manager
   // ---- Lampu hangat di atas meja kerja ----
   {
     const l = MANAGER.light;
-    const lamp = new THREE.PointLight(0xffd7a8, 16, 6.5, 1.6);
+    const lamp = lightAnchor(0xffd7a8, 16, 6.5, 1.6);
     lamp.name = 'Manager_Warm_Light';
     lamp.position.set(l.x, l.y, l.z);
     decor.add(lamp);

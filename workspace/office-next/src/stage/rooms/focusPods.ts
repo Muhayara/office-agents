@@ -5,10 +5,11 @@ import {
   box,
   canvasTexture,
   enableShadow,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { slidingGlassDoor } from './doors';
 import { buildSouthRoomShell } from './southWing';
@@ -116,7 +117,7 @@ export function buildFocusPods(load: ModelLoader, fader: WallFader): FocusPods {
     FOCUSPODS.plants.forEach((p, i) => {
       mountAsset(slot(decor, `Focus_SnakePlant_${i}`, p.x, 0, p.z), '/models/Office_Indoor_Plant_SnakePlant.glb', new THREE.Group(), load);
     });
-    const l = new THREE.PointLight(0xfff0dc, 6, 5.5, 1.6);
+    const l = lightAnchor(0xfff0dc, 6, 5.5, 1.6);
     l.name = 'Focus_Light';
     l.position.set(FOCUSPODS.light.x, FOCUSPODS.light.y, FOCUSPODS.light.z);
     decor.add(l);

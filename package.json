@@ -15,9 +15,15 @@
     "build:next:demo": "vite build workspace/office-next --mode demo",
     "build": "npm --workspace @office/server run build && npm --workspace @office/web run build",
     "typecheck": "npm --workspace @office/shared run typecheck && npm --workspace @office/server run typecheck && npm --workspace @office/web run typecheck && tsc -p workspace/office-next/tsconfig.json",
-    "test": "npm --workspace @office/server run test"
+    "test": "npm --workspace @office/server run test",
+    "optimize:models": "node workspace/office-next/scripts/optimize-models.mjs"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "meshoptimizer": "^1.1.1",
+    "sharp": "^0.35.5",
     "typescript": "^5.8.2"
   },
   "dependencies": {

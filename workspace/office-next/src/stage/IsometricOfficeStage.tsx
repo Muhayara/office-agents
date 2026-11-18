@@ -114,7 +114,9 @@ import {
 } from './navigation';
 import { CameraRig, ISO_FOCUS_HEIGHT, type CameraMode } from './camera/cameraRig';
 import { WallFader, type WalkZone } from './camera/wallFade';
-import { disposeObject, enableShadow, type ModelLoader } from './rooms/assets';
+import { disposeObject, enableShadow, lightAnchor, type ModelLoader } from './rooms/assets';
+import { ContactShadows, DeskGlows, LightPools } from './groundFx';
+import { ACTIVE_HOLD_MS, QUALITY, SHADOW_MAP_SIZE, type GraphicsQuality } from './graphics';
 import { buildMainWorkspace } from './rooms/mainWorkspace';
 import { buildMainCorridor } from './rooms/mainCorridor';
 import { buildMeetingFoyer } from './rooms/meetingFoyer';
@@ -164,7 +166,18 @@ interface IsometricOfficeStageProps {
   stageApiRef?: React.MutableRefObject<StageApi | null>;
   onCamModeChange?: (mode: CameraMode) => void;
   onLoadErrorChange?: (err: string | null) => void;
+  /** Mode grafis (Hemat / Tinggi). Diganti tanpa me-mount ulang scene. */
+  quality?: GraphicsQuality;
 }
+
+/** Ruangan navigasi yang GLB-nya dimuat di gelombang 1 (bingkai kamera awal). Sisanya gelombang 2. */
+const WAVE1_ROOMS: ReadonlySet<string> = new Set(['main', 'boardroom', 'foyer', 'bus', 'manager', 'pantry', 'lobby', 'lounge']);
+const WAVE1_CONCURRENCY = 4;
+const WAVE2_CONCURRENCY = 2;
+/** GLB yang tidak diberi bayangan kontak (cangkang ruangan, menempel dinding, alas besar). */
+const NO_CONTACT_SHADOW = /(room_shell|Boardroom_Shell|Living_Wall|Cyclorama|Elevator_Portal|Staircase|Kanban|Wall_AC|Pendant)/i;
+/** Slot GLB yang bergerak (kursi rapat ditarik): bayangan kontaknya diperbarui per frame. */
+const FOLLOW_CONTACT_SHADOW = /Conference_Chair/;
 
 const COFFEE_MIN_S   = 10;
 const COFFEE_MAX_S   = 22;
@@ -349,7 +362,9 @@ interface AgentMeshRefs {
   doc: THREE.Mesh;
   monitor: THREE.Mesh;
   screenMat: THREE.MeshStandardMaterial | null;
-  screenGlow: THREE.PointLight;
+  /** Indeks pendar layar di DeskGlows & warna agennya. */
+  glowIndex: number;
+  glowColor: THREE.Color;
   beacon: THREE.Mesh;
   selRing: THREE.Mesh;
   sitPos: { x: number; y: number; z: number };
@@ -419,8 +434,15 @@ export function IsometricOfficeStage({
   stageApiRef,
   onCamModeChange,
   onLoadErrorChange,
+  quality = 'low',
 }: IsometricOfficeStageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const qualityRef = useRef<GraphicsQuality>(quality);
+  const applyQualityRef = useRef<((q: GraphicsQuality) => void) | null>(null);
+  useEffect(() => {
+    qualityRef.current = quality;
+    applyQualityRef.current?.(quality);
+  }, [quality]);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [camMode, setCamMode] = useState<CameraMode>('iso');
   const apiRef = useRef<StageApi | null>(null);
@@ -460,20 +482,25 @@ export function IsometricOfficeStage({
 
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 500;
+    /** Ukuran panggung (di-cache: membaca clientWidth tiap frame memaksa layout). */
+    let viewW = width;
+    let viewH = height;
 
     // ----- Scene -----
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0b151b);
 
     // ----- Renderer -----
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    let quality: GraphicsQuality = qualityRef.current;
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(QUALITY[quality].pixelRatio());
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.35;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Grafis Hemat: tanpa shadow map (bayangan kontak palsu). PCFSoftShadowMap sudah dihapus di three r187.
+    renderer.shadowMap.enabled = QUALITY[quality].shadows;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     container.appendChild(renderer.domElement);
 
     // ----- PBR Room Environment (PMREM) -----
@@ -548,13 +575,14 @@ export function IsometricOfficeStage({
     // ================================================================
     // PENCAHAYAAN SINEMATIK
     // ================================================================
-    const hemi = new THREE.HemisphereLight(0xdcf3ff, 0x1c2b33, 1.8);
+    const hemi = new THREE.HemisphereLight(0xdcf3ff, 0x1c2b33, QUALITY[quality].hemi);
     scene.add(hemi);
+    scene.environmentIntensity = QUALITY[quality].env;
 
-    // Frustum bayangan dipaskan ke tapak gedung setelah ruangan dirakit (fitSunTo di bawah).
+    // Grafis Tinggi: frustum bayangan mengikuti area pandang kamera (fitSunToView di bawah).
     const sun = new THREE.DirectionalLight(0xfff7ed, 3.2);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.castShadow = QUALITY[quality].shadows;
+    sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
     sun.shadow.bias = -0.0003;
     sun.shadow.normalBias = 0.02;
     scene.add(sun, sun.target);
@@ -563,8 +591,9 @@ export function IsometricOfficeStage({
     fill.position.set(-14, 15, -10);
     scene.add(fill);
 
+    // Lampu zona ruang kerja: titik lampu (genangan cahaya / pool lampu), bukan PointLight permanen.
     const zoneLight = (c: number, i: number, x: number, z: number) => {
-      const l = new THREE.PointLight(c, i, 10, 1.6);
+      const l = lightAnchor(c, i, 10, 1.6);
       l.position.set(x, 3.0, z);
       scene.add(l);
     };
@@ -574,39 +603,131 @@ export function IsometricOfficeStage({
     zoneLight(0x60a5fa, 28,  3.5,  2.0); // QA & Vault
 
     // ================================================================
-    // PEMUAT MODEL (sekali unduh per file, tiap pemakai mendapat klon)
+    // PEMUAT MODEL: sekali unduh per file (tiap pemakai mendapat klon), antrean DUA GELOMBANG:
+    // 1) ruangan di bingkai kamera awal (maks 4 paralel), 2) ruangan timur/utara saat browser idle
+    // (maks 2 paralel). Fokus kamera ke sebuah ruangan langsung memajukan antrean ruangan itu.
+    // Shader tiap GLB dipanaskan dengan compileAsync (KHR_parallel_shader_compile) sebelum dipasang.
     // ================================================================
     const gltfLoader = new GLTFLoader();
     gltfLoader.setMeshoptDecoder(MeshoptDecoder);
     // Model yang selesai dimuat setelah komponen dilepas tidak boleh menyentuh scene lagi.
     let disposed = false;
     type Waiter = { onLoad: (g: THREE.Group) => void; onError?: (e: unknown) => void };
-    const templates = new Map<string, { scene?: THREE.Group; error?: unknown; waiters: Waiter[] }>();
-    const load: ModelLoader = (url, onLoad, onError) => {
-      let entry = templates.get(url);
-      if (!entry) {
-        const e: { scene?: THREE.Group; error?: unknown; waiters: Waiter[] } = { waiters: [] };
-        entry = e;
-        templates.set(url, e);
-        gltfLoader.load(
-          url,
-          (gltf) => {
-            if (disposed) { disposeObject(gltf.scene); return; }
-            e.scene = gltf.scene;
-            for (const w of e.waiters.splice(0)) w.onLoad(gltf.scene.clone(true));
-          },
-          undefined,
-          (err) => {
-            e.error = err ?? new Error(`Gagal memuat ${url}`);
-            if (disposed) return;
-            for (const w of e.waiters.splice(0)) w.onError?.(e.error);
-          },
-        );
+    interface GlbTemplate {
+      url: string;
+      scene?: THREE.Group;
+      error?: unknown;
+      waiters: Waiter[];
+      /** 0 = dipromosikan (fokus kamera), 1 = gelombang 1, 2 = gelombang 2. */
+      priority: number;
+      rooms: Set<string>;
+      state: 'queued' | 'loading' | 'done';
+    }
+    const templates = new Map<string, GlbTemplate>();
+    const glbQueue: GlbTemplate[] = [];
+    let glbActive = 0;
+    let glbLoaded = 0;
+    let wave2Open = false;
+    let firstFrameDone = false;
+    let pumpScheduled = false;
+
+    const pumpGlb = () => {
+      if (disposed) return;
+      glbQueue.sort((a, b) => a.priority - b.priority);
+      while (glbQueue.length > 0) {
+        const next = glbQueue[0]!;
+        const wave2 = next.priority >= 2;
+        if (wave2 && !wave2Open) break;
+        if (glbActive >= (wave2 ? WAVE2_CONCURRENCY : WAVE1_CONCURRENCY)) break;
+        glbQueue.shift();
+        startGlb(next);
       }
-      if (entry.scene) { onLoad(entry.scene.clone(true)); return; }
-      if (entry.error !== undefined) { onError?.(entry.error); return; }
-      entry.waiters.push({ onLoad, onError });
     };
+    const schedulePump = () => {
+      if (pumpScheduled) return;
+      pumpScheduled = true;
+      queueMicrotask(() => { pumpScheduled = false; pumpGlb(); });
+    };
+    /** Gelombang 2 dibuka setelah semua GLB gelombang 1 selesai & frame pertama tampil, saat browser idle. */
+    const maybeOpenWave2 = () => {
+      if (wave2Open || !firstFrameDone || disposed) return;
+      for (const t of templates.values()) if (t.priority < 2 && t.state !== 'done') return;
+      const open = () => { if (disposed || wave2Open) return; wave2Open = true; pumpGlb(); };
+      const ric = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      if (ric) ric(open, { timeout: 1500 }); else window.setTimeout(open, 300);
+    };
+    const finishGlb = (t: GlbTemplate) => {
+      t.state = 'done';
+      pumpGlb();
+      maybeOpenWave2();
+    };
+    const startGlb = (t: GlbTemplate) => {
+      t.state = 'loading';
+      glbActive++;
+      gltfLoader.load(
+        t.url,
+        (gltf) => {
+          glbActive--;
+          if (disposed) { disposeObject(gltf.scene); return; }
+          const tpl = gltf.scene;
+          // Panaskan shader di latar (tanpa mengunci UI), baru pasang klon ke ruangan.
+          renderer.compileAsync(tpl, cam.active(), scene).catch(() => undefined).then(() => {
+            if (disposed) return;
+            t.scene = tpl;
+            glbLoaded++;
+            for (const w of t.waiters.splice(0)) w.onLoad(tpl.clone(true));
+            finishGlb(t);
+          });
+          pumpGlb();
+        },
+        undefined,
+        (err) => {
+          glbActive--;
+          t.error = err ?? new Error(`Gagal memuat ${t.url}`);
+          if (disposed) return;
+          for (const w of t.waiters.splice(0)) w.onError?.(t.error);
+          finishGlb(t);
+        },
+      );
+    };
+    const requestGlb = (url: string, room: string, onLoad: Waiter['onLoad'], onError?: Waiter['onError']) => {
+      const priority = WAVE1_ROOMS.has(room) ? 1 : 2;
+      let t = templates.get(url);
+      if (!t) {
+        t = { url, waiters: [], priority, rooms: new Set([room]), state: 'queued' };
+        templates.set(url, t);
+        glbQueue.push(t);
+      } else {
+        t.rooms.add(room);
+        if (t.state === 'queued') t.priority = Math.min(t.priority, priority);
+      }
+      if (t.scene) { onLoad(t.scene.clone(true)); return; }
+      if (t.error !== undefined) { onError?.(t.error); return; }
+      t.waiters.push({ onLoad, onError });
+      schedulePump();
+    };
+    /** Majukan GLB sebuah ruangan navigasi ke urutan pertama antrean (fokus kamera / kamera mendekat). */
+    const promoteRoom = (room: string) => {
+      let any = false;
+      for (const t of glbQueue) if (t.rooms.has(room) && t.priority > 0) { t.priority = 0; any = true; }
+      if (any) pumpGlb();
+    };
+
+    // ---- Bayangan kontak (mode Hemat): dipasang otomatis untuk setiap GLB yang menapak lantai ----
+    const contactShadows = new ContactShadows();
+    contactShadows.setVisible(!QUALITY[quality].shadows);
+    scene.add(contactShadows.group);
+    const onModelMount = (slot: THREE.Object3D, model: THREE.Object3D, url: string) => {
+      if (disposed || NO_CONTACT_SHADOW.test(url)) return;
+      contactShadows.addFootprint(slot, model, { follow: FOLLOW_CONTACT_SHADOW.test(url) });
+    };
+    const loaderFor = (room: string): ModelLoader => {
+      const fn: ModelLoader = (url, onLoad, onError) => requestGlb(url, room, onLoad, onError);
+      fn.onMount = onModelMount;
+      return fn;
+    };
+    const load = loaderFor('main');
+    const loadAsync = (url: string) => new Promise<THREE.Group | null>((resolve) => load(url, resolve, () => resolve(null)));
 
     // ================================================================
     // HIRARKI GEDUNG: BuildingRoot → Floor_1_Group → Layer Ruangan
@@ -625,28 +746,28 @@ export function IsometricOfficeStage({
       onShellError: (e) => onLoadErrorChangeRef.current?.(String(e)),
     });
     const bus = buildMainCorridor(fader);
-    const foyer = buildMeetingFoyer(load, fader);
+    const foyer = buildMeetingFoyer(loaderFor('foyer'), fader);
     // Tahap 2: ruangan di sisi selatan Jalan Utama.
-    const manager = buildManagerOffice(load, fader);
-    const pantry = buildPantryCafe(load, fader);
+    const manager = buildManagerOffice(loaderFor('manager'), fader);
+    const pantry = buildPantryCafe(loaderFor('pantry'), fader);
     // Tahap 3: Lobi & Resepsionis, Lounge, Server / IT.
-    const lobby = buildLobbyReception(load, fader);
-    const lounge = buildLoungeRelax(load, fader);
-    const server = buildServerRoom(load, fader);
+    const lobby = buildLobbyReception(loaderFor('lobby'), fader);
+    const lounge = buildLoungeRelax(loaderFor('lounge'), fader);
+    const server = buildServerRoom(loaderFor('server'), fader);
     // Tahap 4: Collaboration Commons (utara bus) & Digital Garden (selatan, timur Server).
-    const commons = buildCollabCommons(load, fader);
-    const garden = buildDigitalGarden(load, fader);
+    const commons = buildCollabCommons(loaderFor('commons'), fader);
+    const garden = buildDigitalGarden(loaderFor('garden'), fader);
     // Tahap 5: Workshop / Training (utara bus), Information Wall & Collaboration Pods (baris utara kedua).
-    const workshop = buildWorkshopTraining(load, fader);
-    const infoWall = buildInfoWall(load, fader);
-    const collabPods = buildCollabPods(load, fader);
+    const workshop = buildWorkshopTraining(loaderFor('workshop'), fader);
+    const infoWall = buildInfoWall(loaderFor('infowall'), fader);
+    const collabPods = buildCollabPods(loaderFor('collabpods'), fader);
     // Tahap 6 (penutup Lantai 1): Studio / Content (baris utara kedua), Focus Pods & Digital Access Hub (selatan).
-    const studio = buildStudioContent(load, fader);
-    const focusPods = buildFocusPods(load, fader);
-    const accessHub = buildAccessHub(load, fader);
+    const studio = buildStudioContent(loaderFor('studio'), fader);
+    const focusPods = buildFocusPods(loaderFor('focus'), fader);
+    const accessHub = buildAccessHub(loaderFor('access'), fader);
     // Karpet seluruh lantai disamakan dengan karpet ruang rapat begitu GLB-nya dimuat
     // (Pantry memakai keramik mozaik sendiri).
-    const board = buildBoardroom(load, fader, (mat) => {
+    const board = buildBoardroom(loaderFor('boardroom'), fader, (mat) => {
       main.setCarpetMaterial(mat);
       foyer.setCarpetMaterial(mat);
       bus.setCarpetMaterial(mat);
@@ -717,32 +838,89 @@ export function IsometricOfficeStage({
       return box;
     };
 
-    // ---- Bayangan matahari: frustum dipaskan ke seluruh tapak yang sudah dibangun ----
+    // ---- Bayangan matahari (Grafis Tinggi). Arah & matriks pandang matahari tetap (pusat tapak);
+    // hanya persegi frustum (ruang cahaya) yang mengikuti area lantai yang terlihat kamera, dibulatkan
+    // ke kelipatan 2 m & di-snap ke ukuran texel supaya bayangan tidak berkedip saat kamera digeser. ----
+    const siteBox = zoneBox(Object.values(zones));
+    const sunView = new THREE.Matrix4();
+    const siteLight = { lo: new THREE.Vector3(), hi: new THREE.Vector3() };
     {
-      const box = zoneBox(Object.values(zones));
-      const center = box.getCenter(new THREE.Vector3()).setY(0);
+      const center = siteBox.getCenter(new THREE.Vector3()).setY(0);
       sun.position.copy(center).add(SUN_OFFSET);
       sun.target.position.copy(center);
       sun.target.updateMatrixWorld();
-      const view = new THREE.Matrix4().lookAt(sun.position, center, THREE.Object3D.DEFAULT_UP).setPosition(sun.position).invert();
-      const lo = new THREE.Vector3(Infinity, Infinity, Infinity);
-      const hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+      sunView.lookAt(sun.position, center, THREE.Object3D.DEFAULT_UP).setPosition(sun.position).invert();
+      siteLight.lo.set(Infinity, Infinity, Infinity);
+      siteLight.hi.set(-Infinity, -Infinity, -Infinity);
       const p = new THREE.Vector3();
-      for (const x of [box.min.x, box.max.x]) for (const y of [-0.3, box.max.y]) for (const z of [box.min.z, box.max.z]) {
-        p.set(x, y, z).applyMatrix4(view);
-        lo.min(p);
-        hi.max(p);
+      for (const x of [siteBox.min.x, siteBox.max.x]) for (const y of [-0.3, siteBox.max.y]) for (const z of [siteBox.min.z, siteBox.max.z]) {
+        p.set(x, y, z).applyMatrix4(sunView);
+        siteLight.lo.min(p);
+        siteLight.hi.max(p);
       }
-      const pad = 0.5;
       const sc = sun.shadow.camera;
-      sc.left = lo.x - pad;
-      sc.right = hi.x + pad;
-      sc.bottom = lo.y - pad;
-      sc.top = hi.y + pad;
-      sc.near = Math.max(0.5, -hi.z - 2);
-      sc.far = -lo.z + 2;
+      sc.near = Math.max(0.5, -siteLight.hi.z - 2);
+      sc.far = -siteLight.lo.z + 2;
+      sc.left = siteLight.lo.x - 0.5; sc.right = siteLight.hi.x + 0.5;
+      sc.bottom = siteLight.lo.y - 0.5; sc.top = siteLight.hi.y + 0.5;
       sc.updateProjectionMatrix();
     }
+    const fitTmp = { near: new THREE.Vector3(), far: new THREE.Vector3(), p: new THREE.Vector3(), lo: new THREE.Vector3(), hi: new THREE.Vector3() };
+    let sunFitKey = '';
+    /** Paskan frustum bayangan ke tapak lantai yang terlihat kamera aktif (dipanggil per frame di mode Tinggi). */
+    const fitSunToView = (camera: THREE.Camera) => {
+      const { near, far, p, lo, hi } = fitTmp;
+      lo.set(Infinity, Infinity, Infinity);
+      hi.set(-Infinity, -Infinity, -Infinity);
+      const add = (x: number, z: number) => {
+        x = THREE.MathUtils.clamp(x, siteBox.min.x - 0.5, siteBox.max.x + 0.5);
+        z = THREE.MathUtils.clamp(z, siteBox.min.z - 0.5, siteBox.max.z + 0.5);
+        for (const y of [0, WALL_HEIGHT]) {
+          p.set(x, y, z).applyMatrix4(sunView);
+          lo.min(p);
+          hi.max(p);
+        }
+      };
+      for (const [nx, ny] of [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 0]] as const) {
+        near.set(nx, ny, -1).unproject(camera);
+        far.set(nx, ny, 1).unproject(camera);
+        far.sub(near).normalize();
+        for (const h of [0, WALL_HEIGHT]) {
+          const t = far.y < -1e-3 ? (h - near.y) / far.y : -1;
+          const d = t > 0 ? Math.min(t, 45) : 45;
+          add(near.x + far.x * d, near.z + far.z * d);
+        }
+      }
+      if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) add(camera.position.x, camera.position.z);
+      const step = 2;
+      const w = Math.min(Math.ceil((hi.x - lo.x + 1) / step) * step, siteLight.hi.x - siteLight.lo.x + 2);
+      const h = Math.min(Math.ceil((hi.y - lo.y + 1) / step) * step, siteLight.hi.y - siteLight.lo.y + 2);
+      const tx = w / SHADOW_MAP_SIZE, ty = h / SHADOW_MAP_SIZE;
+      const left = Math.floor((lo.x - 0.5) / tx) * tx;
+      const bottom = Math.floor((lo.y - 0.5) / ty) * ty;
+      const key = `${left.toFixed(4)}|${bottom.toFixed(4)}|${w}|${h}`;
+      if (key === sunFitKey) return;
+      sunFitKey = key;
+      const sc = sun.shadow.camera;
+      sc.left = left; sc.right = left + w;
+      sc.bottom = bottom; sc.top = bottom + h;
+      sc.updateProjectionMatrix();
+    };
+
+    // ---- Culling kanvas animasi: layar NOC & Information Wall hanya digambar ulang saat terlihat ----
+    const roomBoxes = { server: zoneBox([zones.server]), infowall: zoneBox([zones.infowall]) };
+    const viewFrustum = new THREE.Frustum();
+    const viewProj = new THREE.Matrix4();
+    let frustumReady = false;
+    const roomInView = (b: THREE.Box3) => !frustumReady || viewFrustum.intersectsBox(b);
+
+    // ---- Genangan cahaya palsu di tiap titik lampu + pool 3 PointLight (Grafis Tinggi) ----
+    scene.updateMatrixWorld(true);
+    const anchorObjects: THREE.Object3D[] = [];
+    scene.traverse((o) => { if (o.userData.lightAnchor) anchorObjects.push(o); });
+    const lightPools = new LightPools(anchorObjects, Object.values(zones));
+    lightPools.setHigh(QUALITY[quality].shadows);
+    scene.add(lightPools.group);
 
     // ---- Bingkai awal kamera: klaster inti (ruang kerja + ruang rapat + foyer + ruas bus di
     // depannya) dan ruangan Tahap 2 di seberang Jalan Utama (Ruang Manajer & Pantry) ----
@@ -932,14 +1110,12 @@ export function IsometricOfficeStage({
     // Antrean Kopi Terstruktur
     let coffeeQueue: string[] = [];
 
-    let deskT: THREE.Group | null = null;
-    let chairT: THREE.Group | null = null;
-
     // ================================================================
     // DESK STATIONS (Meja, Kursi, Monitor SATU SISI LAYAR DEPAN SAJA)
+    // Dibangun SEKALI. desk.glb & Office_Ergonomic_Chair.glb (dimuat bersamaan) menggantikan
+    // placeholder di slotnya masing-masing; monitor, keyboard, dan titik duduk tidak dibangun ulang.
     // ================================================================
     const seatAnchorOf = new Map<string, THREE.Object3D>();
-    const clearGroup = (g: THREE.Group) => { while (g.children.length > 0) g.remove(g.children[0]!); };
 
     /** Sub-layer meja per ruangan (koordinat meja LOKAL terhadap ruangannya). */
     const deskRooms = {
@@ -947,15 +1123,28 @@ export function IsometricOfficeStage({
       manager: { group: manager.group, workstations: manager.workstations, chairs: manager.chairs, seatAnchors: manager.seatAnchors },
     } as const;
 
-    const rebuildDesks = () => {
-      for (const r of Object.values(deskRooms)) {
-        clearGroup(r.workstations);
-        clearGroup(r.chairs);
-        clearGroup(r.seatAnchors);
-      }
-      seatAnchorOf.clear();
+    /** Geometri & material bersama 10 meja (bukan puluhan BoxGeometry per agen). */
+    const deskShared = {
+      deskPhGeo: new THREE.BoxGeometry(1.4, 0.75, 0.7),
+      deskPhMat: new THREE.MeshStandardMaterial({ color: 0x182a32, roughness: 0.6, metalness: 0.2 }),
+      chairPhGeo: new THREE.BoxGeometry(0.5, 0.45, 0.5),
+      chairPhMat: new THREE.MeshStandardMaterial({ color: 0x111c22, roughness: 0.8 }),
+      kbGeo: new THREE.BoxGeometry(0.32, 0.015, 0.12),
+      kbMat: new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.7, metalness: 0.3 }),
+      mouseGeo: new THREE.BoxGeometry(0.06, 0.02, 0.09),
+      mouseMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 }),
+      monGeo: new THREE.BoxGeometry(0.62, 0.36, 0.04),
+      casingMat: new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.85, metalness: 0.2 }),
+      ringGeo: new THREE.RingGeometry(0.8, 0.9, 32),
+    };
+    const deskSlots: THREE.Group[] = [];
+    const chairSlots: THREE.Group[] = [];
+    // Pendar layar di permukaan meja (pengganti 10 PointLight screenGlow).
+    const deskGlows = new DeskGlows(initAgents.length);
+    scene.add(deskGlows.mesh);
 
-      initAgents.forEach((ag) => {
+    const buildDesks = () => {
+      initAgents.forEach((ag, agentIndex) => {
         const posInfo = AGENT_3D_POSITIONS[ag.id];
         if (!posInfo) return;
         const room = deskRooms[posInfo.room ?? 'main'];
@@ -970,33 +1159,26 @@ export function IsometricOfficeStage({
         // Meja Kerja (Raka: meja L walnut Ruang Manajer)
         if (posInfo.style === 'executive') {
           g.add(manager.executiveDesk());
-        } else if (deskT) {
-          g.add(deskT.clone(true));
         } else {
-          const m = new THREE.Mesh(
-            new THREE.BoxGeometry(1.4, 0.75, 0.7),
-            new THREE.MeshStandardMaterial({ color: 0x182a32, roughness: 0.6, metalness: 0.2 }),
-          );
+          const slot = new THREE.Group();
+          slot.name = 'Desk_Slot';
+          const m = new THREE.Mesh(deskShared.deskPhGeo, deskShared.deskPhMat);
           m.position.y = 0.375;
           m.castShadow = true;
           m.receiveShadow = true;
-          g.add(m);
+          slot.add(m);
+          g.add(slot);
+          deskSlots.push(slot);
         }
 
         // Keyboard di atas meja (z = 0.10 local)
-        const kb = new THREE.Mesh(
-          new THREE.BoxGeometry(0.32, 0.015, 0.12),
-          new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.7, metalness: 0.3 }),
-        );
+        const kb = new THREE.Mesh(deskShared.kbGeo, deskShared.kbMat);
         // Aksesori meja mengikuti tinggi permukaan meja (desk.glb 0,754 m; meja L Raka 0,75 m).
         const dy = (posInfo.style === 'executive' ? MANAGER.deskTopY : 0.754) - 0.754;
         kb.position.set(0, 0.765 + dy, 0.10);
         g.add(kb);
 
-        const mouseMesh = new THREE.Mesh(
-          new THREE.BoxGeometry(0.06, 0.02, 0.09),
-          new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 }),
-        );
+        const mouseMesh = new THREE.Mesh(deskShared.mouseGeo, deskShared.mouseMat);
         mouseMesh.position.set(0.24, 0.765 + dy, 0.10);
         g.add(mouseMesh);
 
@@ -1004,7 +1186,7 @@ export function IsometricOfficeStage({
         // MONITOR: HANYA SATU LAYAR DEPAN AKTIF, BELAKANG MATTE PLASTIK!
         // BoxGeometry index 4 = +Z (layar menghadap karyawan), sisanya casing.
         // ==============================================================
-        const casingMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.85, metalness: 0.2 });
+        const casingMat = deskShared.casingMat;
         const screenMat = new THREE.MeshStandardMaterial({
           color: 0x050c12,
           map: codeTexture,
@@ -1015,24 +1197,21 @@ export function IsometricOfficeStage({
           metalness: 0.1,
         });
         const monitorMaterials = [casingMat, casingMat, casingMat, casingMat, screenMat, casingMat];
-        const mon = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.36, 0.04), monitorMaterials);
+        const mon = new THREE.Mesh(deskShared.monGeo, monitorMaterials);
         mon.position.set(0, 0.95 + dy, -0.2);
         mon.castShadow = true;
         g.add(mon);
 
-        // Screen Glow ke Meja
-        const glow = new THREE.PointLight(color, 2.0, 1.8, 2);
-        glow.position.set(0, 0.95 + dy, -0.05);
-        g.add(glow);
-
         // Selection Ring
         const ringMat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0 });
-        const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 0.9, 32), ringMat);
+        const ring = new THREE.Mesh(deskShared.ringGeo, ringMat);
         ring.rotation.x = -Math.PI / 2;
         ring.position.y = 0.01;
         g.add(ring);
 
         room.workstations.add(g);
+        // Pendar layar ke meja: bidang aditif di permukaan meja, di depan monitor.
+        deskGlows.place(agentIndex, g, 0, 0.757 + dy, 0.02, 1.0, 0.62);
 
         // Kursi kerja (SubLayer_Chairs) di titik duduk, menghadap ke meja
         const sp = sitLocal(posInfo);
@@ -1042,18 +1221,22 @@ export function IsometricOfficeStage({
         cg.userData = { agentId: ag.id };
         cg.position.set(sp.x, 0, sp.z);
         cg.rotation.y = sRotY;
-        const chairModel = (): THREE.Object3D => {
-          if (chairT) return chairT.clone(true);
-          const c = new THREE.Mesh(
-            new THREE.BoxGeometry(0.5, 0.45, 0.5),
-            new THREE.MeshStandardMaterial({ color: 0x111c22, roughness: 0.8 }),
-          );
-          c.position.set(0, 0.225, 0);
-          c.castShadow = true;
-          return c;
-        };
-        // Raka: kursi eksekutif kulit (GLB sendiri), kursi ergonomis sebagai placeholder.
-        cg.add(posInfo.style === 'executive' ? manager.executiveChair(chairModel()) : chairModel());
+        if (posInfo.style === 'executive') {
+          // Raka: kursi eksekutif kulit (GLB sendiri). Placeholder milik sendiri (dibuang mountAsset).
+          const ph = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.5), deskShared.chairPhMat.clone());
+          ph.position.set(0, 0.225, 0);
+          ph.castShadow = true;
+          cg.add(manager.executiveChair(ph));
+        } else {
+          const slot = new THREE.Group();
+          slot.name = 'Chair_Slot';
+          const ph = new THREE.Mesh(deskShared.chairPhGeo, deskShared.chairPhMat);
+          ph.position.set(0, 0.225, 0);
+          ph.castShadow = true;
+          slot.add(ph);
+          cg.add(slot);
+          chairSlots.push(slot);
+        }
         room.chairs.add(cg);
 
         // Seat anchor (SubLayer_SeatAnchors): posisi duduk dibaca lewat getWorldPosition.
@@ -1070,40 +1253,65 @@ export function IsometricOfficeStage({
         const vw = room.group.localToWorld(new THREE.Vector3(vl.x, 0, vl.z));
         const visitPos = { x: vw.x, z: vw.z };
 
-        const existing = meshMap.get(ag.id);
-        if (existing) {
-          existing.deskGroup = g;
-          existing.monitor = mon;
-          existing.screenMat = screenMat;
-          existing.screenGlow = glow;
-          existing.selRing = ring;
-          existing.sitPos = sitPos;
-          existing.sitRotY = sRotY;
-          existing.visitPos = visitPos;
-        } else {
-          meshMap.set(ag.id, {
-            deskGroup: g, avatar: new THREE.Group(),
-            leftArmPivot: new THREE.Group(), rightArmPivot: new THREE.Group(),
-            leftLegPivot: new THREE.Group(), rightLegPivot: new THREE.Group(),
-            cup: new THREE.Mesh(), doc: new THREE.Mesh(), monitor: mon, screenMat, screenGlow: glow,
-            beacon: new THREE.Mesh(), selRing: ring,
-            sitPos, sitRotY: sRotY, visitPos,
-          });
-        }
+        meshMap.set(ag.id, {
+          deskGroup: g, avatar: new THREE.Group(),
+          leftArmPivot: new THREE.Group(), rightArmPivot: new THREE.Group(),
+          leftLegPivot: new THREE.Group(), rightLegPivot: new THREE.Group(),
+          cup: new THREE.Mesh(), doc: new THREE.Mesh(), monitor: mon, screenMat,
+          glowIndex: agentIndex, glowColor: color,
+          beacon: new THREE.Mesh(), selRing: ring,
+          sitPos, sitRotY: sRotY, visitPos,
+        });
       });
+    };
+
+    /** Ganti placeholder meja/kursi dengan GLB (sekali, setelah kedua template siap). */
+    const mountDeskModels = (deskT: THREE.Group | null, chairT: THREE.Group | null) => {
+      const fill = (slots: THREE.Group[], tpl: THREE.Group | null) => {
+        if (tpl) enableShadow(tpl);
+        for (const slot of slots) {
+          if (tpl) {
+            slot.clear(); // placeholder memakai geometri bersama: cukup dilepas, dibuang saat unmount
+            slot.add(tpl.clone(true));
+          }
+          contactShadows.addFootprint(slot, slot);
+        }
+      };
+      fill(deskSlots, deskT);
+      fill(chairSlots, chairT);
     };
 
     // ================================================================
     // AVATAR AGEN DENGAN ARTIKULASI LENGAN & KAKI (MENGHADAP MEJA!)
     // ================================================================
+    /** Geometri & material avatar dipakai bersama ke-10 agen (hanya kemeja & beacon per agen). */
+    const avatarShared = {
+      bodyGeo: new THREE.CylinderGeometry(0.13, 0.15, 0.35, 12),
+      headGeo: new THREE.SphereGeometry(0.12, 16, 16),
+      hairGeo: new THREE.SphereGeometry(0.124, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2),
+      armGeo: new THREE.CylinderGeometry(0.028, 0.022, 0.18, 8),
+      handGeo: new THREE.SphereGeometry(0.03, 8, 8),
+      docGeo: new THREE.BoxGeometry(0.17, 0.006, 0.22),
+      cupGeo: new THREE.CylinderGeometry(0.04, 0.032, 0.08, 8),
+      legGeo: new THREE.CylinderGeometry(0.035, 0.028, 0.22, 8),
+      beaconGeo: new THREE.OctahedronGeometry(0.14, 0),
+      skinMat: new THREE.MeshStandardMaterial({ color: 0xffd9b3, roughness: 0.6 }),
+      hairMat: new THREE.MeshStandardMaterial({ color: 0x172227, roughness: 0.9 }),
+      docMat: new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.55 }),
+      cupMat: new THREE.MeshStandardMaterial({ color: 0xfaf8f5, roughness: 0.25, metalness: 0.1 }),
+      legMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 }),
+    };
+
     const buildAvatars = () => {
       while (avatarsGroup.children.length > 0) avatarsGroup.remove(avatarsGroup.children[0]!);
+      const S = avatarShared;
 
       initAgents.forEach((ag, idx) => {
         const refs = meshMap.get(ag.id);
         if (!refs) return;
         const color = new THREE.Color(ag.color);
         const sp = refs.sitPos;
+        const shirtMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 });
 
         const g = new THREE.Group();
         g.name = `Avatar_${ag.id}`;
@@ -1112,49 +1320,34 @@ export function IsometricOfficeStage({
         g.rotation.y = refs.sitRotY;
 
         // Badan / Kemeja
-        const body = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.13, 0.15, 0.35, 12),
-          new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 }),
-        );
+        const body = new THREE.Mesh(S.bodyGeo, shirtMat);
         body.position.y = 0.28;
         body.castShadow = true;
         g.add(body);
 
         // Kepala
-        const head = new THREE.Mesh(
-          new THREE.SphereGeometry(0.12, 16, 16),
-          new THREE.MeshStandardMaterial({ color: 0xffd9b3, roughness: 0.6 }),
-        );
+        const head = new THREE.Mesh(S.headGeo, S.skinMat);
         head.position.y = 0.57;
         head.castShadow = true;
         g.add(head);
 
         // Rambut Stylized
-        const hair = new THREE.Mesh(
-          new THREE.SphereGeometry(0.124, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2),
-          new THREE.MeshStandardMaterial({ color: 0x172227, roughness: 0.9 }),
-        );
+        const hair = new THREE.Mesh(S.hairGeo, S.hairMat);
         hair.position.y = 0.58;
         g.add(hair);
 
         // Lengan Kiri (Pivot Sendi Bahu)
         const lap = new THREE.Group();
         lap.position.set(-0.17, 0.40, 0);
-        const lf = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.028, 0.022, 0.18, 8),
-          new THREE.MeshStandardMaterial({ color, roughness: 0.6 }),
-        );
+        const lf = new THREE.Mesh(S.armGeo, shirtMat);
         lf.position.y = -0.09;
         lap.add(lf);
-        const lh = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), new THREE.MeshStandardMaterial({ color: 0xffd9b3 }));
+        const lh = new THREE.Mesh(S.handGeo, S.skinMat);
         lh.position.y = -0.18;
         lap.add(lh);
 
         // Map dokumen di tangan kiri (dibawa saat serah-terima / minta review)
-        const doc = new THREE.Mesh(
-          new THREE.BoxGeometry(0.17, 0.006, 0.22),
-          new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.55 }),
-        );
+        const doc = new THREE.Mesh(S.docGeo, S.docMat);
         doc.position.set(0, -0.2, 0.06);
         doc.rotation.x = -0.35;
         doc.visible = false;
@@ -1164,21 +1357,15 @@ export function IsometricOfficeStage({
         // Lengan Kanan (Pivot Sendi Bahu)
         const rap = new THREE.Group();
         rap.position.set(0.17, 0.40, 0);
-        const rf = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.028, 0.022, 0.18, 8),
-          new THREE.MeshStandardMaterial({ color, roughness: 0.6 }),
-        );
+        const rf = new THREE.Mesh(S.armGeo, shirtMat);
         rf.position.y = -0.09;
         rap.add(rf);
-        const rh = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), new THREE.MeshStandardMaterial({ color: 0xffd9b3 }));
+        const rh = new THREE.Mesh(S.handGeo, S.skinMat);
         rh.position.y = -0.18;
         rap.add(rh);
 
         // Cangkir Kopi di Tangan Kanan
-        const cup = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.04, 0.032, 0.08, 8),
-          new THREE.MeshStandardMaterial({ color: 0xfaf8f5, roughness: 0.25, metalness: 0.1 }),
-        );
+        const cup = new THREE.Mesh(S.cupGeo, S.cupMat);
         cup.position.set(0, -0.20, 0.04);
         cup.visible = false;
         rap.add(cup);
@@ -1187,10 +1374,7 @@ export function IsometricOfficeStage({
         // Kaki Kiri (Pivot Pinggul)
         const llp = new THREE.Group();
         llp.position.set(-0.07, 0.12, 0);
-        const llMesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.035, 0.028, 0.22, 8),
-          new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 }),
-        );
+        const llMesh = new THREE.Mesh(S.legGeo, S.legMat);
         llMesh.position.y = -0.11;
         llMesh.castShadow = true;
         llp.add(llMesh);
@@ -1199,10 +1383,7 @@ export function IsometricOfficeStage({
         // Kaki Kanan (Pivot Pinggul)
         const rlp = new THREE.Group();
         rlp.position.set(0.07, 0.12, 0);
-        const rlMesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.035, 0.028, 0.22, 8),
-          new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 }),
-        );
+        const rlMesh = new THREE.Mesh(S.legGeo, S.legMat);
         rlMesh.position.y = -0.11;
         rlMesh.castShadow = true;
         rlp.add(rlMesh);
@@ -1213,12 +1394,13 @@ export function IsometricOfficeStage({
           color, emissive: color, emissiveIntensity: 0.9, roughness: 0.15, metalness: 0.85,
         });
         beaconMat.userData.baseColor = color.clone();
-        const beacon = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), beaconMat);
+        const beacon = new THREE.Mesh(S.beaconGeo, beaconMat);
         beacon.position.y = 0.92;
         beacon.userData = { isBeacon: true, offset: idx * 0.7, baseY: 0.92 };
         g.add(beacon);
 
         avatarsGroup.add(g);
+        contactShadows.addAvatar(g);
 
         refs.avatar = g;
         refs.leftArmPivot = lap;
@@ -1255,18 +1437,21 @@ export function IsometricOfficeStage({
     // ================================================================
     // SPEECH BUBBLE DOM (Imperatively-managed)
     // ================================================================
+    /** Elemen bubble per agen (tanpa querySelector di loop render). */
+    const bubbleEls = new Map<string, { el: HTMLDivElement; txt: HTMLSpanElement; text: string; shown: boolean; x: number; y: number; op: number }>();
     const initBubbles = () => {
       const bc = bubbleRef.current;
       if (!bc) return;
       initAgents.forEach((ag) => {
         const div = document.createElement('div');
         div.dataset.agent = ag.id;
+        // Diposisikan lewat transform (komposit GPU, tanpa layout ulang). Tanpa backdrop-filter:
+        // latar 94% opak, blur di atas kanvas WebGL hanya membebani GPU setiap frame.
         Object.assign(div.style, {
           position: 'absolute', display: 'none',
-          transform: 'translate(-50%, -100%)',
+          left: '0px', top: '0px',
+          willChange: 'transform',
           background: 'rgba(12, 22, 28, 0.94)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
           border: `1.5px solid ${ag.color}88`,
           borderRadius: '10px',
           padding: '8px 12px',
@@ -1293,6 +1478,7 @@ export function IsometricOfficeStage({
         const txt = document.createElement('span');
         txt.dataset.text = 'true';
         div.appendChild(txt);
+        bubbleEls.set(ag.id, { el: div, txt, text: '', shown: false, x: NaN, y: NaN, op: -1 });
 
         const ptr = document.createElement('div');
         Object.assign(ptr.style, {
@@ -1308,7 +1494,7 @@ export function IsometricOfficeStage({
       });
     };
 
-    rebuildDesks();
+    buildDesks();
     buildAvatars();
     initAnims();
     initBubbles();
@@ -1326,9 +1512,10 @@ export function IsometricOfficeStage({
       });
     }
 
-    // Template meja & kursi kerja (setelah fungsi rebuild siap)
-    load('/models/desk.glb', (m) => { deskT = m; enableShadow(m); rebuildDesks(); });
-    load('/models/Office_Ergonomic_Chair.glb', (m) => { chairT = m; enableShadow(m); rebuildDesks(); });
+    // Template meja & kursi kerja: ditunggu bersamaan, lalu dipasang SEKALI di slotnya.
+    void Promise.all([loadAsync('/models/desk.glb'), loadAsync('/models/Office_Ergonomic_Chair.glb')]).then(([deskT, chairT]) => {
+      if (!disposed) mountDeskModels(deskT, chairT);
+    });
 
     // ================================================================
     // PEMILIHAN AGEN (klik tanpa seret, kedua mode kamera)
@@ -1363,8 +1550,11 @@ export function IsometricOfficeStage({
       if (!container) return;
       const w = container.clientWidth, h = container.clientHeight;
       if (w === 0 || h === 0) return;
+      viewW = w;
+      viewH = h;
       renderer.setSize(w, h);
       cam.resize(w, h);
+      cam.poke();
     };
     window.addEventListener('resize', handleResize);
 
@@ -2537,8 +2727,8 @@ export function IsometricOfficeStage({
         refs.beacon.rotation.y += 0.025;
         (refs.beacon.material as THREE.MeshStandardMaterial).emissiveIntensity = isSelected ? 1.8 : 0.9;
 
-        // Screen Glow flicker & intensitas
-        refs.screenGlow.intensity = isSelected ? 3.0 : 1.8 + Math.sin(globalTime * 4 + (bData.offset || 0)) * 0.3;
+        // Pendar layar ke meja (flicker & intensitas), dulu PointLight screenGlow.
+        let glow = isSelected ? 3.0 : 1.8 + Math.sin(globalTime * 4 + (bData.offset || 0)) * 0.3;
 
         // ---------- Visual mengikuti status asli (live) ----------
         const status = statusOf(agentId);
@@ -2550,7 +2740,7 @@ export function IsometricOfficeStage({
             refs.screenMat.emissive.setHex(look.screen);
             refs.screenMat.emissiveIntensity = look.screenIntensity;
           }
-          refs.screenGlow.intensity *= look.glow;
+          glow *= look.glow;
           if (look.beacon !== null) {
             beaconMat.emissive.setHex(look.beacon);
             beaconMat.color.setHex(look.beacon);
@@ -2571,6 +2761,7 @@ export function IsometricOfficeStage({
             beaconMat.color.set(beaconMat.userData.baseColor);
           }
         }
+        deskGlows.setColor(refs.glowIndex, refs.glowColor, glow * 0.15);
 
         switch (anim.state) {
           case 'working': {
@@ -3049,13 +3240,14 @@ export function IsometricOfficeStage({
         }
       }
 
+      deskGlows.commit();
       main.update(globalTime);
       board.update(dt);
       // Pintu otomatis Lobi & Server (sensor gerak), LED rak & layar NOC.
       const agentPts: Pt[] = [];
       for (const r of meshMap.values()) if (r.avatar.visible) agentPts.push({ x: r.avatar.position.x, z: r.avatar.position.z });
       lobby.update(dt, agentPts);
-      server.update(globalTime, dt, agentPts);
+      server.update(globalTime, dt, agentPts, roomInView(roomBoxes.server));
       garden.update(globalTime, dt, agentPts);
       workshop.update(globalTime);
       collabPods.setOccupancy([!!(podOccupant[0] || podOccupant[1]), !!(podOccupant[2] || podOccupant[3])]);
@@ -3124,7 +3316,8 @@ export function IsometricOfficeStage({
           meeting: meeting && meeting.phase !== 'dispersing' ? meeting.topic : null,
           agents: rows,
         };
-        infoWall.setScreen(info);
+        // Layar komando digambar ulang hanya saat Information Wall terlihat kamera.
+        if (roomInView(roomBoxes.infowall)) infoWall.setScreen(info);
         workshop.setSession(workshopPresenter
           ? { topic: workshopTopic, presenter: agentName(workshopPresenter), role: agentRole(workshopPresenter), attendees: workshopOccupant.filter(Boolean).length }
           : null);
@@ -3134,52 +3327,132 @@ export function IsometricOfficeStage({
     // ================================================================
     // RENDER (kamera aktif, auto-fade dinding, proyeksi speech bubble)
     // ================================================================
+    const focusTmp = new THREE.Vector3();
+    let promoteT = 0;
+    let lastPromoted = '';
     const renderFrame = (dt: number) => {
       cam.update(dt);
       const camera = cam.active();
+      camera.updateMatrixWorld();
+      viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      viewFrustum.setFromProjectionMatrix(viewProj);
+      frustumReady = true;
       fader.update(camera, dt);
+      contactShadows.update();
+      cam.focusPoint(focusTmp);
+      lightPools.update(focusTmp, dt);
+      if (renderer.shadowMap.enabled) fitSunToView(camera);
 
-      const bc = bubbleRef.current;
-      if (bc && container) {
-        const cw = container.clientWidth;
-        const ch = container.clientHeight;
+      // Gelombang 2: ruangan yang sedang didekati kamera langsung dimajukan antrean GLB-nya.
+      promoteT -= dt;
+      if (promoteT <= 0 && glbQueue.length > 0) {
+        promoteT = 0.5;
+        const room = nav.roomAt({ x: focusTmp.x, z: focusTmp.z });
+        if (room && room !== lastPromoted) { lastPromoted = room; promoteRoom(room); }
+      }
 
-        for (const [agentId, anim] of animMap) {
-          const el = bc.querySelector(`[data-agent="${agentId}"]`) as HTMLElement | null;
-          if (!el) continue;
-
-          const refs = meshMap.get(agentId);
-          let shown = false;
-          if (refs && anim.bubbleText && anim.bubbleTimer > 0 && refs.avatar.visible) {
-            tempVec.setFromMatrixPosition(refs.avatar.matrixWorld);
-            tempVec.y += 1.05;
-            tempVec.project(camera);
-            // Di belakang kamera Free Cam: jangan tampilkan bubble
-            if (tempVec.z >= -1 && tempVec.z <= 1) {
-              const sx = (tempVec.x * 0.5 + 0.5) * cw;
-              const sy = (-tempVec.y * 0.5 + 0.5) * ch;
-              el.style.display = 'block';
-              el.style.left = `${sx}px`;
-              el.style.top = `${sy}px`;
-              el.style.opacity = String(Math.min(1, anim.bubbleTimer / 0.4));
-              const txtEl = el.querySelector('[data-text]') as HTMLElement | null;
-              if (txtEl) txtEl.textContent = anim.bubbleText;
-              shown = true;
+      // Speech bubble: elemen di-cache, posisi lewat transform, DOM hanya ditulis saat berubah.
+      for (const [agentId, anim] of animMap) {
+        const b = bubbleEls.get(agentId);
+        if (!b) continue;
+        const refs = meshMap.get(agentId);
+        let shown = false;
+        if (refs && anim.bubbleText && anim.bubbleTimer > 0 && refs.avatar.visible) {
+          tempVec.setFromMatrixPosition(refs.avatar.matrixWorld);
+          tempVec.y += 1.05;
+          tempVec.project(camera);
+          // Di belakang kamera Free Cam: jangan tampilkan bubble
+          if (tempVec.z >= -1 && tempVec.z <= 1) {
+            const sx = Math.round((tempVec.x * 0.5 + 0.5) * viewW);
+            const sy = Math.round((-tempVec.y * 0.5 + 0.5) * viewH);
+            if (!b.shown) { b.el.style.display = 'block'; b.shown = true; }
+            if (sx !== b.x || sy !== b.y) {
+              b.x = sx; b.y = sy;
+              b.el.style.transform = `translate3d(${sx}px, ${sy}px, 0) translate(-50%, -100%)`;
             }
+            const op = Math.round(Math.min(1, anim.bubbleTimer / 0.4) * 50) / 50;
+            if (op !== b.op) { b.op = op; b.el.style.opacity = String(op); }
+            if (anim.bubbleText !== b.text) { b.text = anim.bubbleText; b.txt.textContent = anim.bubbleText; }
+            shown = true;
           }
-          if (!shown) el.style.display = 'none';
         }
+        if (!shown && b.shown) { b.el.style.display = 'none'; b.shown = false; }
       }
 
       renderer.render(scene, camera);
+      if (!firstFrameDone) { firstFrameDone = true; maybeOpenWave2(); }
     };
 
-    const animate = () => {
+    // ---- Adaptive FPS: 60 FPS saat kamera bergerak (+1,5 dtk), 30 FPS saat diam (Grafis Hemat) ----
+    let nextFrameAt = 0;
+    /** Render ditahan sementara shader dikompilasi di latar (awal & ganti mode grafis). */
+    let renderPaused = true;
+    const frameTimes: number[] = [];
+    let frameMsAvg = 0;
+    const animate = (now: number) => {
       animId = requestAnimationFrame(animate);
+      if (renderPaused) return;
+      const spec = QUALITY[quality];
+      const interval = 1000 / (cam.isActive(ACTIVE_HOLD_MS) ? spec.activeFps : spec.idleFps);
+      if (now < nextFrameAt - 2) return;
+      nextFrameAt = now - nextFrameAt > interval ? now + interval : nextFrameAt + interval;
+      const t0 = performance.now();
       const dt = Math.min(clock.getDelta(), 0.1);
       step(dt);
       renderFrame(dt);
+      frameMsAvg += (performance.now() - t0 - frameMsAvg) * 0.1;
+      frameTimes.push(now);
+      while (frameTimes.length > 0 && frameTimes[0]! < now - 1000) frameTimes.shift();
     };
+    /** Tab kembali aktif: jangan lompatkan simulasi sebesar lamanya tab tersembunyi. */
+    const onVisibility = () => {
+      if (!document.hidden) { clock.getDelta(); nextFrameAt = 0; }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    /** Bangun ulang program shader di latar lalu lanjutkan render (maks 5 dtk menunggu). */
+    const warmShadersThenRender = () => {
+      renderPaused = true;
+      const resume = () => {
+        if (disposed) return;
+        renderPaused = false;
+        clock.getDelta();
+        nextFrameAt = 0;
+        cam.poke();
+      };
+      // Ditunda satu frame: mount sementara (StrictMode / remount cepat) sudah dilepas sebelum
+      // kompilasi dimulai, sehingga tidak ada polling program milik renderer yang sudah dibuang.
+      requestAnimationFrame(() => {
+        if (disposed) return;
+        Promise.race([
+          renderer.compileAsync(scene, cam.active()),
+          new Promise((r) => window.setTimeout(r, 5000)),
+        ]).then(resume, resume);
+      });
+    };
+
+    /** Ganti mode grafis tanpa me-mount ulang scene (posisi agen & kamera tetap). */
+    const applyQuality = (q: GraphicsQuality) => {
+      if (disposed || q === quality) return;
+      quality = q;
+      const spec = QUALITY[q];
+      renderer.setPixelRatio(spec.pixelRatio());
+      renderer.setSize(viewW, viewH);
+      renderer.shadowMap.enabled = spec.shadows;
+      sun.castShadow = spec.shadows;
+      hemi.intensity = spec.hemi;
+      scene.environmentIntensity = spec.env;
+      contactShadows.setVisible(!spec.shadows);
+      lightPools.setHigh(spec.shadows);
+      sunFitKey = '';
+      // Jumlah lampu & bayangan berubah: semua material perlu program baru.
+      scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (m) for (const mm of Array.isArray(m) ? m : [m]) mm.needsUpdate = true;
+      });
+      warmShadersThenRender();
+    };
+    applyQualityRef.current = applyQuality;
 
     // ================================================================
     // API UNTUK TOMBOL HUD
@@ -3208,7 +3481,11 @@ export function IsometricOfficeStage({
       access: accessHub.focusPoint,
     };
     apiRef.current = {
-      focusRoom: (room) => cam.focus(roomFocus[room]()),
+      focusRoom: (room) => {
+        // GLB ruangan yang belum termuat (gelombang 2) langsung dimajukan ke depan antrean.
+        promoteRoom(room === 'workspace' ? 'main' : room);
+        cam.focus(roomFocus[room]());
+      },
       toggleCamera: () => cam.toggle(),
       resetCamera: () => cam.reset(),
       focusAgent: (agentId) => {
@@ -3239,6 +3516,36 @@ export function IsometricOfficeStage({
           };
         });
       win.__officeStageDebug = {
+        /** Metrik performa terukur (rencana-optimasi-performa-3d.md Task 1). */
+        perf: () => {
+          const info = renderer.info;
+          let lights = 0, pointLights = 0;
+          scene.traverseVisible((o) => {
+            if ((o as THREE.Light).isLight) lights++;
+            if ((o as THREE.PointLight).isPointLight) pointLights++;
+          });
+          return {
+            quality,
+            fps: frameTimes.length,
+            /** Target FPS saat ini (Adaptive FPS: kamera aktif = 60, diam di Hemat = 30). */
+            targetFps: cam.isActive(ACTIVE_HOLD_MS) ? QUALITY[quality].activeFps : QUALITY[quality].idleFps,
+            frameMs: +frameMsAvg.toFixed(2),
+            calls: info.render.calls,
+            triangles: info.render.triangles,
+            geometries: info.memory.geometries,
+            textures: info.memory.textures,
+            programs: info.programs?.length ?? 0,
+            lights,
+            pointLights,
+            shadows: renderer.shadowMap.enabled,
+            pixelRatio: renderer.getPixelRatio(),
+            loadedGlbs: `${glbLoaded}/${templates.size}`,
+            queuedGlbs: glbQueue.length,
+            wave2Open,
+          };
+        },
+        /** Ganti mode grafis tanpa HUD ('low' = Hemat, 'high' = Tinggi). */
+        setQuality: (q: GraphicsQuality) => applyQuality(q),
         /** Picu rapat seperti event `/rapat` dari server. */
         meeting: (host = 'raka', text = 'Evaluasi sprint & rencana ruang rapat') => startMeeting(host, text),
         /** Majukan simulasi N detik secara instan (render tidak ikut). */
@@ -3365,18 +3672,22 @@ export function IsometricOfficeStage({
       };
     }
 
-    animate();
+    // Shader seluruh scene awal dipanaskan di latar sebelum frame pertama (tanpa freeze panjang).
+    warmShadersThenRender();
+    animId = requestAnimationFrame(animate);
 
     return () => {
       disposed = true;
       cancelAnimationFrame(animId);
       apiRef.current = null;
+      applyQualityRef.current = null;
       if (stageApiRef) stageApiRef.current = null;
       if (import.meta.env.DEV) {
         delete win.__officeStage;
         delete win.__officeStageDebug;
       }
       window.removeEventListener('resize', handleResize);
+      document.removeEventListener('visibilitychange', onVisibility);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       cam.dispose();
@@ -3385,6 +3696,10 @@ export function IsometricOfficeStage({
       for (const tpl of templates.values()) {
         if (tpl.scene) disposeObject(tpl.scene);
       }
+      contactShadows.dispose();
+      lightPools.dispose();
+      deskGlows.dispose();
+      for (const v of [...Object.values(deskShared), ...Object.values(avatarShared)]) v.dispose();
       scene.environment?.dispose();
       renderer.dispose();
       codeTexture.dispose();
@@ -3450,8 +3765,8 @@ export function IsometricOfficeStage({
           bottom: 14, left: 16,
           display: 'flex', gap: 12,
           padding: '8px 12px',
-          background: 'rgba(15, 26, 31, 0.85)',
-          backdropFilter: 'blur(8px)',
+          // Tanpa backdrop-filter: blur di atas kanvas WebGL dihitung ulang setiap frame.
+          background: 'rgba(15, 26, 31, 0.92)',
           border: '1px solid var(--color-rule)',
           borderRadius: 6,
           zIndex: 10,

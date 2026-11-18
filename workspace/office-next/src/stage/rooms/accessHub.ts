@@ -5,10 +5,11 @@ import {
   box,
   canvasTexture,
   enableShadow,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { slidingGlassDoor } from './doors';
 import { buildSouthRoomShell } from './southWing';
@@ -124,7 +125,7 @@ export function buildAccessHub(load: ModelLoader, fader: WallFader): AccessHub {
     ring.rotation.x = Math.PI / 2;
     ring.position.set(r.x, r.y, r.z);
     ring.castShadow = false;
-    const l = new THREE.PointLight(0xffe7c4, 7, 6, 1.6);
+    const l = lightAnchor(0xffe7c4, 7, 6, 1.6);
     l.name = 'Access_Ring_Light';
     l.position.set(r.x, r.y - 0.2, r.z);
     decor.add(ring, l);

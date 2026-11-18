@@ -1,11 +1,31 @@
 import * as THREE from 'three';
 
 /** Memuat GLB; callback tidak dipanggil lagi setelah panggung dilepas. */
-export type ModelLoader = (
-  url: string,
-  onLoad: (scene: THREE.Group) => void,
-  onError?: (e: unknown) => void,
-) => void;
+export interface ModelLoader {
+  (url: string, onLoad: (scene: THREE.Group) => void, onError?: (e: unknown) => void): void;
+  /** Dipanggil `mountAsset` setelah GLB terpasang di slotnya (bayangan kontak mode Hemat). */
+  onMount?: (slot: THREE.Object3D, model: THREE.Object3D, url: string) => void;
+}
+
+/** Data lampu ruangan (lihat `lightAnchor`). */
+export interface LightAnchorData {
+  color: number;
+  intensity: number;
+  distance: number;
+  decay: number;
+}
+
+/**
+ * Titik lampu ruangan. Bukan THREE.PointLight: modul ruangan hanya menandai posisi & sifat lampunya,
+ * lalu panggung yang memutuskan (genangan cahaya palsu di lantai untuk semua titik, ditambah maksimal
+ * 3 PointLight nyata dekat fokus kamera di mode Grafis Tinggi). Jumlah lampu di shader jadi tetap kecil.
+ */
+export function lightAnchor(color: number, intensity: number, distance: number, decay: number): THREE.Object3D {
+  const o = new THREE.Object3D();
+  const data: LightAnchorData = { color, intensity, distance, decay };
+  o.userData.lightAnchor = data;
+  return o;
+}
 
 /** Membebaskan geometri, material, dan tekstur sebuah objek beserta anak-anaknya. */
 export function disposeObject(root: THREE.Object3D) {
@@ -24,12 +44,31 @@ export function disposeObject(root: THREE.Object3D) {
   });
 }
 
+/** Mesh lebih kecil dari ini (radius bounding sphere, meter) tidak ikut shadow pass. */
+export const MIN_SHADOW_RADIUS = 0.12;
+const _shadowScale = new THREE.Vector3();
+
+/**
+ * Nyalakan bayangan pada sebuah objek beserta anak-anaknya. Detail mikro (buku kecil, cangkir, gagang,
+ * baut; radius < MIN_SHADOW_RADIUS) tetap menerima bayangan tetapi tidak dirender ke shadow map.
+ */
 export function enableShadow(g: THREE.Object3D, cast = true, receive = true) {
+  g.updateWorldMatrix(true, true);
+  const rootScale = g.getWorldScale(new THREE.Vector3());
   g.traverse((c) => {
-    if ((c as THREE.Mesh).isMesh) {
-      c.castShadow = cast;
-      c.receiveShadow = receive;
+    const mesh = c as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    let big = true;
+    if (cast) {
+      const geo = mesh.geometry;
+      if (!geo.boundingSphere) geo.computeBoundingSphere();
+      // Skala relatif terhadap akar objek (slot ruangan belum tentu sudah terpasang di scene).
+      mesh.getWorldScale(_shadowScale).divide(rootScale);
+      const s = Math.max(Math.abs(_shadowScale.x), Math.abs(_shadowScale.y), Math.abs(_shadowScale.z));
+      big = (geo.boundingSphere?.radius ?? 1) * s >= MIN_SHADOW_RADIUS;
     }
+    mesh.castShadow = cast && big;
+    mesh.receiveShadow = receive;
   });
 }
 
@@ -177,6 +216,7 @@ export function mountAsset(
       disposeObject(placeholder);
       slot.add(model);
       onGlb?.(model);
+      load.onMount?.(slot, model, url);
     },
     () => { /* GLB belum dibuat: tetap memakai placeholder */ },
   );

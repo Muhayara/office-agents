@@ -69,6 +69,8 @@ export class CameraRig {
   private lastX = 0;
   private lastY = 0;
   private lastManualAt = -Infinity;
+  /** Waktu terakhir kamera benar-benar bergerak / disentuh (dasar Adaptive FPS). */
+  private lastActiveAt = -Infinity;
   /** true sampai CEO atau sistem menggerakkan kamera: bingkai home masih boleh disesuaikan. */
   private pristine = true;
   private aspect: number;
@@ -100,6 +102,7 @@ export class CameraRig {
     this.controls.maxPolarAngle = Math.PI * 0.49;
     this.controls.update();
     this.controls.addEventListener('start', this.onControlsStart);
+    this.controls.addEventListener('change', this.onControlsChange);
 
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -112,6 +115,25 @@ export class CameraRig {
 
   active(): THREE.Camera {
     return this.mode === 'iso' ? this.iso : this.persp;
+  }
+
+  /** Kamera sedang bergerak (drag/zoom/orbit/WASD/animasi fokus) atau baru berhenti < holdMs. */
+  isActive(holdMs: number) {
+    if (this.tween || this.dragging || this.keys.size > 0) return true;
+    return performance.now() - this.lastActiveAt < holdMs;
+  }
+
+  /** Titik fokus untuk efek yang mengikuti kamera (target orbit isometrik / titik di depan Free Cam). */
+  focusPoint(out: THREE.Vector3) {
+    if (this.mode === 'iso') return out.copy(this.controls.target);
+    const cp = Math.cos(this.pitch);
+    this.fwd.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
+    return out.copy(this.persp.position).addScaledVector(this.fwd, 3);
+  }
+
+  /** Tandai kamera aktif (dipakai juga oleh pemanggil luar, mis. ganti mode grafis). */
+  poke() {
+    this.lastActiveAt = performance.now();
   }
 
   setMode(mode: CameraMode) {
@@ -281,6 +303,7 @@ export class CameraRig {
 
   dispose() {
     this.controls.removeEventListener('start', this.onControlsStart);
+    this.controls.removeEventListener('change', this.onControlsChange);
     this.controls.dispose();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
@@ -310,12 +333,18 @@ export class CameraRig {
 
   private markManual() {
     this.lastManualAt = performance.now();
+    this.lastActiveAt = this.lastManualAt;
     this.pristine = false;
   }
 
   private onControlsStart = () => {
     this.tween = null;
     this.markManual();
+  };
+
+  /** OrbitControls mengirim `change` setiap kamera bergeser (termasuk sisa damping). */
+  private onControlsChange = () => {
+    this.lastActiveAt = performance.now();
   };
 
   private onKeyDown = (e: KeyboardEvent) => {

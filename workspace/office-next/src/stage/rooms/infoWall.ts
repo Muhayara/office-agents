@@ -6,10 +6,11 @@ import {
   canvasTexture,
   enableShadow,
   fitOverlay,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { buildNorthTierShell } from './northWing';
 
@@ -88,7 +89,7 @@ export function buildInfoWall(load: ModelLoader, fader: WallFader): InfoWall {
       // Nama mesh layar dari tahap-5-3d-prompts.md (`InfoWall_Main_Screen`); `Command_Screen_Active` juga diterima.
       fitOverlay(mount, model, screen.mesh, 3.6, 1.37, ['InfoWall_Main_Screen', 'Command_Screen_Active']);
     });
-    const glow = new THREE.PointLight(0x7dd3fc, 5, 4, 1.8);
+    const glow = lightAnchor(0x7dd3fc, 5, 4, 1.8);
     glow.name = 'Command_Display_Glow';
     glow.position.set(d.x, 1.4, d.z + 0.9);
     decor.add(glow);
@@ -108,7 +109,7 @@ export function buildInfoWall(load: ModelLoader, fader: WallFader): InfoWall {
   // ---- Snake plant + cahaya ruangan ----
   {
     mountAsset(slot(decor, 'InfoWall_SnakePlant', INFOWALL.snakePlant.x, 0, INFOWALL.snakePlant.z), '/models/Office_Indoor_Plant_SnakePlant.glb', new THREE.Group(), load);
-    const l = new THREE.PointLight(0xe8f0ff, 6, 5.5, 1.6);
+    const l = lightAnchor(0xe8f0ff, 6, 5.5, 1.6);
     l.name = 'InfoWall_Light';
     l.position.set(INFOWALL.light.x, INFOWALL.light.y, INFOWALL.light.z);
     decor.add(l);

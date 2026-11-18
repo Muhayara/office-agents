@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type ClientCommand, type StateSnapshot, parseServerEvent } from '@office/shared';
 import { IsometricOfficeStage, type CameraMode, type StageApi, type StageRoom } from './stage/IsometricOfficeStage';
+import { loadGraphicsQuality, saveGraphicsQuality, type GraphicsQuality } from './stage/graphics';
 import { InspectorPanel } from './panels/InspectorPanel';
 import {
   DEMO_BUILD,
@@ -90,6 +91,15 @@ export function App() {
   const wsRef = useRef<WebSocket | null>(null);
   const stageApiRef = useRef<StageApi | null>(null);
   const [camMode, setCamMode] = useState<CameraMode>('iso');
+  // Mode grafis: bawaan Hemat di semua perangkat, pilihan disimpan di localStorage.
+  const [graphics, setGraphics] = useState<GraphicsQuality>(() => loadGraphicsQuality());
+  const toggleGraphics = useCallback(() => {
+    setGraphics((g) => {
+      const next: GraphicsQuality = g === 'low' ? 'high' : 'low';
+      saveGraphicsQuality(next);
+      return next;
+    });
+  }, []);
   const [loadError, setLoadError] = useState<string | null>(null);
   const agentIdsRef = useRef<ReadonlySet<string>>(new Set(FALLBACK_SNAPSHOT.agents.map((a) => a.id)));
 
@@ -301,6 +311,17 @@ export function App() {
           >
             {t('Fokus Agen', 'Focus Agent')}
           </button>
+          <button
+            type="button"
+            onClick={toggleGraphics}
+            aria-pressed={graphics === 'high'}
+            title={graphics === 'low'
+              ? t('Hemat: tanpa lampu & bayangan real-time, 30 FPS saat kamera diam. Klik untuk Grafis Tinggi.', 'Saver: no real-time lights or shadows, 30 FPS when idle. Click for High graphics.')
+              : t('Tinggi: 3 lampu dekat kamera + bayangan matahari, 60 FPS. Klik untuk Grafis Hemat.', 'High: 3 lights near the camera + sun shadows, 60 FPS. Click for Saver graphics.')}
+            style={hudButton}
+          >
+            {graphics === 'low' ? t('Grafis: Hemat', 'Graphics: Saver') : t('Grafis: Tinggi', 'Graphics: High')}
+          </button>
 
           {live && role === 'ceo' && (
             <button type="button" onClick={() => setSpectatorMode((v) => !v)} aria-pressed={spectatorMode} style={hudButton}>
@@ -332,6 +353,7 @@ export function App() {
           stageApiRef={stageApiRef}
           onCamModeChange={setCamMode}
           onLoadErrorChange={setLoadError}
+          quality={graphics}
         />
 
         <InspectorPanel

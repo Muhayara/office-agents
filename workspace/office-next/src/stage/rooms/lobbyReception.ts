@@ -5,10 +5,11 @@ import {
   box,
   canvasTexture,
   enableShadow,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { slidingGlassDoor } from './doors';
 import { buildSouthRoomShell } from './southWing';
@@ -171,7 +172,7 @@ export function buildLobbyReception(load: ModelLoader, fader: WallFader): LobbyR
   });
   {
     const l = LOBBY.light;
-    const lamp = new THREE.PointLight(0xffe2bd, 14, 6.5, 1.6);
+    const lamp = lightAnchor(0xffe2bd, 14, 6.5, 1.6);
     lamp.name = 'Lobby_Warm_Light';
     lamp.position.set(l.x, l.y, l.z);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.025, 10, 48), new THREE.MeshBasicMaterial({ color: 0xfff1dc }));

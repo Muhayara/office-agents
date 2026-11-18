@@ -6,10 +6,11 @@ import {
   canvasTexture,
   enableShadow,
   fitOverlay,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { buildNorthRoomShell } from './northWing';
 import { glassWallMats } from './walls';
@@ -134,12 +135,12 @@ export function buildWorkshopTraining(load: ModelLoader, fader: WallFader): Work
     const p = WORKSHOP.pendant;
     mountAsset(slot(decor, 'Linear_Pendant_Workshop', p.x, 0, p.z, p.rotY), '/models/Office_Linear_Pendant_Light.glb', new THREE.Group(), load);
     [-0.8, 0.8].forEach((dz, i) => {
-      const l = new THREE.PointLight(0xffe6c8, 8, 5, 1.7);
+      const l = lightAnchor(0xffe6c8, 8, 5, 1.7);
       l.name = `Workshop_Light_${i}`;
       l.position.set(p.x, 2.15, p.z + dz);
       decor.add(l);
     });
-    const stageLight = new THREE.PointLight(0xfff1dc, 6, 4, 1.8);
+    const stageLight = lightAnchor(0xfff1dc, 6, 4, 1.8);
     stageLight.name = 'Workshop_Stage_Light';
     stageLight.position.set(-1.9, 2.6, 0.6);
     decor.add(stageLight);

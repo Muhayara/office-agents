@@ -39,6 +39,8 @@ interface WallEntry {
   opacity: number;
   fadeMode: boolean;
   mats: FadeMat[];
+  /** Material sumber → klon milik dinding ini (satu klon per material unik, bukan per mesh). */
+  clones: Map<THREE.Material, THREE.Material>;
 }
 
 export class WallFader {
@@ -76,6 +78,7 @@ export class WallFader {
       opacity: prev?.opacity ?? 1,
       fadeMode: false,
       mats: [],
+      clones: prev?.clones ?? new Map(),
     };
     this.collect(entry);
     this.walls.set(id, entry);
@@ -154,11 +157,15 @@ export class WallFader {
       root.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
         if (!mesh.isMesh) return;
-        // Material GLB sering dipakai bersama lantai / objek lain: klon sekali per mesh.
+        // Material GLB sering dipakai bersama lantai / objek lain: dinding memakai klonnya sendiri,
+        // cukup satu klon per material sumber untuk seluruh dinding ini.
         if (!mesh.userData.fadeOwned) {
-          mesh.material = Array.isArray(mesh.material)
-            ? mesh.material.map((m) => m.clone())
-            : mesh.material.clone();
+          const own = (m: THREE.Material) => {
+            let c = w.clones.get(m);
+            if (!c) { c = m.clone(); w.clones.set(m, c); }
+            return c;
+          };
+          mesh.material = Array.isArray(mesh.material) ? mesh.material.map(own) : own(mesh.material);
           mesh.userData.fadeOwned = true;
         }
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];

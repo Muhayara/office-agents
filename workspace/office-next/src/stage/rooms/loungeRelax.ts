@@ -5,10 +5,11 @@ import {
   box,
   canvasTexture,
   enableShadow,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { buildSouthRoomShell } from './southWing';
 import { glassWallMats } from './walls';
@@ -121,7 +122,7 @@ export function buildLoungeRelax(load: ModelLoader, fader: WallFader): LoungeRel
     // GLB: kap di +Z lokal sejauh `reach`; yaw agar kap menggantung di atas titik `aim` (meja kopi).
     const yaw = Math.atan2(l.aimX - l.baseX, l.aimZ - l.baseZ);
     mountAsset(slot(furniture, 'Arc_Floor_Lamp', l.baseX, 0, l.baseZ, yaw), '/models/Office_Lounge_Arc_Floor_Lamp.glb', arcLampPlaceholder(0, l.rimY, l.reach), load);
-    const light = new THREE.PointLight(0xffcf9a, 12, 5.5, 1.7);
+    const light = lightAnchor(0xffcf9a, 12, 5.5, 1.7);
     light.name = 'Arc_Lamp_Warm_Light';
     light.position.set(l.baseX + Math.sin(yaw) * l.reach, l.rimY - 0.1, l.baseZ + Math.cos(yaw) * l.reach);
     decor.add(light);

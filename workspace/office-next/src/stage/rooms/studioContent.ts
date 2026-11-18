@@ -5,10 +5,11 @@ import {
   box,
   canvasTexture,
   enableShadow,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { buildNorthTierShell } from './northWing';
 import { boardroomWallMats } from './walls';
@@ -105,10 +106,10 @@ export function buildStudioContent(load: ModelLoader, fader: WallFader): StudioC
   // ---- Snake plant + cahaya syuting (daylight) & editing (hangat) ----
   {
     mountAsset(slot(decor, 'Studio_SnakePlant', STUDIO.snakePlant.x, 0, STUDIO.snakePlant.z), '/models/Office_Indoor_Plant_SnakePlant.glb', new THREE.Group(), load);
-    const shoot = new THREE.PointLight(0xf4f8ff, 8, 5.5, 1.6);
+    const shoot = lightAnchor(0xf4f8ff, 8, 5.5, 1.6);
     shoot.name = 'Studio_Shoot_Light';
     shoot.position.set(STUDIO.lightShoot.x, STUDIO.lightShoot.y, STUDIO.lightShoot.z);
-    const edit = new THREE.PointLight(0xffd9b0, 5, 4.5, 1.7);
+    const edit = lightAnchor(0xffd9b0, 5, 4.5, 1.7);
     edit.name = 'Studio_Edit_Light';
     edit.position.set(STUDIO.lightEdit.x, STUDIO.lightEdit.y, STUDIO.lightEdit.z);
     decor.add(shoot, edit);

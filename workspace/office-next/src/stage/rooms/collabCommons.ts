@@ -5,10 +5,11 @@ import {
   box,
   canvasTexture,
   enableShadow,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { buildNorthRoomShell } from './northWing';
 import { boardroomWallMats, glassWallMats } from './walls';
@@ -125,12 +126,12 @@ export function buildCollabCommons(load: ModelLoader, fader: WallFader): CollabC
     const p = COMMONS.pendant;
     mountAsset(slot(decor, 'Linear_Pendant_Commons', p.x, 0, p.z), '/models/Office_Linear_Pendant_Light.glb', new THREE.Group(), load);
     [-0.85, 0.85].forEach((dx, i) => {
-      const l = new THREE.PointLight(0xffe0bd, 9, 5, 1.7);
+      const l = lightAnchor(0xffe0bd, 9, 5, 1.7);
       l.name = `Commons_Table_Light_${i}`;
       l.position.set(p.x + dx, 2.15, p.z);
       decor.add(l);
     });
-    const fill = new THREE.PointLight(0xe8f0ff, 7, 7, 1.6);
+    const fill = lightAnchor(0xe8f0ff, 7, 7, 1.6);
     fill.name = 'Commons_Fill_Light';
     fill.position.set(-2.8, 2.7, -1.0);
     decor.add(fill);

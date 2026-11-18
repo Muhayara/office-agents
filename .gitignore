@@ -22,3 +22,6 @@ workspace/*
 
 # Generator 3D privat (hanya lokal, jangan di-upload ke GitHub)
 workspace/office-next/tools/3d-generator/
+
+# Cadangan GLB mentah untuk npm run optimize:models (sumber proses ulang, hanya lokal)
+workspace/office-next/tools/models-raw/

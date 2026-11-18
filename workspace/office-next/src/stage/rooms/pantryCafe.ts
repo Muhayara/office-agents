@@ -5,10 +5,11 @@ import {
   box,
   canvasTexture,
   enableShadow,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { buildSouthRoomShell } from './southWing';
 import { brassMat, glassWallMats } from './walls';
@@ -70,7 +71,7 @@ export function buildPantryCafe(load: ModelLoader, fader: WallFader): PantryCafe
     const d = PANTRY.waterDispenser;
     mountAsset(slot(coffee, 'Office_Water_Dispenser', d.x, 0, d.z, d.rotY), '/models/Office_Water_Dispenser.glb', new THREE.Group(), load);
 
-    const light = new THREE.PointLight(0xffdfb8, 22, 5, 1.6);
+    const light = lightAnchor(0xffdfb8, 22, 5, 1.6);
     light.name = 'Barista_Light';
     const l = PANTRY.baristaLight;
     light.position.set(l.x, l.y, l.z);

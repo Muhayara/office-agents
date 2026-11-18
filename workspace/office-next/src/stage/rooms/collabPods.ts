@@ -5,10 +5,11 @@ import {
   box,
   canvasTexture,
   enableShadow,
+  lightAnchor,
   meterBox,
+  type ModelLoader,
   mountAsset,
   std,
-  type ModelLoader,
 } from './assets';
 import { buildNorthTierShell } from './northWing';
 
@@ -94,7 +95,7 @@ export function buildCollabPods(load: ModelLoader, fader: WallFader): CollabPods
   // ---- Snake plant di celah antar-pod + cahaya ----
   {
     mountAsset(slot(decor, 'Pods_SnakePlant', COLLABPODS.snakePlant.x, 0, COLLABPODS.snakePlant.z), '/models/Office_Indoor_Plant_SnakePlant.glb', new THREE.Group(), load);
-    const l = new THREE.PointLight(0xfff1e0, 7, 5.5, 1.6);
+    const l = lightAnchor(0xfff1e0, 7, 5.5, 1.6);
     l.name = 'Pods_Light';
     l.position.set(COLLABPODS.light.x, COLLABPODS.light.y, COLLABPODS.light.z);
     decor.add(l);

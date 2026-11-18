@@ -1,5 +1,5 @@
 # Rencana Teknis Optimasi Performa 3D (`office-next`)
-> **Status:** Disepakati melalui sesi `/grill-me` (18 November 2026) — Siap Eksekusi Bertahap  
+> **Status:** ✅ Dieksekusi 18 November 2026 (Task 1–8). Koreksi analisa & angka terukur ada di §7–§8; angka §1 adalah perkiraan awal sebelum diukur.  
 > **Lingkup:** `workspace/office-next` (Panggung Three.js 0.187, HUD `App.tsx`, & Pipeline Aset `public/models/*.glb`)  
 > **Target Perangkat:** PC Desktop, Laptop Tipis / iGPU, dan Smartphone (Demo Statis Cloudflare Pages & Mode Live via Tailscale)
 
@@ -305,11 +305,55 @@ Task 1: Hook Telemetri & Baseline (__officeStageDebug.perf)
 
 ---
 
-## 7. Ledger Verifikasi (Diisi Saat Eksekusi)
+## 7. Ledger Verifikasi (Terukur)
 
-| Tahap / Eksperimen | Draw Calls (`calls`) | Segitiga (`triangles`) | Lampu Aktif (`lights`) | Unduhan GLB Awal (MB) | FPS Laptop / iGPU | Keputusan (`Keep` / `Revert`) |
-|---|---|---|---|---|---|---|
-| **Baseline Awal (Sebelum Optimasi)** | *diukur di Task 1* | *diukur di Task 1* | 35 (32 `PointLight`) | 27,32 MB (46 GLB) | *diukur di Task 1* | — |
-| **Sesudah Fase 1 (Task 1–3: Hemat/Tinggi + Light Pool)** | — | — | — | — | — | — |
-| **Sesudah Fase 2 (Task 4–5: GLB Optimize + Progressive)** | — | — | — | — | — | — |
-| **Sesudah Fase 3 (Task 6–8: Shadow + DOM + Instancing)** | — | — | — | — | — | — |
+Diukur di Chromium headless (`--disable-gpu`, renderer software SwiftShader), 1366×768, kamera isometrik home, `npm run dev:next`. Angka **FPS / ms per frame** di sini hanya pembanding relatif (SwiftShader jauh lebih lambat dari Intel UHD); `calls`, mesh, lampu, segitiga, dan ukuran GLB berlaku sama di perangkat nyata.
+
+| Tahap / Eksperimen | Draw Calls / frame | Mesh di scene | Segitiga | Lampu aktif | Unduhan GLB | Waktu JS+GPU / frame | Long task awal (total / terbesar) | Keputusan |
+|---|---|---|---|---|---|---|---|---|
+| **Baseline** | **11.718** | 7.485 (6.781 cast shadow) | 865 rb | 39 (**36 PointLight** + Hemi + 2 Dir) | 56 file / **33,06 MB** | ±104 ms | 10,8 s / 2,9 s | — |
+| GLB join aman-kontrak saja (pipeline v1, kode lama) | 3.096 | 2.136 | 863 rb | 39 | 8,28 MB | ±92 ms | 5,5 s / 2,8 s | Keep |
+| **Final — Grafis Hemat** (pipeline v2 + palet, Task 1–8) | **1.217–1.373** | ±1.300 | 830–877 rb | **3 (0 PointLight)** | 55 file / **7,88 MB** | **12,7–14,3 ms** | **1,4 s / 0,76 s** | Keep |
+| **Final — Grafis Tinggi** | 1.551–1.799 | ±1.300 | 1,55 jt (termasuk shadow pass) | 6 (3 PointLight pool) | 7,88 MB | 18–31 ms | — | Keep |
+
+Verifikasi fungsional yang lulus: rapat 10 agen (kursi `Chair_Swivel` berputar ±1,1–1,26 rad, agenda TV pas di `Screen_ActiveArea_4K`), bagian shell tersembunyi tetap tersembunyi, LED `Pod_Occupancy_LED` / `Focus_Status_LED` tanpa tekstur palet dan bisa diwarnai ulang, simulasi 640 dtk + semua rutinitas (`commons`, `workshop`, `infowall`, `pod`, `studio`, `focusPod`, `access`, `coffee`, `garden`) tanpa error, Adaptive FPS (diam 30 → drag/animasi fokus 60 → kembali 30 setelah damping + 1,5 dtk), ganti mode tanpa remount, perbandingan close-up A/B GLB mentah vs teroptimasi (warna palet identik). `npm run typecheck`, `npm test` (64), `npm run build:next`, `npm run build:next:demo` lulus.
+
+---
+
+## 8. Koreksi Analisa & Hasil Eksekusi (18 November 2026)
+
+### A. Angka rencana vs kenyataan
+| Klaim rencana | Terukur di kode/aset |
+|---|---|
+| 47 GLB / 28 MB, 29 belum terkompresi | **56 GLB / 33 MB**; 38 mentah (GLTFExporter) + 18 sudah meshopt tetapi bertekstur WebP besar (Boardroom Shell 2,4 MB, Bookshelf 2,2 MB tekstur) |
+| 32 PointLight | **36**: 4 zona + 10 `screenGlow` + 2 LED rak + 20 lampu ruangan |
+| ~3.000 mesh, 5–6 rb draw call | **7.485 mesh, 11.718 draw call**, 1.491 material unik |
+| `rebuildDesks()` 3× | Benar (placeholder → desk.glb → kursi), tanpa dispose |
+
+### B. Koreksi teknis terhadap rencana
+1. **`flatten` + `palette` + `join` global tidak aman.** `flatten` membongkar hierarki (dudukan lepas dari `Chair_Swivel`), `palette` mengganti warna material jadi tekstur palet (merusak LED yang diwarnai ulang dan material yang dipakai ulang kode pada geometri lain: kaca `Partition_Left_Glass`, kayu `WW_Baseboard_Pier`). Diganti **join aman-kontrak per klaster**: setiap node kontrak tetap di tempat; turunannya hanya digabung per material *di dalam* node itu; sisanya digabung per material di akar adegan. Material milik node kontrak diberi tekstur penanda sementara sehingga dilewati `palette()`.
+2. **Daftar kontrak diperluas** dari semua `getObjectByName` / regex di kode: + `Floor_Slab`, semua `NORTH/WEST_WALL_PARTS`, regex `HIDDEN_SHELL_PARTS` kedua shell, `/screen/i` (fallback layar), `Kiosk_Screen`, `Chair_Base`. Skrip menggagalkan file bila satu nama kontrak di sumber hilang di hasil.
+3. **Idempoten sejati.** Re-encode WebP tiap kali jalan menurunkan kualitas, jadi file asli disalin sekali ke `tools/models-raw/` (gitignore, hanya lokal) dan selalu diproses dari sana. Penanda `office-optimize v2` di `asset.generator`: file bertanda versi sama dilewati; versi lama diproses ulang dari cadangan mentah; file tanpa penanda (ekspor baru dari generator) otomatis jadi cadangan mentah baru. Opsi `--force`, `--only <nama>`, `--dry`.
+4. Urutan pipeline final: `dequantize → weld → dedup → textureCompress (WebP ≤ 1024 px, q85) → prune → palette (min 3, kontrak dilindungi) → join aman-kontrak → prune → dedup → meshopt (quantize + EXT_meshopt_compression)`. Tekstur palet dibuat SETELAH WebP agar tetap PNG lossless (filter NEAREST, tanpa mipmap → warna tidak luntur dari jauh).
+5. `PCFSoftShadowMap` sudah dihapus di three r187 (fallback otomatis) → `PCFShadowMap` eksplisit.
+6. **Mode Hemat tanpa PointLight membuat ruangan datar** → keputusan CEO: **genangan cahaya palsu** (1 InstancedMesh aditif di lantai pada tiap titik lampu, radius dipotong di tepi ruangan agar tidak tembus dinding) + hemisphere 1,8 → 2,15 & `environmentIntensity` 1,12 di mode Hemat.
+7. Gelombang 2 hanya menunda **GLB**; penundaan pembuatan kanvas 2D tidak dikerjakan (manfaat kecil: layar KPI/Lobi/Access sudah redraw hanya saat data berubah). Yang di-culling frustum: layar **NOC** (redraw 0,5 dtk) dan **Information Wall** (berubah tiap detik).
+8. `backdrop-filter` juga ada di **legenda zona** (selalu tampil di atas kanvas) → ikut dihapus.
+9. `Office_Glass_Corridor.glb` (724 KB, tidak dipakai kode) dihapus — keputusan CEO.
+10. `simplify` mesh tidak dijalankan: segitiga GLB unik ±503 rb tersebar merata (sofa 37 rb, rak buku 37 rb, meja bundar 29 rb, …), bukan bottleneck setelah draw call & lampu turun; risiko perubahan bentuk.
+11. `compileAsync` awal ditunda 1 frame: mount sementara (React StrictMode / remount) sempat memicu 84 peringatan `GL_INVALID_VALUE: glGetProgramiv`.
+
+### C. Arsitektur final
+- **`src/stage/graphics.ts`**: `GraphicsQuality` (`low` bawaan / `high`), `localStorage 'office.graphicsQuality'`, spesifikasi `QUALITY` (pixel ratio 1 vs ≤ 1,5; shadow; FPS diam 30 vs 60; hemi/env), `ACTIVE_HOLD_MS = 1500`, `SHADOW_MAP_SIZE = 1024`.
+- **HUD `App.tsx`**: tombol `Grafis: Hemat / Tinggi` → prop `quality` → `applyQuality()` tanpa remount (pixel ratio, shadow map, `sun.castShadow`, pool lampu, bayangan kontak, `material.needsUpdate`, render ditahan sampai `compileAsync` selesai, maks 5 dtk).
+- **`rooms/assets.ts`**: `lightAnchor(color, intensity, distance, decay)` menggantikan `new THREE.PointLight` di 13 modul ruangan + 4 lampu zona; `ModelLoader.onMount` (dipanggil `mountAsset`); `enableShadow` hanya `castShadow` untuk mesh radius ≥ 0,12 m.
+- **`src/stage/groundFx.ts`**: `ContactShadows` (3 InstancedMesh: tapak persegi lembut, bulat, avatar/kursi rapat yang bergerak; hanya mode Hemat), `LightPools` (genangan cahaya + 3 PointLight yang memudar pindah ke titik lampu terdekat fokus kamera; mode Tinggi meredupkan genangan di bawah lampu nyata), `DeskGlows` (pendar layar di meja, pengganti 10 `screenGlow`).
+- **Loader dua gelombang** (`IsometricOfficeStage.tsx`): per ruangan `loaderFor(room)`; gelombang 1 = `main, boardroom, foyer, bus, manager, pantry, lobby, lounge` (maks 4 paralel); gelombang 2 dibuka saat idle setelah gelombang 1 selesai & frame pertama tampil (maks 2 paralel); `focusRoom()` dan kamera yang mendekati ruangan (cek 0,5 dtk) memajukan antrean ruangan itu; tiap template GLB `compileAsync` sebelum dipasang.
+- **Meja**: dibangun sekali; `desk.glb` + `Office_Ergonomic_Chair.glb` ditunggu bersamaan lalu menggantikan placeholder di `Desk_Slot` / `Chair_Slot`; geometri/material bersama untuk keyboard, mouse, monitor, cincin; avatar memakai geometri bersama + material bersama (kulit, rambut, celana, cangkir, dokumen).
+- **Bayangan Tinggi**: matriks pandang matahari tetap; persegi frustum mengikuti tapak lantai yang terlihat kamera (ortho & Free Cam), dibulatkan 2 m dan di-snap ke texel (`fitSunToView`).
+- **Render loop**: Adaptive FPS berbasis `CameraRig.isActive()` (tween, drag, WASD, event `change` OrbitControls termasuk damping); `visibilitychange` mereset jam; speech bubble di-cache (`translate3d`, tulis DOM hanya saat berubah, tanpa `backdrop-filter`); ukuran panggung di-cache (tanpa `clientWidth` per frame).
+- **WallFader**: klon material per material sumber per dinding (bukan per mesh).
+- **Debug**: `__officeStageDebug.perf()` → `{ quality, fps, targetFps, frameMs, calls, triangles, geometries, textures, programs, lights, pointLights, shadows, pixelRatio, loadedGlbs, queuedGlbs, wave2Open }`; `__officeStageDebug.setQuality('low' | 'high')`.
+
+### D. Alur kerja GLB baru (wajib)
+Setelah mengekspor GLB baru dari generator ke `public/models/`, jalankan **`npm run optimize:models`**. File baru otomatis dicadangkan ke `tools/models-raw/`, dikompres, dan diperiksa kontraknya. Bila kode baru mengakses node GLB lewat nama, tambahkan nama/polanya ke `KEEP_NAMES` / `KEEP_PATTERNS` di `scripts/optimize-models.mjs`, lalu jalankan `npm run optimize:models -- --force`.
