@@ -5,44 +5,17 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { type AgentStatus, type AgentView, type Lang, roleLabel } from '@office/shared';
 import { OFFICE_ZONES } from '../isometric/coords';
-import type { StageEvent } from '../state/liveOffice';
+import type { WorldFeed, WorldView } from '../state/worldFeed';
 import {
-  ACCESS_GOING,
-  ACCESS_LIFT,
-  ACCESS_MAP,
-  ARRIVAL_LINES,
-  COFFEE_ROUTINE_DIALOGUES,
-  COMMONS_CHAT,
-  COMMONS_GOING,
-  FOCUS_GOING,
-  FOCUS_MUTTER,
-  GARDEN_CHAT,
-  GARDEN_GOING,
-  INFOWALL_CHAT,
-  INFOWALL_GOING,
-  PODS_CHAT,
-  PODS_GOING,
-  STUDIO_CREW,
-  STUDIO_GOING,
-  STUDIO_TALK,
-  WORKSHOP_CHAT,
-  WORKSHOP_GOING,
-  WORKSHOP_TALK,
-  WORKSHOP_TOPICS,
-  LEAVING_LINES,
-  LOUNGE_CHAT,
-  LOUNGE_GOING,
-  OFFICE_CONVERSATIONS,
-  SERVER_CONSOLE,
-  SERVER_GOING,
-  SERVER_INSPECT,
-  AGENT_SOLO_THOUGHTS,
-  LIVE_STATUS_LINES,
-  MEETING_CALL_LINES,
-  MEETING_ON_THE_WAY,
-  MEETING_REPLIES,
-  VISIT_ACKS,
-} from './officeDialogues';
+  MEETING_STATES,
+  atDeskState,
+  boardroom as boardroomSpots,
+  createFloor1Nav,
+  deskSeat,
+  floor1Spots,
+  visitSpotFor,
+  type AgentFrame,
+} from '@office/world';
 import {
   AGENT_3D_POSITIONS,
   BOARDROOM,
@@ -86,32 +59,6 @@ import {
   type Pt,
   type Spot,
 } from './layout';
-import {
-  BOARDROOM_DOOR_GATE,
-  FLOOR1_PORTALS,
-  accessHubPath,
-  boardroomPath,
-  busPath,
-  collabPodsPath,
-  commonsPath,
-  createBuildingNav,
-  focusPodsPath,
-  foyerPath,
-  gardenPath,
-  infoWallPath,
-  workshopPath,
-  mainRoomPath,
-  lobbyPath,
-  loungePath,
-  managerPath,
-  pantryPath,
-  serverPath,
-  studioPath,
-  pathLength,
-  segLen,
-  visitSpotFor,
-  type NavPt,
-} from './navigation';
 import { CameraRig, ISO_FOCUS_HEIGHT, type CameraMode } from './camera/cameraRig';
 import { WallFader, type WalkZone } from './camera/wallFade';
 import { disposeObject, enableShadow, lightAnchor, type ModelLoader } from './rooms/assets';
@@ -134,6 +81,8 @@ import { buildCollabPods } from './rooms/collabPods';
 import { buildStudioContent } from './rooms/studioContent';
 import { buildFocusPods } from './rooms/focusPods';
 import { buildAccessHub } from './rooms/accessHub';
+import { buildProtoAvatar, disposeProto, eyeWorld, poseArmsForward, poseSit, poseStand, type ProtoJoints } from './avatar/protoRig';
+import { AGENT_UNIFORM, UNIFORMS, type UniformVariant } from './avatar/looks';
 
 // ============================================================================
 // Tipe & konstanta panggung
@@ -158,10 +107,13 @@ interface IsometricOfficeStageProps {
   selectedAgentId: string;
   language: Lang;
   onSelectAgent: (agentId: string) => void;
-  /** true = terhubung ke server: pose & rutinitas mengikuti status agen sebenarnya. */
-  live?: boolean;
-  /** Event bicara / kunjungan meja / rapat dari server (bertambah, dengan seq naik). */
-  stageEvents?: StageEvent[];
+  /**
+   * Sumber keadaan dunia (F2): sutradara server (`NetWorldFeed`, sama untuk semua penonton) atau
+   * simulasi lokal (`LocalWorldFeed`). Boleh diganti tanpa me-mount ulang scene.
+   */
+  feed?: WorldFeed | null;
+  /** Status agen dari dunia bersama berubah (mode publik: Inspector tanpa /api/state). */
+  onAgentStatuses?: (statuses: Record<string, AgentStatus>) => void;
   /** Ref API kontrol kamera/fokus panggung untuk bilah header utama. */
   stageApiRef?: React.MutableRefObject<StageApi | null>;
   onCamModeChange?: (mode: CameraMode) => void;
@@ -179,177 +131,15 @@ const NO_CONTACT_SHADOW = /(room_shell|Boardroom_Shell|Living_Wall|Cyclorama|Ele
 /** Slot GLB yang bergerak (kursi rapat ditarik): bayangan kontaknya diperbarui per frame. */
 const FOLLOW_CONTACT_SHADOW = /Conference_Chair/;
 
-const COFFEE_MIN_S   = 10;
-const COFFEE_MAX_S   = 22;
-const CONVO_MIN_S    = 12;
-const CONVO_MAX_S    = 24;
-const THOUGHT_MIN_S  = 8;
-const THOUGHT_MAX_S  = 18;
-const VISIT_STAY_S   = 3.5;
-/** Jeda antar-inspeksi Server / IT oleh Satria / Bima. */
-const SERVER_MIN_S   = 70;
-const SERVER_MAX_S   = 120;
-/** Tahap 4: jeda antar-diskusi kelompok di Collaboration Commons (3–4 agen, 25–35 dtk). */
-const COMMONS_MIN_S  = 90;
-const COMMONS_MAX_S  = 150;
-/** Tahap 4: jeda rehat di Digital Garden (mode demo; mode live dipicu status working → idle). */
-const GARDEN_MIN_S   = 60;
-const GARDEN_MAX_S   = 100;
-/** Tahap 5: sesi Workshop (1 pembicara + 2–4 peserta), cek Information Wall, pair huddle di Pods. */
-const WORKSHOP_MIN_S = 120;
-const WORKSHOP_MAX_S = 180;
-const INFOWALL_MIN_S = 85;
-const INFOWALL_MAX_S = 135;
-const PODS_MIN_S     = 95;
-const PODS_MAX_S     = 145;
-/** Tahap 6: produksi konten di Studio (1–2 agen), deep focus di Focus Pods (1 agen), kunjungan Access Hub. */
-const STUDIO_MIN_S   = 110;
-const STUDIO_MAX_S   = 165;
-const FOCUS_MIN_S    = 85;
-const FOCUS_MAX_S    = 130;
-const ACCESS_MIN_S   = 130;
-const ACCESS_MAX_S   = 190;
-const STUDIO_PREFERRED = ['wulan', 'tari', 'dimas', 'gita', 'fajar'];
-const FOCUS_PREFERRED = ['bima', 'gita', 'satria', 'sari', 'fajar', 'laras'];
-const ACCESS_PREFERRED = ['raka', 'sari', 'fajar'];
-/** Live: pasangan yang baru saling kirim pesan diingat sekian detik untuk pair huddle. */
-const PAIR_MEMORY_S  = 90;
-const WORKSHOP_PRESENTERS = ['raka', 'bima', 'gita', 'tari', 'sari'];
-const INFOWALL_PREFERRED = ['laras', 'fajar', 'satria', 'bima', 'raka'];
 /** Label pendek ruangan navigasi (layar Information Wall). */
 const ROOM_SHORT: Record<string, string> = {
   main: 'Ruang Kerja', boardroom: 'Rapat', foyer: 'Foyer', bus: 'Jalan Utama', manager: 'Manajer', pantry: 'Pantry',
   lobby: 'Lobi', lounge: 'Lounge', server: 'Server', commons: 'Commons', garden: 'Garden', workshop: 'Workshop',
   infowall: 'Info Wall', collabpods: 'Pods', studio: 'Studio', focus: 'Focus Pods', access: 'Access Hub',
 };
-/** Status live yang dihitung "sedang bekerja" (selesai tugas = berubah dari salah satunya ke idle). */
-const BUSY_STATUSES: ReadonlySet<AgentStatus> = new Set<AgentStatus>(['working', 'thinking', 'messaging']);
 /** Arah datang matahari (dari tenggara atas). Target & frustum bayangan dipaskan ke tapak gedung. */
 const SUN_OFFSET = new THREE.Vector3(12, 24, 16);
 const SEATED_LEG = Math.PI / 2.2;
-
-type AnimState =
-  | 'working'
-  | 'walk_to_coffee'
-  | 'waiting_in_queue'
-  | 'brewing'
-  /** Membawa kopi ke kursi bar Pantry yang kosong. */
-  | 'walk_to_stool'
-  /** Naik ke kursi bar, ngopi, lalu turun (fase dihitung dari stateTime). */
-  | 'sipping_at_bar'
-  | 'walk_to_desk'
-  | 'drinking'
-  | 'walk_to_trash'
-  | 'disposing'
-  | 'walk_from_trash'
-  | 'walk_to_visit'
-  | 'visiting'
-  | 'walk_from_visit'
-  /** Dipanggil rapat, masih di meja menunggu giliran berangkat (jeda 0.9 s). */
-  | 'meeting_called'
-  | 'walk_to_meeting'
-  /** Tarik kursi, duduk, dorong kursi ke meja. */
-  | 'meeting_sitting'
-  | 'in_meeting'
-  /** Tarik kursi, berdiri, mundur ke belakang kursi. */
-  | 'meeting_standing'
-  | 'walk_from_meeting'
-  /** Dipanggil balik ke meja dari rutinitas santai karena ada pekerjaan nyata. */
-  | 'walk_back_to_desk'
-  /** Tahap 3: belum hadir / sudah pulang (avatar disembunyikan di Lobi). */
-  | 'away'
-  /** Baru hadir: dari karpet Lobi berjalan ke meja. */
-  | 'walk_in_from_lobby'
-  /** Offline: berjalan dari meja ke Lobi lalu menghilang. */
-  | 'walk_out_to_lobby'
-  /** Tugas singkat di ruangan lain (sofa Lounge, inspeksi Server / IT): berjalan ke titik berikutnya. */
-  | 'walk_to_errand'
-  /** Duduk / berdiri di titik tugas (fase naik-turun dihitung dari stateTime). */
-  | 'errand_stay';
-
-/** State saat agen sedang dalam perjalanan pulang ke kursinya. */
-const RETURNING_STATES: ReadonlySet<AnimState> = new Set<AnimState>([
-  'walk_from_trash',
-  'walk_from_visit',
-  'walk_from_meeting',
-  'walk_back_to_desk',
-  'walk_in_from_lobby',
-]);
-
-/** Rutinitas santai (kopi, sofa Lounge, inspeksi Server) yang boleh disela saat ada pekerjaan nyata. */
-const COFFEE_STATES: ReadonlySet<AnimState> = new Set<AnimState>([
-  'walk_to_coffee',
-  'waiting_in_queue',
-  'brewing',
-  'walk_to_stool',
-  'sipping_at_bar',
-  'walk_to_trash',
-  'disposing',
-  'walk_from_trash',
-  'walk_to_errand',
-  'errand_stay',
-]);
-
-/** Satu titik tugas singkat: berdiri di `approach`, lalu duduk/berdiri di `spot` selama `duration`. */
-interface ErrandStop {
-  approach: Spot;
-  spot: Spot;
-  /** Tinggi avatar saat duduk (0 = berdiri). */
-  sitY: number;
-  duration: number;
-  pose: 'lounge' | 'inspect' | 'type' | 'discuss' | 'present';
-  lines: readonly string[];
-  /** Obrolan acak selama duduk (bawaan Lounge: LOUNGE_CHAT) dan peluangnya per detik. */
-  chat?: readonly string[];
-  chatRate?: number;
-}
-interface Errand {
-  kind: 'lounge' | 'server' | 'commons' | 'garden' | 'workshop' | 'infowall' | 'pods' | 'studio' | 'focus' | 'access';
-  /** Pembicara sesi Workshop (tidak memakai kursi). */
-  role?: 'presenter';
-  stops: ErrandStop[];
-  i: number;
-  /** Indeks kursi yang dipesan (sofa Lounge, meja Commons, bangku Garden). */
-  seat?: number;
-}
-
-/** Agen yang sedang terikat rapat (dari dipanggil sampai berdiri dari kursi rapat). */
-const MEETING_STATES: ReadonlySet<AnimState> = new Set<AnimState>([
-  'meeting_called',
-  'walk_to_meeting',
-  'meeting_sitting',
-  'in_meeting',
-  'meeting_standing',
-]);
-
-interface AgentAnim {
-  state: AnimState;
-  stateTime: number;
-  stateDuration: number;
-  walkPath: NavPt[];
-  walkSeg: number;
-  walkT: number;
-  /** Indeks segmen yang gate-nya sudah dilewati (door mutex). */
-  gateSeg: number;
-  hasCup: boolean;
-  hasDoc: boolean;
-  bubbleText: string | null;
-  bubbleTimer: number;
-  /** Tujuan kunjungan meja (agentId) saat walk_to_visit / visiting. */
-  visitTarget?: string;
-  /** Indeks kursi di BOARDROOM_SEATS selama terikat rapat. */
-  meetingSeat?: number;
-  /** Indeks kursi bar Pantry yang sedang dipesan / diduduki. */
-  stool?: number;
-  /** Tugas singkat yang sedang berjalan (Lounge / Server). */
-  errand?: Errand;
-  /** Dipilih mampir ke Lounge setelah rapat bubar. */
-  loungeAfter?: boolean;
-  /** Waktu berangkat ke / pulang dari ruang rapat (jeda bertahap). */
-  departAt?: number;
-  /** Penanda sub-fase animasi duduk / berdiri. */
-  subT?: number;
-}
 
 interface AgentMeshRefs {
   deskGroup: THREE.Group;
@@ -372,35 +162,6 @@ interface AgentMeshRefs {
   /** Titik berdiri tamu di depan meja ini (dunia). */
   visitPos: Pt;
 }
-
-interface ScheduledLine {
-  agentId: string;
-  text: string;
-  showAt: number;
-  dur: number;
-}
-
-type MeetingPhase = 'gathering' | 'session' | 'dispersing';
-
-interface MeetingState {
-  phase: MeetingPhase;
-  host: string;
-  topic: string;
-  attendees: string[];
-  startedAt: number;
-  sessionStartAt: number;
-  sessionEndsAt: number;
-  /** Waktu kamera kembali ke ruang kerja setelah rapat bubar (0 = sudah). */
-  focusBackAt: number;
-}
-
-function rand(a: number, b: number) { return a + Math.random() * (b - a); }
-function pick<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)]!; }
-function clipText(text: string, max = 110) {
-  const t = text.replace(/\s+/g, ' ').trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
-}
-const smoothstep = (t: number) => { const c = Math.min(1, Math.max(0, t)); return c * c * (3 - 2 * c); };
 
 /** Tampilan monitor & beacon per status agen (mode live). beacon null = warna kursi. */
 const STATUS_LOOK: Record<AgentStatus, {
@@ -429,8 +190,8 @@ export function IsometricOfficeStage({
   selectedAgentId,
   language,
   onSelectAgent,
-  live = false,
-  stageEvents = [],
+  feed = null,
+  onAgentStatuses,
   stageApiRef,
   onCamModeChange,
   onLoadErrorChange,
@@ -454,24 +215,13 @@ export function IsometricOfficeStage({
   const agentsRef = useRef(agents);
   const selectedRef = useRef(selectedAgentId);
   const onSelectRef = useRef(onSelectAgent);
-  const liveRef = useRef(live);
-  const pendingStageRef = useRef<StageEvent[]>([]);
-  const lastStageSeqRef = useRef(0);
+  const feedRef = useRef<WorldFeed | null>(feed);
+  const onStatusesRef = useRef(onAgentStatuses);
+  useEffect(() => { onStatusesRef.current = onAgentStatuses; }, [onAgentStatuses]);
   useEffect(() => { agentsRef.current = agents; }, [agents]);
   useEffect(() => { selectedRef.current = selectedAgentId; }, [selectedAgentId]);
   useEffect(() => { onSelectRef.current = onSelectAgent; }, [onSelectAgent]);
-  useEffect(() => { liveRef.current = live; }, [live]);
-  useEffect(() => {
-    // Antrekan event baru saja (seq naik); loop animasi yang mengeksekusinya.
-    for (const ev of stageEvents) {
-      if (ev.seq > lastStageSeqRef.current) {
-        pendingStageRef.current.push(ev);
-        lastStageSeqRef.current = ev.seq;
-      }
-    }
-    if (pendingStageRef.current.length > 30) pendingStageRef.current.splice(0, pendingStageRef.current.length - 30);
-  }, [stageEvents]);
-
+  useEffect(() => { feedRef.current = feed; }, [feed]);
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -934,182 +684,16 @@ export function IsometricOfficeStage({
     }
 
     // ================================================================
-    // NAVIGASI GEDUNG (graf lokal per ruangan + portal pintu)
+    // NAVIGASI GEDUNG: graf murni dari @office/world (sama persis dengan sutradara dunia di server)
     // ================================================================
-    const roomTransform = (g: THREE.Object3D) => {
-      g.updateWorldMatrix(true, false);
-      const m = g.matrixWorld.clone();
-      const inv = m.clone().invert();
-      const v = new THREE.Vector3();
-      return {
-        toWorld: (p: Pt) => { v.set(p.x, 0, p.z).applyMatrix4(m); return { x: v.x, z: v.z }; },
-        toLocal: (p: Pt) => { v.set(p.x, 0, p.z).applyMatrix4(inv); return { x: v.x, z: v.z }; },
-      };
-    };
-    const nav = createBuildingNav(
-      [
-        {
-          id: 'boardroom',
-          bounds: { minX: -4, maxX: 4, minZ: -4, maxZ: 4 },
-          pathLocal: boardroomPath,
-          ...roomTransform(board.group),
-        },
-        {
-          id: 'foyer',
-          bounds: { minX: -ROOM_FOYER.halfX, maxX: ROOM_FOYER.halfX, minZ: -ROOM_FOYER.halfZ, maxZ: ROOM_FOYER.halfZ },
-          pathLocal: foyerPath,
-          ...roomTransform(foyer.group),
-        },
-        {
-          id: 'bus',
-          bounds: {
-            minX: -CORRIDOR_BUS.halfLength, maxX: CORRIDOR_BUS.halfLength,
-            minZ: -CORRIDOR_BUS.halfWidth, maxZ: CORRIDOR_BUS.halfWidth,
-          },
-          pathLocal: busPath,
-          ...roomTransform(bus.group),
-        },
-        {
-          id: 'main',
-          bounds: { minX: -ROOM_MAIN.halfX, maxX: ROOM_MAIN.eastPartitionX, minZ: -ROOM_MAIN.halfZ, maxZ: ROOM_MAIN.halfZ },
-          pathLocal: mainRoomPath,
-          ...roomTransform(main.group),
-        },
-        {
-          id: 'manager',
-          bounds: { minX: -ROOM_MANAGER.halfX, maxX: ROOM_MANAGER.halfX, minZ: -ROOM_MANAGER.halfZ, maxZ: ROOM_MANAGER.halfZ },
-          pathLocal: managerPath,
-          ...roomTransform(manager.group),
-        },
-        {
-          id: 'pantry',
-          bounds: { minX: -ROOM_PANTRY.halfX, maxX: ROOM_PANTRY.halfX, minZ: -ROOM_PANTRY.halfZ, maxZ: ROOM_PANTRY.halfZ },
-          pathLocal: pantryPath,
-          ...roomTransform(pantry.group),
-        },
-        {
-          id: 'lobby',
-          bounds: { minX: -ROOM_LOBBY.halfX, maxX: ROOM_LOBBY.halfX, minZ: -ROOM_LOBBY.halfZ, maxZ: ROOM_LOBBY.halfZ },
-          pathLocal: lobbyPath,
-          ...roomTransform(lobby.group),
-        },
-        {
-          id: 'lounge',
-          bounds: { minX: -ROOM_LOUNGE.halfX, maxX: ROOM_LOUNGE.halfX, minZ: -ROOM_LOUNGE.halfZ, maxZ: ROOM_LOUNGE.halfZ },
-          pathLocal: loungePath,
-          ...roomTransform(lounge.group),
-        },
-        {
-          id: 'server',
-          bounds: { minX: -ROOM_SERVER.halfX, maxX: ROOM_SERVER.halfX, minZ: -ROOM_SERVER.halfZ, maxZ: ROOM_SERVER.halfZ },
-          pathLocal: serverPath,
-          ...roomTransform(server.group),
-        },
-        {
-          id: 'commons',
-          bounds: { minX: -ROOM_COMMONS.halfX, maxX: ROOM_COMMONS.halfX, minZ: -ROOM_COMMONS.halfZ, maxZ: ROOM_COMMONS.halfZ },
-          pathLocal: commonsPath,
-          ...roomTransform(commons.group),
-        },
-        {
-          id: 'garden',
-          bounds: { minX: -ROOM_GARDEN.halfX, maxX: ROOM_GARDEN.halfX, minZ: -ROOM_GARDEN.halfZ, maxZ: ROOM_GARDEN.halfZ },
-          pathLocal: gardenPath,
-          ...roomTransform(garden.group),
-        },
-        {
-          id: 'workshop',
-          bounds: { minX: -ROOM_WORKSHOP.halfX, maxX: ROOM_WORKSHOP.halfX, minZ: -ROOM_WORKSHOP.halfZ, maxZ: ROOM_WORKSHOP.halfZ },
-          pathLocal: workshopPath,
-          ...roomTransform(workshop.group),
-        },
-        {
-          id: 'infowall',
-          bounds: { minX: -ROOM_INFOWALL.halfX, maxX: ROOM_INFOWALL.halfX, minZ: -ROOM_INFOWALL.halfZ, maxZ: ROOM_INFOWALL.halfZ },
-          pathLocal: infoWallPath,
-          ...roomTransform(infoWall.group),
-        },
-        {
-          id: 'collabpods',
-          bounds: { minX: -ROOM_COLLABPODS.halfX, maxX: ROOM_COLLABPODS.halfX, minZ: -ROOM_COLLABPODS.halfZ, maxZ: ROOM_COLLABPODS.halfZ },
-          pathLocal: collabPodsPath,
-          ...roomTransform(collabPods.group),
-        },
-        {
-          id: 'studio',
-          bounds: { minX: -ROOM_STUDIO.halfX, maxX: ROOM_STUDIO.halfX, minZ: -ROOM_STUDIO.halfZ, maxZ: ROOM_STUDIO.halfZ },
-          pathLocal: studioPath,
-          ...roomTransform(studio.group),
-        },
-        {
-          id: 'focus',
-          bounds: { minX: -ROOM_FOCUS.halfX, maxX: ROOM_FOCUS.halfX, minZ: -ROOM_FOCUS.halfZ, maxZ: ROOM_FOCUS.halfZ },
-          pathLocal: focusPodsPath,
-          ...roomTransform(focusPods.group),
-        },
-        {
-          id: 'access',
-          bounds: { minX: -ROOM_ACCESS.halfX, maxX: ROOM_ACCESS.halfX, minZ: -ROOM_ACCESS.halfZ, maxZ: ROOM_ACCESS.halfZ },
-          pathLocal: accessHubPath,
-          ...roomTransform(accessHub.group),
-        },
-      ],
-      [
-        // Ruang kerja punya 2 pintu ke Jalan Utama: router memilih rute total terpendek.
-        { id: 'main-bus-west', a: { room: 'main', portal: FLOOR1_PORTALS.mainSouthWest }, b: { room: 'bus', portal: FLOOR1_PORTALS.busWestDoor } },
-        { id: 'main-bus-east', a: { room: 'main', portal: FLOOR1_PORTALS.mainSouthEast }, b: { room: 'bus', portal: FLOOR1_PORTALS.busEastDoor } },
-        { id: 'bus-foyer', a: { room: 'bus', portal: FLOOR1_PORTALS.busFoyerDoor }, b: { room: 'foyer', portal: FLOOR1_PORTALS.foyerSouth } },
-        {
-          id: 'foyer-boardroom',
-          a: { room: 'foyer', portal: FLOOR1_PORTALS.foyerNorth },
-          b: { room: 'boardroom', portal: FLOOR1_PORTALS.boardroomDoorInside },
-          gate: BOARDROOM_DOOR_GATE,
-        },
-        { id: 'bus-manager', a: { room: 'bus', portal: FLOOR1_PORTALS.busManagerDoor }, b: { room: 'manager', portal: FLOOR1_PORTALS.managerNorth } },
-        { id: 'bus-pantry', a: { room: 'bus', portal: FLOOR1_PORTALS.busPantryDoor }, b: { room: 'pantry', portal: FLOOR1_PORTALS.pantryNorth } },
-        { id: 'bus-lobby', a: { room: 'bus', portal: FLOOR1_PORTALS.busLobbyDoor }, b: { room: 'lobby', portal: FLOOR1_PORTALS.lobbyNorth } },
-        { id: 'bus-lounge', a: { room: 'bus', portal: FLOOR1_PORTALS.busLoungeDoor }, b: { room: 'lounge', portal: FLOOR1_PORTALS.loungeNorth } },
-        { id: 'bus-server', a: { room: 'bus', portal: FLOOR1_PORTALS.busServerDoor }, b: { room: 'server', portal: FLOOR1_PORTALS.serverNorth } },
-        { id: 'bus-commons', a: { room: 'bus', portal: FLOOR1_PORTALS.busCommonsDoor }, b: { room: 'commons', portal: FLOOR1_PORTALS.commonsSouth } },
-        { id: 'bus-garden', a: { room: 'bus', portal: FLOOR1_PORTALS.busGardenDoor }, b: { room: 'garden', portal: FLOOR1_PORTALS.gardenNorth } },
-        // Tahap 5: Workshop dari bus; Information Wall lewat Commons; Pods lewat Workshop.
-        { id: 'bus-workshop', a: { room: 'bus', portal: FLOOR1_PORTALS.busWorkshopDoor }, b: { room: 'workshop', portal: FLOOR1_PORTALS.workshopSouth } },
-        { id: 'commons-infowall', a: { room: 'commons', portal: FLOOR1_PORTALS.commonsNorthInfo }, b: { room: 'infowall', portal: FLOOR1_PORTALS.infoWallSouth } },
-        { id: 'workshop-collabpods', a: { room: 'workshop', portal: FLOOR1_PORTALS.workshopNorthPods }, b: { room: 'collabpods', portal: FLOOR1_PORTALS.collabPodsSouth } },
-        // Tahap 6: Studio lewat pintu utara barat Commons; Focus Pods & Access Hub dari bus.
-        { id: 'commons-studio', a: { room: 'commons', portal: FLOOR1_PORTALS.commonsNorthStudio }, b: { room: 'studio', portal: FLOOR1_PORTALS.studioSouth } },
-        { id: 'bus-focus', a: { room: 'bus', portal: FLOOR1_PORTALS.busFocusDoor }, b: { room: 'focus', portal: FLOOR1_PORTALS.focusNorth } },
-        { id: 'bus-access', a: { room: 'bus', portal: FLOOR1_PORTALS.busAccessDoor }, b: { room: 'access', portal: FLOOR1_PORTALS.accessNorth } },
-      ],
-    );
-    const walkPath = (from: Pt, to: Pt): NavPt[] => nav.path(from, to);
-    const boardDoorInside = (() => {
+    const nav = createFloor1Nav();
+    const worldSpots = floor1Spots();
+    const boardDoorWorld = () => {
       const v = board.group.localToWorld(new THREE.Vector3(BOARDROOM.doorInside.x, 0, BOARDROOM.doorInside.z));
       return { x: v.x, z: v.z };
-    })();
+    };
 
     const meshMap = new Map<string, AgentMeshRefs>();
-    const animMap = new Map<string, AgentAnim>();
-
-    // ---- Titik rutinitas Pantry (lokal Room_PantryCafe → dunia lewat scene graph) ----
-    const pantrySpot = (p: Pt & { rotY?: number }): Spot => {
-      const v = pantry.group.localToWorld(new THREE.Vector3(p.x, 0, p.z));
-      return { x: v.x, z: v.z, rotY: p.rotY ?? 0 };
-    };
-    /** Slot 0 di depan mesin espresso, slot 1–3 berbaris ke utara sepanjang bar. */
-    const coffeeSpots: Spot[] = PANTRY.queue.map(pantrySpot);
-    const queueSpot = (i: number) => coffeeSpots[Math.min(Math.max(i, 0), coffeeSpots.length - 1)]!;
-    const trashStand: Spot = pantrySpot(PANTRY.trashStand);
-    /** Kursi bar: titik duduk (dudukan) + titik berdiri di lorong tengah sebelum naik. */
-    const stools = PANTRY.stoolZ.map((z) => ({
-      seat: pantrySpot({ x: PANTRY.stoolX, z, rotY: PANTRY.stoolRotY }),
-      approach: pantrySpot({ x: PANTRY.spineX, z }),
-    }));
-    const stoolOccupant: Array<string | null> = stools.map(() => null);
-
-    // Antrean Kopi Terstruktur
-    let coffeeQueue: string[] = [];
-
     // ================================================================
     // DESK STATIONS (Meja, Kursi, Monitor SATU SISI LAYAR DEPAN SAJA)
     // Dibangun SEKALI. desk.glb & Office_Ergonomic_Chair.glb (dimuat bersamaan) menggantikan
@@ -1311,7 +895,8 @@ export function IsometricOfficeStage({
         if (!refs) return;
         const color = new THREE.Color(ag.color);
         const sp = refs.sitPos;
-        const shirtMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 });
+        // K7: seragam agen Navy Tech (identitas warna agen tetap di beacon, cincin, pendar monitor, bubble).
+        const shirtMat = new THREE.MeshStandardMaterial({ color: UNIFORMS[AGENT_UNIFORM].outer, roughness: 0.62, metalness: 0.05 });
 
         const g = new THREE.Group();
         g.name = `Avatar_${ag.id}`;
@@ -1414,27 +999,6 @@ export function IsometricOfficeStage({
     };
 
     // ================================================================
-    // INISIALISASI STATE ANIMASI
-    // ================================================================
-    const initAnims = () => {
-      initAgents.forEach((ag) => {
-        animMap.set(ag.id, {
-          state: 'working',
-          stateTime: 0,
-          stateDuration: 0,
-          walkPath: [],
-          walkSeg: 0,
-          walkT: 0,
-          gateSeg: -1,
-          hasCup: false,
-          hasDoc: false,
-          bubbleText: null,
-          bubbleTimer: 0,
-        });
-      });
-    };
-
-    // ================================================================
     // SPEECH BUBBLE DOM (Imperatively-managed)
     // ================================================================
     /** Elemen bubble per agen (tanpa querySelector di loop render). */
@@ -1496,20 +1060,66 @@ export function IsometricOfficeStage({
 
     buildDesks();
     buildAvatars();
-    initAnims();
     initBubbles();
 
-    // ---- Tahap 3: titik spawn Lobi. Demo: agen datang bertahap dari Lobi saat halaman dibuka. ----
-    const lobbySpawn = lobby.spawnWorld();
-    if (!liveRef.current) {
-      const order = Array.from(animMap.keys()).sort(() => Math.random() - 0.5);
-      order.forEach((id, k) => {
-        const a = animMap.get(id)!;
-        const r = meshMap.get(id);
-        a.state = 'away';
-        a.departAt = 0.8 + k * 1.2;
-        if (r) { r.avatar.visible = false; r.avatar.position.set(lobbySpawn.x, 0, lobbySpawn.z); }
+    // F2: titik rutinitas murni (@office/world, dipakai sutradara server) harus sama dengan scene graph.
+    if (import.meta.env.DEV) {
+      const bad: string[] = [];
+      const near = (a: Pt, b: Pt, what: string) => {
+        if (Math.hypot(a.x - b.x, a.z - b.z) > 0.002) bad.push(`${what}: (${a.x.toFixed(3)}, ${a.z.toFixed(3)}) ≠ (${b.x.toFixed(3)}, ${b.z.toFixed(3)})`);
+      };
+      const pairs = (xs: ReadonlyArray<{ spot: Spot; approach: Spot }>, ys: ReadonlyArray<{ spot: Spot; approach: Spot }>, what: string) => {
+        if (xs.length !== ys.length) bad.push(`${what}: jumlah ${xs.length} ≠ ${ys.length}`);
+        xs.forEach((s, i) => {
+          const y = ys[i];
+          if (!y) return;
+          near(s.spot, y.spot, `${what}[${i}].spot`);
+          near(s.approach, y.approach, `${what}[${i}].approach`);
+          if (Math.abs(s.spot.rotY - y.spot.rotY) > 1e-6) bad.push(`${what}[${i}].rotY`);
+        });
+      };
+      near(lobby.spawnWorld(), worldSpots.lobbySpawn, 'lobbySpawn');
+      pairs(lounge.seatsWorld(), worldSpots.sofa, 'sofa');
+      pairs(commons.seatsWorld(), worldSpots.commons, 'commons');
+      pairs(garden.seatsWorld(), worldSpots.garden, 'garden');
+      pairs(workshop.seatsWorld(), worldSpots.workshop, 'workshop');
+      near(workshop.presenterWorld(), worldSpots.presenter, 'presenter');
+      infoWall.observersWorld().forEach((s, i) => near(s, worldSpots.infoWall[i]!, `infoWall[${i}]`));
+      pairs(collabPods.seatsWorld(), worldSpots.pods, 'pods');
+      pairs(focusPods.seatsWorld(), worldSpots.focus, 'focus');
+      const st = studio.spotsWorld();
+      near(st.talent, worldSpots.studio.talent, 'studio.talent');
+      near(st.director, worldSpots.studio.director, 'studio.director');
+      pairs([st.editor], [worldSpots.studio.editor], 'studio.editor');
+      const ac = accessHub.spotsWorld();
+      near(ac.map, worldSpots.access.map, 'access.map');
+      near(ac.lift, worldSpots.access.lift, 'access.lift');
+      near(server.inspectWorld(), worldSpots.serverInspect, 'server.inspect');
+      pairs([server.consoleSeatWorld()], [worldSpots.serverConsole], 'server.console');
+      BOARDROOM_SEATS.forEach((_, i) => {
+        near(board.approachWorld(i), boardroomSpots.approach(i), `board.approach[${i}]`);
+        const a = board.seatWorld(i, 0.5), b = boardroomSpots.seat(i, 0.5);
+        near({ x: a.x, z: a.z }, b, `board.seat[${i}]`);
+        if (Math.abs(a.y - b.y) > 0.002) bad.push(`board.seat[${i}].y`);
       });
+      near(boardDoorWorld(), worldSpots.boardDoorInside, 'board.doorInside');
+      for (const ag of initAgents) {
+        const r = meshMap.get(ag.id), d = deskSeat(ag.id);
+        if (!r || !d) continue;
+        near({ x: r.sitPos.x, z: r.sitPos.z }, d, `desk.${ag.id}`);
+        if (Math.abs(r.sitPos.y - d.y) > 0.002 || Math.abs(r.sitRotY - d.rotY) > 1e-6) bad.push(`desk.${ag.id}.y/rotY`);
+        near(r.visitPos, d.visit, `visit.${ag.id}`);
+      }
+      PANTRY.queue.forEach((q, i) => {
+        const v = pantry.group.localToWorld(new THREE.Vector3(q.x, 0, q.z));
+        near({ x: v.x, z: v.z }, worldSpots.coffeeQueue[i]!, `coffee[${i}]`);
+      });
+      worldSpots.stools.forEach((s, i) => {
+        const v = pantry.group.localToWorld(new THREE.Vector3(PANTRY.stoolX, 0, PANTRY.stoolZ[i]!));
+        near({ x: v.x, z: v.z }, s.seat, `stool[${i}]`);
+      });
+      if (bad.length) console.warn('[office] Titik dunia @office/world TIDAK cocok dengan scene graph:', bad);
+      else console.info('[office] F2: semua titik dunia @office/world cocok dengan scene graph.');
     }
 
     // Template meja & kursi kerja: ditunggu bersamaan, lalu dipasang SEKALI di slotnya.
@@ -1559,899 +1169,178 @@ export function IsometricOfficeStage({
     window.addEventListener('resize', handleResize);
 
     // ================================================================
-    // SCHEDULER, ANTREAN KOPI & PINTU
+    // RENDERER DUNIA (F2): keadaan agen dari WorldFeed — sutradara di server (live, sama untuk semua
+    // penonton) atau WorldSim lokal (demo / server mati). Panggung hanya merender pose & ruangan.
     // ================================================================
     let globalTime = 0;
-    let nextCoffeeT = rand(4, 8);
-    let nextConvoT  = rand(8, 14);
-    let nextThoughtT = rand(6, 12);
-    let nextServerT = rand(35, 50);
-    let nextCommonsT = rand(45, 65);
-    let nextGardenT = rand(20, 35);
-    let nextWorkshopT = rand(60, 90);
-    let nextInfoT = rand(30, 50);
-    let nextPodsT = rand(40, 60);
-    let nextStudioT = rand(50, 75);
-    let nextFocusT = rand(25, 40);
-    let nextAccessT = rand(55, 80);
     /** Riwayat jumlah agen aktif untuk grafik layar Information Wall (1 sampel / detik). */
     const activityHistory: number[] = [];
     let lastCodeUpdate = 0;
     let lastKpiT = -Infinity;
-    const dlgQueue: ScheduledLine[] = [];
-    const visitQueue = new Map<string, Array<{ to: string; text: string; carryDoc: boolean }>>();
-
-    const currentPos = (refs: AgentMeshRefs): Pt => ({ x: refs.avatar.position.x, z: refs.avatar.position.z });
-    const deskPos = (refs: AgentMeshRefs): Pt => ({ x: refs.sitPos.x, z: refs.sitPos.z });
-
-    // ---- Door mutex: satu agen per DOOR_MUTEX_GAP_S detik melewati pintu ruang rapat ----
-    const gates = new Map<string, { lastGrant: number; waiting: string[] }>();
-    const gateOf = (id: string) => {
-      let g = gates.get(id);
-      if (!g) { g = { lastGrant: -Infinity, waiting: [] }; gates.set(id, g); }
-      return g;
-    };
-    const leaveGate = (agentId: string) => {
-      for (const g of gates.values()) {
-        const i = g.waiting.indexOf(agentId);
-        if (i >= 0) g.waiting.splice(i, 1);
-      }
-    };
-    /** true = boleh lanjut melewati pintu. */
-    const passGate = (agentId: string, gateId: string): boolean => {
-      const g = gateOf(gateId);
-      g.waiting = g.waiting.filter((id) => {
-        const a = animMap.get(id);
-        return !!a && a.walkPath[a.walkSeg]?.gate === gateId && a.gateSeg !== a.walkSeg;
-      });
-      if (!g.waiting.includes(agentId)) g.waiting.push(agentId);
-      if (g.waiting[0] === agentId && globalTime - g.lastGrant >= DOOR_MUTEX_GAP_S) {
-        g.lastGrant = globalTime;
-        g.waiting.shift();
-        return true;
-      }
-      return false;
-    };
-
-    /** Pasang rute jalan baru (selalu lewat sini agar status gate ikut direset). */
-    const setWalk = (agentId: string, anim: AgentAnim, path: NavPt[]) => {
-      leaveGate(agentId);
-      anim.walkPath = path;
-      anim.walkSeg = 0;
-      anim.walkT = 0;
-      anim.gateSeg = -1;
-    };
-
-    /**
-     * Majukan agen ke slot antrean baru. Yang sudah berdiri di garis antrean cukup melangkah
-     * lurus; yang masih di perjalanan (bisa masih di ruangan lain) dirute ulang lewat pintu.
-     */
-    const moveToQueueSlot = (waitingId: string, slot: number) => {
-      const wAnim = animMap.get(waitingId);
-      const wRefs = meshMap.get(waitingId);
-      if (!wAnim || !wRefs) return;
-      if (wAnim.state !== 'waiting_in_queue' && wAnim.state !== 'walk_to_coffee') return;
-      const from = currentPos(wRefs);
-      const to = queueSpot(slot);
-      const head = queueSpot(0);
-      const tail = queueSpot(coffeeSpots.length - 1);
-      const onLine = Math.abs(from.x - to.x) < 0.05 &&
-        from.z >= Math.min(head.z, tail.z) - 0.1 && from.z <= Math.max(head.z, tail.z) + 0.1;
-      wAnim.state = 'walk_to_coffee';
-      setWalk(waitingId, wAnim, onLine ? [from, to] : walkPath(from, to));
-    };
-
-    /** Keluarkan agen dari antrean kopi dan majukan yang di belakangnya. */
-    const leaveCoffeeQueue = (agentId: string) => {
-      const idx = coffeeQueue.indexOf(agentId);
-      if (idx === -1) return;
-      coffeeQueue.splice(idx, 1);
-      coffeeQueue.forEach((waitingId, newIdx) => {
-        if (newIdx >= idx) moveToQueueSlot(waitingId, newIdx);
-      });
-    };
-
-    /** Lepaskan kursi bar Pantry yang dipesan / diduduki agen. */
-    const releaseStool = (agentId: string) => {
-      const anim = animMap.get(agentId);
-      const i = stoolOccupant.indexOf(agentId);
-      if (i >= 0) stoolOccupant[i] = null;
-      if (anim) anim.stool = undefined;
-    };
-
-    // ---- Tahap 3: kursi sofa Lounge & titik inspeksi Server / IT ----
-    const sofaSeats = lounge.seatsWorld();
-    const sofaOccupant: Array<string | null> = sofaSeats.map(() => null);
-    let serverBusy: string | null = null;
-    // ---- Tahap 4: kursi meja kolaborasi Commons & bangku teak Digital Garden ----
-    const commonsSeats = commons.seatsWorld();
-    const commonsOccupant: Array<string | null> = commonsSeats.map(() => null);
-    const gardenSeats = garden.seatsWorld();
-    const gardenOccupant: Array<string | null> = gardenSeats.map(() => null);
-    // ---- Tahap 5: kursi Workshop + pembicara, titik pengamat Information Wall, kursi Pods ----
-    const workshopSeats = workshop.seatsWorld();
-    const workshopOccupant: Array<string | null> = workshopSeats.map(() => null);
-    const presenterSpot = workshop.presenterWorld();
-    let workshopPresenter: string | null = null;
-    let workshopTopic = '';
-    const infoSpots = infoWall.observersWorld();
-    const infoOccupant: Array<string | null> = infoSpots.map(() => null);
-    const podSeats = collabPods.seatsWorld();
-    const podOccupant: Array<string | null> = podSeats.map(() => null);
-    // ---- Tahap 6: peran Studio [talent, sutradara, editor], bilik Focus Pods, pengunjung Access Hub ----
-    const studioSpots = studio.spotsWorld();
-    const studioOccupant: Array<string | null> = [null, null, null];
-    const focusSeats = focusPods.seatsWorld();
-    const focusOccupant: Array<string | null> = focusSeats.map(() => null);
-    const accessSpots = accessHub.spotsWorld();
-    let accessBusy: string | null = null;
-    /** Live: pasangan pengirim → penerima pesan terakhir (untuk pair huddle di Pods). */
-    const recentPairs: Array<{ a: string; b: string; t: number }> = [];
-    /** Lepaskan kursi / titik tugas yang dipesan agen (Lounge, Server, Commons, Garden, Workshop, Info Wall, Pods). */
-    const releaseErrand = (agentId: string) => {
-      const a = animMap.get(agentId);
-      const er = a?.errand;
-      if (!a || !er) return;
-      const seats = er.kind === 'lounge' ? sofaOccupant : er.kind === 'commons' ? commonsOccupant : er.kind === 'garden' ? gardenOccupant
-        : er.kind === 'workshop' ? workshopOccupant : er.kind === 'infowall' ? infoOccupant : er.kind === 'pods' ? podOccupant
-          : er.kind === 'studio' ? studioOccupant : er.kind === 'focus' ? focusOccupant : null;
-      if (seats && er.seat !== undefined && seats[er.seat] === agentId) seats[er.seat] = null;
-      if (er.kind === 'workshop' && er.role === 'presenter' && workshopPresenter === agentId) workshopPresenter = null;
-      if (er.kind === 'server' && serverBusy === agentId) serverBusy = null;
-      if (er.kind === 'access' && accessBusy === agentId) accessBusy = null;
-      a.errand = undefined;
-    };
-    /** Keluar dari semua rutinitas santai (antrean, kursi bar, sofa, server). */
-    const leaveAmbient = (agentId: string) => {
-      leaveCoffeeQueue(agentId);
-      releaseStool(agentId);
-      releaseErrand(agentId);
-    };
-
-    /** Panggil kembali ke meja dari rutinitas santai (mis. ada pekerjaan/izin masuk). */
-    const recallToDesk = (agentId: string, text?: string) => {
-      const anim = animMap.get(agentId);
-      const refs = meshMap.get(agentId);
-      if (!anim || !refs) return;
-      leaveAmbient(agentId);
-      anim.hasCup = false;
-      refs.cup.visible = false;
-      // State khusus (bukan bagian rutinitas kopi) agar recall tidak terpicu ulang tiap frame.
-      anim.state = 'walk_back_to_desk';
-      anim.stateTime = 0;
-      setWalk(agentId, anim, walkPath(currentPos(refs), deskPos(refs)));
-      if (text) {
-        anim.bubbleText = text;
-        anim.bubbleTimer = 3.0;
-      }
-    };
-
-    const startVisit = (fromId: string, toId: string, text: string, carryDoc: boolean) => {
-      const anim = animMap.get(fromId);
-      const refs = meshMap.get(fromId);
-      // Titik tamu dibaca dari meja tujuan (ruang kerja atau Ruang Manajer).
-      const target = meshMap.get(toId);
-      if (!anim || !refs || !target || toId === fromId) return;
-      const spot = target.visitPos;
-      // Tahap 5: pasangan yang berbalas pesan (live) bisa lanjut pair huddle di Pods.
-      if (liveRef.current) recentPairs.push({ a: fromId, b: toId, t: globalTime });
-      anim.state = 'walk_to_visit';
-      anim.stateTime = 0;
-      anim.visitTarget = toId;
-      anim.hasDoc = carryDoc;
-      refs.doc.visible = carryDoc;
-      setWalk(fromId, anim, walkPath(deskPos(refs), spot));
-      anim.bubbleText = clipText(text, 90);
-      anim.bubbleTimer = 4.5;
-    };
-
-    const statusOf = (agentId: string): AgentStatus | null => {
-      if (!liveRef.current) return null;
-      return agentsRef.current.find((a) => a.id === agentId)?.status ?? null;
-    };
-
-    const atDesk = (anim: AgentAnim) => anim.state === 'working' || anim.state === 'drinking';
-
-    /** Agen baru hadir: muncul di karpet Lobi lalu berjalan ke mejanya. */
-    const startArrival = (agentId: string, anim: AgentAnim, refs: AgentMeshRefs) => {
-      leaveAmbient(agentId);
-      anim.departAt = undefined;
-      anim.state = 'walk_in_from_lobby';
-      anim.stateTime = 0;
-      refs.avatar.visible = true;
-      refs.avatar.position.set(lobbySpawn.x, 0, lobbySpawn.z);
-      refs.avatar.rotation.y = lobbySpawn.rotY;
-      setWalk(agentId, anim, walkPath(lobbySpawn, deskPos(refs)));
-      anim.bubbleText = pick(ARRIVAL_LINES);
-      anim.bubbleTimer = 3.0;
-    };
-    /** Agen offline: berjalan dari meja ke Lobi, lalu menghilang. */
-    const startLeaving = (agentId: string, anim: AgentAnim, refs: AgentMeshRefs) => {
-      leaveAmbient(agentId);
-      anim.state = 'walk_out_to_lobby';
-      anim.stateTime = 0;
-      anim.hasCup = false;
-      refs.cup.visible = false;
-      setWalk(agentId, anim, walkPath(currentPos(refs), lobbySpawn));
-      anim.bubbleText = pick(LEAVING_LINES);
-      anim.bubbleTimer = 2.8;
-    };
-    const setAway = (anim: AgentAnim, refs: AgentMeshRefs) => {
-      anim.state = 'away';
-      anim.stateTime = 0;
-      refs.avatar.visible = false;
-      refs.avatar.position.set(lobbySpawn.x, 0, lobbySpawn.z);
-    };
-
-    /** Mampir duduk di sofa Lounge (setelah rapat). false bila sofa penuh. */
-    const startLoungeErrand = (agentId: string, anim: AgentAnim, from: Pt): boolean => {
-      const i = sofaOccupant.indexOf(null);
-      if (i < 0) return false;
-      sofaOccupant[i] = agentId;
-      const seat = sofaSeats[i]!;
-      anim.errand = {
-        kind: 'lounge', i: 0, seat: i,
-        stops: [{ approach: seat.approach, spot: seat.spot, sitY: LOUNGE.sitY, duration: rand(16, 24), pose: 'lounge', lines: LOUNGE_CHAT }],
-      };
-      anim.state = 'walk_to_errand';
-      anim.stateTime = 0;
-      setWalk(agentId, anim, walkPath(from, seat.approach));
-      anim.bubbleText = pick(LOUNGE_GOING);
-      anim.bubbleTimer = 3.0;
-      return true;
-    };
-    /** Inspeksi Server / IT: periksa rak di cold aisle, lalu duduk di konsol IT. */
-    const startServerErrand = (agentId: string, anim: AgentAnim, refs: AgentMeshRefs): boolean => {
-      if (serverBusy) return false;
-      serverBusy = agentId;
-      const ins = server.inspectWorld();
-      const con = server.consoleSeatWorld();
-      anim.errand = {
-        kind: 'server', i: 0,
-        stops: [
-          { approach: ins, spot: ins, sitY: 0, duration: rand(7, 10), pose: 'inspect', lines: SERVER_INSPECT },
-          { approach: con.approach, spot: con.spot, sitY: 0.45, duration: rand(8, 11), pose: 'type', lines: SERVER_CONSOLE },
-        ],
-      };
-      anim.state = 'walk_to_errand';
-      anim.stateTime = 0;
-      setWalk(agentId, anim, walkPath(deskPos(refs), ins));
-      anim.bubbleText = pick(SERVER_GOING);
-      anim.bubbleTimer = 3.0;
-      return true;
-    };
-    /**
-     * Tahap 4: diskusi kelompok di meja kolaborasi Commons. Setiap anggota memesan satu kursi
-     * (utara dulu: menghadap kamera), berjalan dari mejanya, lalu duduk 25–35 dtk sambil berdiskusi.
-     */
-    const COMMONS_SEAT_ORDER = [1, 4, 0, 3, 2, 5];
-    const startCommonsDiscussion = (ids: readonly string[]): string[] => {
-      const started: string[] = [];
-      for (const id of ids) {
-        const anim = animMap.get(id), refs = meshMap.get(id);
-        const i = COMMONS_SEAT_ORDER.find((k) => commonsOccupant[k] === null);
-        if (!anim || !refs || i === undefined) continue;
-        commonsOccupant[i] = id;
-        const seat = commonsSeats[i]!;
-        anim.errand = {
-          kind: 'commons', i: 0, seat: i,
-          stops: [{ approach: seat.approach, spot: seat.spot, sitY: COMMONS.sitY, duration: rand(25, 35), pose: 'discuss', lines: COMMONS_CHAT, chat: COMMONS_CHAT, chatRate: 0.22 }],
-        };
-        anim.state = 'walk_to_errand';
-        anim.stateTime = 0;
-        setWalk(id, anim, walkPath(deskPos(refs), seat.approach));
-        anim.bubbleText = pick(COMMONS_GOING);
-        anim.bubbleTimer = 3.0;
-        started.push(id);
-      }
-      return started;
-    };
-    /** Kelompok asal agen (pod barat / pod timur / meja eksekutif / manajer) untuk diskusi lintas tim. */
-    const podOf = (id: string) => {
-      const p = AGENT_3D_POSITIONS[id];
-      if (!p) return 'other';
-      if (p.room === 'manager') return 'manager';
-      if (p.z < -3.0) return 'exec';
-      return p.x < 0 ? 'pod_west' : 'pod_east';
-    };
-    /** Pilih 3–4 agen dari minimal 2 kelompok berbeda (kosong bila tidak memenuhi). */
-    const pickCommonsGroup = (cands: readonly string[]): string[] => {
-      const groups = new Map<string, string[]>();
-      for (const id of [...cands].sort(() => Math.random() - 0.5)) {
-        const g = podOf(id);
-        if (!groups.has(g)) groups.set(g, []);
-        groups.get(g)!.push(id);
-      }
-      if (groups.size < 2 || cands.length < 3) return [];
-      const keys = [...groups.keys()].sort(() => Math.random() - 0.5);
-      const picked = [groups.get(keys[0]!)![0]!, groups.get(keys[1]!)![0]!];
-      const rest = cands.filter((id) => !picked.includes(id)).sort(() => Math.random() - 0.5);
-      const n = Math.min(Math.random() < 0.5 ? 3 : 4, picked.length + rest.length);
-      return [...picked, ...rest].slice(0, n);
-    };
-    /** Tahap 4: rehat di bangku teak Digital Garden. false bila bangku penuh. */
-    const startGardenErrand = (agentId: string, anim: AgentAnim, refs: AgentMeshRefs): boolean => {
-      // Kursi ujung dulu supaya agen tidak berdempetan.
-      const i = [0, 2, 1].find((k) => gardenOccupant[k] === null);
-      if (i === undefined) return false;
-      gardenOccupant[i] = agentId;
-      const seat = gardenSeats[i]!;
-      anim.errand = {
-        kind: 'garden', i: 0, seat: i,
-        stops: [{ approach: seat.approach, spot: seat.spot, sitY: GARDEN.sitY, duration: rand(15, 25), pose: 'lounge', lines: GARDEN_CHAT, chat: GARDEN_CHAT, chatRate: 0.06 }],
-      };
-      anim.state = 'walk_to_errand';
-      anim.stateTime = 0;
-      setWalk(agentId, anim, walkPath(currentPos(refs), seat.approach));
-      anim.bubbleText = pick(GARDEN_GOING);
-      anim.bubbleTimer = 3.0;
-      return true;
-    };
-    /**
-     * Tahap 5: sesi Workshop. Pembicara berdiri di belakang podium (pose `inspect`, menjelaskan),
-     * peserta duduk di meja pelatihan (baris depan dulu) menghadap panggung.
-     */
-    const WORKSHOP_SEAT_ORDER = [1, 0, 2, 4, 3, 5];
-    const startWorkshopSession = (presenterId: string, attendees: readonly string[]): string[] => {
-      const pa = animMap.get(presenterId), pr = meshMap.get(presenterId);
-      if (!pa || !pr || workshopPresenter) return [];
-      const dur = rand(25, 35);
-      workshopPresenter = presenterId;
-      workshopTopic = pick(WORKSHOP_TOPICS);
-      pa.errand = {
-        kind: 'workshop', role: 'presenter', i: 0,
-        stops: [{ approach: presenterSpot, spot: presenterSpot, sitY: 0, duration: dur + 4, pose: 'inspect', lines: WORKSHOP_TALK, chat: WORKSHOP_TALK, chatRate: 0.3 }],
-      };
-      pa.state = 'walk_to_errand';
-      pa.stateTime = 0;
-      setWalk(presenterId, pa, walkPath(deskPos(pr), presenterSpot));
-      pa.bubbleText = `Sesi Workshop: ${workshopTopic}`;
-      pa.bubbleTimer = 3.5;
-      const started = [presenterId];
-      for (const id of attendees) {
-        if (id === presenterId) continue;
-        const a = animMap.get(id), r = meshMap.get(id);
-        const i = WORKSHOP_SEAT_ORDER.find((k) => workshopOccupant[k] === null);
-        if (!a || !r || i === undefined) continue;
-        workshopOccupant[i] = id;
-        const seat = workshopSeats[i]!;
-        a.errand = {
-          kind: 'workshop', i: 0, seat: i,
-          stops: [{ approach: seat.approach, spot: seat.spot, sitY: WORKSHOP.sitY, duration: dur, pose: 'discuss', lines: WORKSHOP_CHAT, chat: WORKSHOP_CHAT, chatRate: 0.06 }],
-        };
-        a.state = 'walk_to_errand';
-        a.stateTime = 0;
-        setWalk(id, a, walkPath(deskPos(r), seat.approach));
-        a.bubbleText = pick(WORKSHOP_GOING);
-        a.bubbleTimer = 3.0;
-        started.push(id);
-      }
-      return started;
-    };
-    /** Tahap 5: berdiri di depan layar Information Wall membaca metrik (14–20 dtk). */
-    const startInfoWallCheck = (ids: readonly string[]): string[] => {
-      const started: string[] = [];
-      for (const id of ids) {
-        const a = animMap.get(id), r = meshMap.get(id);
-        const i = [1, 0, 2].find((k) => infoOccupant[k] === null);
-        if (!a || !r || i === undefined) continue;
-        infoOccupant[i] = id;
-        const spot = infoSpots[i]!;
-        a.errand = {
-          kind: 'infowall', i: 0, seat: i,
-          stops: [{ approach: spot, spot, sitY: 0, duration: rand(14, 20), pose: 'inspect', lines: INFOWALL_CHAT, chat: INFOWALL_CHAT, chatRate: 0.12 }],
-        };
-        a.state = 'walk_to_errand';
-        a.stateTime = 0;
-        setWalk(id, a, walkPath(currentPos(r), spot));
-        a.bubbleText = pick(INFOWALL_GOING);
-        a.bubbleTimer = 3.0;
-        started.push(id);
-      }
-      return started;
-    };
-    /** Tahap 5: sepasang agen duduk berhadapan di pod kosong (20–30 dtk). false bila tidak ada pod kosong. */
-    const startPodHuddle = (idA: string, idB: string, podIndex?: number): boolean => {
-      const free = [0, 1].filter((p) => podOccupant[p * 2] === null && podOccupant[p * 2 + 1] === null);
-      const pod = podIndex !== undefined ? (free.includes(podIndex) ? podIndex : undefined) : free[0];
-      if (pod === undefined || idA === idB) return false;
-      const dur = rand(20, 30);
-      [idA, idB].forEach((id, k) => {
-        const a = animMap.get(id), r = meshMap.get(id);
-        if (!a || !r) return;
-        const i = pod * 2 + k;
-        podOccupant[i] = id;
-        const seat = podSeats[i]!;
-        a.errand = {
-          kind: 'pods', i: 0, seat: i,
-          stops: [{ approach: seat.approach, spot: seat.spot, sitY: COLLABPODS.sitY, duration: dur, pose: 'discuss', lines: PODS_CHAT, chat: PODS_CHAT, chatRate: 0.22 }],
-        };
-        a.state = 'walk_to_errand';
-        a.stateTime = 0;
-        setWalk(id, a, walkPath(currentPos(r), seat.approach));
-        a.bubbleText = pick(PODS_GOING);
-        a.bubbleTimer = 3.0;
-      });
-      return true;
-    };
-    /**
-     * Tahap 6: produksi konten di Studio. Berdua: kameramen di belakang rig (`inspect`) + talent di tanda ✕
-     * green screen (`present`). Sendirian: editor color-grading di meja produksi (`type`). 20–28 dtk.
-     */
-    const startStudioSession = (ids: readonly string[]): string[] => {
-      const started: string[] = [];
-      if (studioOccupant.some((o) => o !== null)) return started;
-      const dur = rand(20, 28);
-      // 0 = talent, 1 = sutradara / kameramen, 2 = editor
-      const roles = ids.length >= 2 ? [1, 0] : [2];
-      roles.forEach((role, k) => {
-        const id = ids[k];
-        const a = id ? animMap.get(id) : undefined, r = id ? meshMap.get(id) : undefined;
-        if (!id || !a || !r) return;
-        studioOccupant[role] = id;
-        const stop: ErrandStop = role === 0
-          ? { approach: studioSpots.talent, spot: studioSpots.talent, sitY: 0, duration: dur, pose: 'present', lines: STUDIO_TALK, chat: STUDIO_TALK, chatRate: 0.2 }
-          : role === 1
-            ? { approach: studioSpots.director, spot: studioSpots.director, sitY: 0, duration: dur + 1, pose: 'inspect', lines: STUDIO_CREW, chat: STUDIO_CREW, chatRate: 0.08 }
-            : { approach: studioSpots.editor.approach, spot: studioSpots.editor.spot, sitY: STUDIO.sitY, duration: dur, pose: 'type', lines: STUDIO_CREW, chat: STUDIO_CREW, chatRate: 0.05 };
-        a.errand = { kind: 'studio', i: 0, seat: role, stops: [stop] };
-        a.state = 'walk_to_errand';
-        a.stateTime = 0;
-        setWalk(id, a, walkPath(currentPos(r), stop.approach));
-        a.bubbleText = pick(STUDIO_GOING);
-        a.bubbleTimer = 3.0;
-        started.push(id);
-      });
-      return started;
-    };
-    /** Tahap 6: sesi deep focus di bilik kosong (22–32 dtk); lampu status bilik merah koral selama duduk. */
-    const startFocusSession = (id: string, podIndex?: number): boolean => {
-      const a = animMap.get(id), r = meshMap.get(id);
-      const free = [0, 1].filter((k) => focusOccupant[k] === null);
-      const i = podIndex !== undefined ? (free.includes(podIndex) ? podIndex : undefined) : free[Math.floor(Math.random() * free.length)];
-      if (!a || !r || i === undefined) return false;
-      focusOccupant[i] = id;
-      const seat = focusSeats[i]!;
-      a.errand = {
-        kind: 'focus', i: 0, seat: i,
-        stops: [{ approach: seat.approach, spot: seat.spot, sitY: FOCUSPODS.sitY, duration: rand(22, 32), pose: 'type', lines: FOCUS_MUTTER, chat: FOCUS_MUTTER, chatRate: 0.03 }],
-      };
-      a.state = 'walk_to_errand';
-      a.stateTime = 0;
-      setWalk(id, a, walkPath(currentPos(r), seat.approach));
-      a.bubbleText = pick(FOCUS_GOING);
-      a.bubbleTimer = 3.0;
-      return true;
-    };
-    /** Tahap 6: cek totem peta gedung, lalu menengok portal lift Lantai 2 (sekitar 15–20 dtk). */
-    const startAccessVisit = (id: string): boolean => {
-      const a = animMap.get(id), r = meshMap.get(id);
-      if (!a || !r || accessBusy) return false;
-      accessBusy = id;
-      a.errand = {
-        kind: 'access', i: 0,
-        stops: [
-          { approach: accessSpots.map, spot: accessSpots.map, sitY: 0, duration: rand(9, 13), pose: 'inspect', lines: ACCESS_MAP, chat: ACCESS_MAP, chatRate: 0.1 },
-          { approach: accessSpots.lift, spot: accessSpots.lift, sitY: 0, duration: rand(5, 8), pose: 'inspect', lines: ACCESS_LIFT },
-        ],
-      };
-      a.state = 'walk_to_errand';
-      a.stateTime = 0;
-      setWalk(id, a, walkPath(currentPos(r), accessSpots.map));
-      a.bubbleText = pick(ACCESS_GOING);
-      a.bubbleTimer = 3.0;
-      return true;
-    };
-    /** Tugas selesai (atau tidak valid): lepaskan pesanan, pulang ke meja. */
-    const finishErrand = (agentId: string, anim: AgentAnim, refs: AgentMeshRefs) => {
-      releaseErrand(agentId);
-      anim.state = 'walk_back_to_desk';
-      anim.stateTime = 0;
-      setWalk(agentId, anim, walkPath(currentPos(refs), deskPos(refs)));
-    };
-
-    const sitAtDesk = (refs: AgentMeshRefs) => {
-      refs.avatar.position.set(refs.sitPos.x, refs.sitPos.y, refs.sitPos.z);
-      refs.avatar.rotation.y = refs.sitRotY;
-      refs.leftLegPivot.rotation.set(SEATED_LEG, 0, 0);
-      refs.rightLegPivot.rotation.set(SEATED_LEG, 0, 0);
-    };
-
-    // ================================================================
-    // RAPAT DI RUANG RAPAT: berkumpul → sesi → bubar
-    // ================================================================
-    let meeting: MeetingState | null = null;
-    const seatOccupant: Array<string | null> = BOARDROOM_SEATS.map(() => null);
+    let view: WorldView | null = null;
+    const frameOf = new Map<string, AgentFrame>();
+    let lastMeetingPhase: string | null = null;
+    let focusBackAt = 0;
+    let lastBoardInfo = '';
+    let lastStatusKey = '';
     const agentName = (id: string) => initAgents.find((a) => a.id === id)?.name ?? id;
-    const agentRole = (id: string) => {
-      const ag = initAgents.find((a) => a.id === id);
-      return ag ? ag.title ?? roleLabel(ag.role, 'id') : '';
-    };
-
-    const assignSeat = (id: string, anim: AgentAnim): number => {
-      if (anim.meetingSeat !== undefined) return anim.meetingSeat;
-      const prefer = MEETING_SEAT_ASSIGNMENT[id];
-      let idx = prefer ? BOARDROOM_SEATS.findIndex((s) => s.id === prefer) : -1;
-      if (idx < 0 || seatOccupant[idx]) idx = seatOccupant.findIndex((o) => o === null);
-      if (idx >= 0) {
-        seatOccupant[idx] = id;
-        anim.meetingSeat = idx;
-      }
-      return idx;
-    };
-    const releaseSeat = (id: string, anim: AgentAnim) => {
-      const i = seatOccupant.indexOf(id);
-      if (i >= 0) seatOccupant[i] = null;
-      anim.meetingSeat = undefined;
-    };
-
-    const refreshScreen = () => {
-      if (!meeting || meeting.phase === 'dispersing') {
-        board.setScreen(null);
-        foyer.setStatus(null);
-        return;
-      }
-      const seated = meeting.attendees.filter((id) => animMap.get(id)?.state === 'in_meeting').length;
-      const role = agentRole(meeting.host);
-      const info = {
-        phase: meeting.phase === 'session' ? 'session' as const : 'gathering' as const,
-        topic: meeting.topic,
-        host: role ? `${agentName(meeting.host)} · ${role}` : agentName(meeting.host),
-        seated,
-        total: meeting.attendees.length,
-      };
-      board.setScreen(info);
-      foyer.setStatus(info);
-    };
-
-    const walkToSeat = (id: string, anim: AgentAnim, refs: AgentMeshRefs) => {
-      anim.state = 'walk_to_meeting';
-      anim.stateTime = 0;
-      setWalk(id, anim, walkPath(currentPos(refs), board.approachWorld(anim.meetingSeat!)));
-    };
-
-    const startMeeting = (host: string, text: string) => {
-      const topic = clipText(text, 140);
-      if (meeting && meeting.phase !== 'dispersing') {
-        // Rapat masih berjalan: perbarui agenda; sesi yang sedang berlangsung diulang dengan topik baru.
-        meeting.topic = topic;
-        meeting.host = host;
-        if (meeting.phase === 'session') beginSession();
-        refreshScreen();
-        return;
-      }
-
-      const attendees: string[] = [];
-      const ids = [host, ...Array.from(animMap.keys()).filter((id) => id !== host)];
-      for (const id of ids) {
-        const anim = animMap.get(id);
-        if (!anim || !meshMap.get(id) || statusOf(id) === 'offline') continue;
-        // Belum hadir / sedang pulang lewat Lobi: tidak ikut rapat.
-        if (anim.state === 'away' || anim.state === 'walk_out_to_lobby') continue;
-        if (assignSeat(id, anim) < 0) continue;
-        attendees.push(id);
-      }
-      if (attendees.length === 0) return;
-      meeting = {
-        phase: 'gathering', host, topic, attendees,
-        startedAt: globalTime, sessionStartAt: 0, sessionEndsAt: 0, focusBackAt: 0,
-      };
-
-      // Urutan keberangkatan: jarak tempuh ke pintu ruang rapat, terdekat jalan duluan.
-      const order = attendees
-        .map((id) => ({ id, len: pathLength(walkPath(currentPos(meshMap.get(id)!), boardDoorInside)) }))
-        .sort((a, b) => a.len - b.len);
-      let slot = 0;
-      for (const { id } of order) {
-        const anim = animMap.get(id)!;
-        const refs = meshMap.get(id)!;
-        if (anim.state === 'in_meeting' || anim.state === 'meeting_sitting' ||
-            anim.state === 'walk_to_meeting' || anim.state === 'meeting_standing') continue;
-        if (anim.state === 'walk_from_meeting') { walkToSeat(id, anim, refs); continue; }
-
-        leaveAmbient(id);
-        anim.hasCup = false;
-        refs.cup.visible = false;
-        anim.hasDoc = false;
-        refs.doc.visible = false;
-        anim.visitTarget = undefined;
-        visitQueue.delete(id);
-        if (atDesk(anim)) {
-          anim.state = 'meeting_called';
-          anim.stateTime = 0;
-          anim.departAt = globalTime + 0.6 + slot * MEETING_DEPART_GAP_S;
-          slot += 1;
-        } else {
-          walkToSeat(id, anim, refs);
-        }
-      }
-
-      if (attendees.includes(host)) {
-        dlgQueue.push({ agentId: host, text: pick(MEETING_CALL_LINES), showAt: globalTime + 0.2, dur: 3.2 });
-      }
-      const other = attendees.find((id) => id !== host);
-      if (other) dlgQueue.push({ agentId: other, text: pick(MEETING_ON_THE_WAY), showAt: globalTime + 1.8, dur: 2.6 });
-
-      cam.focus(board.focusPoint(), { auto: true });
-      refreshScreen();
-    };
-
-    /** Sesi dimulai setelah semua duduk: presentasi (kursi menghadap TV) lalu tanggapan peserta. */
-    const beginSession = () => {
-      if (!meeting) return;
-      meeting.phase = 'session';
-      meeting.sessionStartAt = globalTime;
-      meeting.sessionEndsAt = globalTime + MEETING_SESSION_S;
-      const present = meeting.attendees.filter((id) => MEETING_STATES.has(animMap.get(id)?.state ?? 'working'));
-      if (present.includes(meeting.host)) {
-        dlgQueue.push({ agentId: meeting.host, text: meeting.topic, showAt: globalTime + 0.8, dur: 6.5 });
-      }
-      let t = globalTime + MEETING_PRESENT_S + 0.5;
-      for (const id of present.filter((a) => a !== meeting!.host).slice(0, 3)) {
-        dlgQueue.push({ agentId: id, text: pick(MEETING_REPLIES), showAt: t, dur: 3 });
-        t += 3.4;
-      }
-      refreshScreen();
-    };
-
-    /** Bubar: kursi terdekat pintu keluar lebih dulu, jeda bertahap + door mutex. */
-    const beginDispersal = () => {
-      if (!meeting) return;
-      meeting.phase = 'dispersing';
-      meeting.focusBackAt = globalTime + 3.5;
-      const seated: Array<{ id: string; len: number }> = [];
-      for (const id of meeting.attendees) {
-        const anim = animMap.get(id);
-        const refs = meshMap.get(id);
-        if (!anim || !refs) continue;
-        if (anim.meetingSeat !== undefined) board.rigs[anim.meetingSeat]!.swivelTarget = 0;
-        if (anim.state === 'in_meeting' || anim.state === 'meeting_sitting') {
-          seated.push({ id, len: pathLength(walkPath(board.approachWorld(anim.meetingSeat!), boardDoorInside)) });
-        } else if (anim.state === 'meeting_called') {
-          anim.state = 'working';
-          anim.stateTime = 0;
-          releaseSeat(id, anim);
-        } else if (anim.state === 'walk_to_meeting') {
-          anim.state = 'walk_from_meeting';
-          anim.stateTime = 0;
-          setWalk(id, anim, walkPath(currentPos(refs), deskPos(refs)));
-        }
-      }
-      seated.sort((a, b) => a.len - b.len).forEach(({ id }, k) => {
-        animMap.get(id)!.departAt = globalTime + 0.5 + k * MEETING_DEPART_GAP_S;
-      });
-      // Tahap 3: 2–3 peserta mampir ke Lounge (di seberang foyer) sebelum kembali ke meja.
-      const loungeCount = Math.min(sofaSeats.length, 2 + Math.floor(Math.random() * 2));
-      seated.map((s) => s.id).sort(() => Math.random() - 0.5).slice(0, loungeCount)
-        .forEach((id) => { animMap.get(id)!.loungeAfter = true; });
-      refreshScreen();
-    };
-
-    const updateMeeting = () => {
-      if (!meeting) return;
-      if (meeting.phase === 'gathering') {
-        const seated = meeting.attendees.filter((id) => animMap.get(id)?.state === 'in_meeting').length;
-        if (seated === meeting.attendees.length || globalTime - meeting.startedAt > MEETING_GATHER_TIMEOUT_S) {
-          beginSession();
-        }
-      } else if (meeting.phase === 'session') {
-        const toTv = globalTime - meeting.sessionStartAt < MEETING_PRESENT_S;
-        for (const id of meeting.attendees) {
-          const anim = animMap.get(id);
-          if (!anim || anim.meetingSeat === undefined || anim.state !== 'in_meeting') continue;
-          board.rigs[anim.meetingSeat]!.swivelTarget = toTv ? board.tvSwivel(anim.meetingSeat) : 0;
-        }
-        if (globalTime >= meeting.sessionEndsAt) beginDispersal();
-      } else {
-        if (meeting.focusBackAt > 0 && globalTime >= meeting.focusBackAt) {
-          meeting.focusBackAt = 0;
-          cam.focus(cam.home(), { auto: true });
-        }
-        const busy = meeting.attendees.some((id) => {
-          const a = animMap.get(id);
-          return !!a && (MEETING_STATES.has(a.state) || a.state === 'walk_from_meeting');
-        });
-        if (!busy) {
-          meeting = null;
-          seatOccupant.fill(null);
-        }
-      }
-      refreshScreen();
-    };
-
-    // ================================================================
-    // HANDLER KEDATANGAN STATE MACHINE
-    // ================================================================
-    const handleArrival = (agentId: string, anim: AgentAnim) => {
-      const refs = meshMap.get(agentId);
-      if (!refs) return;
-      leaveGate(agentId);
-
-      switch (anim.state) {
-        case 'walk_to_coffee': {
-          const qIdx = coffeeQueue.indexOf(agentId);
-          if (qIdx === 0) {
-            // Berada di Slot 0 (Depan Mesin Espresso) — Mulai Menyeduh!
-            anim.state = 'brewing';
-            anim.stateTime = 0;
-            anim.stateDuration = rand(3.5, 5);
-            anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.brewing);
-            anim.bubbleTimer = 3.5;
-            const head = queueSpot(0);
-            refs.avatar.position.set(head.x, 0, head.z);
-            refs.avatar.rotation.y = head.rotY; // Menghadap mesin espresso (Barat)
-            refs.leftLegPivot.rotation.set(0, 0, 0);
-            refs.rightLegPivot.rotation.set(0, 0, 0);
-          } else if (qIdx > 0) {
-            // Ada yang sedang memakai mesin — Masuk ke Antrean Rapi!
-            anim.state = 'waiting_in_queue';
-            anim.stateTime = 0;
-            anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.waiting_in_queue);
-            anim.bubbleTimer = 3.0;
-            const spot = queueSpot(qIdx);
-            refs.avatar.position.set(spot.x, 0, spot.z);
-            refs.avatar.rotation.y = spot.rotY; // Menghadap kepala antrean
-            refs.leftLegPivot.rotation.set(0, 0, 0);
-            refs.rightLegPivot.rotation.set(0, 0, 0);
-          }
-          break;
-        }
-
-        case 'walk_to_stool': {
-          // Tiba di lorong tengah samping kursi bar: naik & mulai ngopi.
-          anim.state = 'sipping_at_bar';
-          anim.stateTime = 0;
-          anim.stateDuration = rand(10, 16);
-          anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.sipping_at_bar);
-          anim.bubbleTimer = 3.5;
-          break;
-        }
-
-        case 'walk_to_desk': {
-          anim.state = 'drinking';
-          anim.stateTime = 0;
-          anim.stateDuration = rand(12, 18);
-          anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.sipping_at_desk);
-          anim.bubbleTimer = 3.5;
-          sitAtDesk(refs);
-          break;
-        }
-
-        case 'walk_to_trash': {
-          anim.state = 'disposing';
-          anim.stateTime = 0;
-          anim.stateDuration = 2.0;
-          anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.disposing);
-          anim.bubbleTimer = 2.5;
-          refs.avatar.position.set(trashStand.x, 0, trashStand.z);
-          refs.avatar.rotation.y = trashStand.rotY; // Menghadap tong sampah
-          refs.leftLegPivot.rotation.set(0, 0, 0);
-          refs.rightLegPivot.rotation.set(0, 0, 0);
-          break;
-        }
-
-        case 'walk_out_to_lobby': {
-          setAway(anim, refs);
-          break;
-        }
-
-        case 'walk_to_errand': {
-          const stop = anim.errand?.stops[anim.errand.i];
-          if (!stop) { finishErrand(agentId, anim, refs); break; }
-          anim.state = 'errand_stay';
-          anim.stateTime = 0;
-          refs.avatar.position.set(stop.approach.x, 0, stop.approach.z);
-          refs.avatar.rotation.y = stop.spot.rotY;
-          refs.leftLegPivot.rotation.set(0, 0, 0);
-          refs.rightLegPivot.rotation.set(0, 0, 0);
-          anim.bubbleText = pick(stop.lines);
-          anim.bubbleTimer = 3.4;
-          break;
-        }
-
-        case 'walk_in_from_lobby':
-        case 'walk_from_trash':
-        case 'walk_from_visit':
-        case 'walk_from_meeting':
-        case 'walk_back_to_desk': {
-          if (anim.state === 'walk_from_meeting') releaseSeat(agentId, anim);
-          anim.state = 'working';
-          anim.stateTime = 0;
-          anim.hasDoc = false;
-          anim.visitTarget = undefined;
-          refs.doc.visible = false;
-          sitAtDesk(refs);
-          // Kunjungan berikutnya yang mengantre
-          const next = visitQueue.get(agentId)?.shift();
-          if (next) startVisit(agentId, next.to, next.text, next.carryDoc);
-          break;
-        }
-
-        case 'walk_to_visit': {
-          anim.state = 'visiting';
-          anim.stateTime = 0;
-          anim.stateDuration = VISIT_STAY_S;
-          const target = anim.visitTarget ? meshMap.get(anim.visitTarget) : undefined;
-          const last = anim.walkPath[anim.walkPath.length - 1];
-          if (last) refs.avatar.position.set(last.x, 0, last.z);
-          if (target) {
-            refs.avatar.rotation.y = Math.atan2(
-              target.sitPos.x - refs.avatar.position.x,
-              target.sitPos.z - refs.avatar.position.z,
-            );
-            // Rekan yang dikunjungi menjawab singkat
-            const tAnim = anim.visitTarget ? animMap.get(anim.visitTarget) : undefined;
-            if (tAnim && anim.visitTarget && tAnim.state === 'working') {
-              dlgQueue.push({ agentId: anim.visitTarget, text: pick(VISIT_ACKS), showAt: globalTime + 1.2, dur: 2.6 });
-            }
-          }
-          refs.leftLegPivot.rotation.set(0, 0, 0);
-          refs.rightLegPivot.rotation.set(0, 0, 0);
-          break;
-        }
-
-        case 'walk_to_meeting': {
-          // Tiba di belakang kursi: tarik kursi, duduk, dorong ke meja.
-          anim.state = 'meeting_sitting';
-          anim.stateTime = 0;
-          if (anim.meetingSeat !== undefined) {
-            const a = board.approachWorld(anim.meetingSeat);
-            refs.avatar.position.set(a.x, 0, a.z);
-            refs.avatar.rotation.y = board.seatYaw(anim.meetingSeat);
-          }
-          refs.leftLegPivot.rotation.set(0, 0, 0);
-          refs.rightLegPivot.rotation.set(0, 0, 0);
-          break;
-        }
-      }
-    };
-
-    // ================================================================
-    // EVENT LIVE DARI SERVER (bicara, kunjungan meja, rapat)
-    // ================================================================
-    const handleStageEvent = (ev: StageEvent) => {
-      if (ev.kind === 'say') {
-        const anim = animMap.get(ev.agentId);
-        if (anim) {
-          anim.bubbleText = clipText(ev.text);
-          anim.bubbleTimer = 5.5;
-        }
-        return;
-      }
-
-      if (ev.kind === 'visit') {
-        const anim = animMap.get(ev.from);
-        if (!anim || statusOf(ev.from) === 'offline') return;
-        // Masih rehat kopi -> pulang dulu ke meja, kunjungan dijalankan setibanya di kursi.
-        if (COFFEE_STATES.has(anim.state)) recallToDesk(ev.from);
-        if (anim.state === 'working') {
-          startVisit(ev.from, ev.to, ev.text, ev.carryDoc);
-        } else if (
-          RETURNING_STATES.has(anim.state) ||
-          anim.state === 'walk_to_visit' ||
-          anim.state === 'visiting'
-        ) {
-          const q = visitQueue.get(ev.from) ?? [];
-          if (q.length < 3) q.push({ to: ev.to, text: ev.text, carryDoc: ev.carryDoc });
-          visitQueue.set(ev.from, q);
-          anim.bubbleText = clipText(ev.text, 90);
-          anim.bubbleTimer = 3.0;
-        } else {
-          anim.bubbleText = clipText(ev.text, 90);
-          anim.bubbleTimer = 4.0;
-        }
-        return;
-      }
-
-      // Rapat: semua yang hadir menuju ruang rapat
-      startMeeting(ev.host, ev.text);
-    };
-
-    const lastStatus = new Map<string, AgentStatus>();
     const tempVec = new THREE.Vector3();
 
+    const setLegs = (refs: AgentMeshRefs, a: number) => {
+      refs.leftLegPivot.rotation.set(a, 0, 0);
+      refs.rightLegPivot.rotation.set(a, 0, 0);
+    };
+
+    /** Pose lengan & kaki dari keadaan dunia (logika keadaan ada di @office/world). */
+    const applyAgent = (f: AgentFrame, refs: AgentMeshRefs, t: number) => {
+      const off = (refs.beacon.userData.offset as number | undefined) ?? 0;
+      refs.avatar.visible = f.vis && !f0HideV1;
+      refs.avatar.position.set(f.x, f.y, f.z);
+      refs.avatar.rotation.y = f.rotY;
+      refs.cup.visible = f.cup;
+      refs.doc.visible = f.doc;
+      const status = f.status;
+      const talking = f.bubbleT > 0;
+      const L = refs.leftArmPivot.rotation, R = refs.rightArmPivot.rotation;
+      switch (f.state) {
+        case 'working': {
+          setLegs(refs, SEATED_LEG);
+          const phase = t * 16 + off;
+          if (status === 'waiting_approval') {
+            // Angkat tangan memanggil CEO, tangan kiri tetap di keyboard
+            R.set(-2.85, 0, -0.15 + Math.sin(t * 6) * 0.18);
+            L.set(-0.95, 0, 0.18);
+          } else if (status === 'error') {
+            // Bingung: garuk kepala
+            R.set(-2.45 + Math.sin(t * 7) * 0.08, 0, 0.55);
+            L.set(-0.6, 0, 0.12);
+          } else if (status === 'idle' || status === 'meeting' || status === 'offline') {
+            L.set(-0.5 + Math.sin(t * 1.2 + off) * 0.04, 0, 0.12);
+            R.set(-0.5 + Math.cos(t * 1.2 + off) * 0.04, 0, -0.12);
+          } else {
+            // Mengetik (thinking/working/messaging, juga demo)
+            const speed = status === 'thinking' ? 0.55 : 1;
+            L.set(-0.95 + Math.sin(phase * speed) * 0.12, 0, 0.18);
+            R.set(-0.95 + Math.cos(phase * 1.2 * speed) * 0.12, 0, -0.18);
+          }
+          refs.avatar.position.y = f.y + Math.sin(t * 2.5 + off) * 0.005;
+          break;
+        }
+        case 'meeting_called':
+          setLegs(refs, SEATED_LEG);
+          L.set(-0.5, 0, 0.12);
+          R.set(-0.5, 0, -0.12);
+          break;
+        case 'meeting_sitting':
+        case 'meeting_standing':
+          setLegs(refs, SEATED_LEG * f.k);
+          L.set(-0.2, 0, 0.1);
+          R.set(-0.2, 0, -0.1);
+          break;
+        case 'in_meeting':
+          setLegs(refs, SEATED_LEG);
+          refs.avatar.position.y += Math.sin(t * 2.5 + off) * 0.005;
+          L.set(talking ? -0.6 + Math.sin(t * 4) * 0.2 : -0.45, 0, 0.1);
+          R.set(talking ? -0.7 + Math.cos(t * 3.5) * 0.2 : -0.45, 0, -0.1);
+          break;
+        case 'visiting':
+          setLegs(refs, 0);
+          L.set(f.hasDoc ? -1.1 : -0.3, 0, 0.1);
+          R.set(-0.5 + Math.sin(t * 5) * 0.25, 0, -0.15);
+          break;
+        case 'waiting_in_queue':
+          setLegs(refs, 0);
+          L.set(-0.2 + Math.sin(t * 1.5) * 0.05, 0, 0.08);
+          R.set(-0.2 + Math.cos(t * 1.5) * 0.05, 0, -0.08);
+          break;
+        case 'brewing':
+          setLegs(refs, 0);
+          L.set(-0.8 + Math.sin(t * 3) * 0.18, 0, 0.25);
+          R.set(-0.6 + Math.cos(t * 2.5) * 0.15, 0, -0.25);
+          break;
+        case 'away':
+          break;
+        case 'errand_stay': {
+          const k = f.k;
+          setLegs(refs, SEATED_LEG * k);
+          const ph = t + off;
+          if (f.pose === 'inspect') {
+            R.set(-2.1 + Math.sin(ph * 2.2) * 0.25, 0, -0.15);
+            L.set(-0.7 + Math.cos(ph * 1.6) * 0.15, 0, 0.12);
+          } else if (f.pose === 'type' && k >= 1) {
+            L.set(-0.95 + Math.sin(ph * 16) * 0.12, 0, 0.18);
+            R.set(-0.95 + Math.cos(ph * 19) * 0.12, 0, -0.18);
+          } else if (f.pose === 'present') {
+            R.set(talking ? -1.2 + Math.sin(ph * 3.6) * 0.35 : -0.3, 0, talking ? -0.3 : -0.1);
+            L.set(talking ? -0.55 + Math.cos(ph * 2.4) * 0.2 : -0.25, 0, 0.12);
+          } else if (f.pose === 'discuss' && k >= 1) {
+            L.set(-0.85 + (talking ? Math.sin(ph * 2.6) * 0.08 : 0), 0, 0.2);
+            R.set(talking ? -1.35 + Math.sin(ph * 4.2) * 0.35 : -0.85, 0, talking ? -0.35 : -0.2);
+          } else {
+            const tk = talking && k >= 1;
+            L.set(tk ? -0.7 + Math.sin(ph * 4) * 0.25 : -0.4, 0, 0.14);
+            R.set(tk ? -0.6 + Math.cos(ph * 3.5) * 0.25 : -0.4, 0, -0.14);
+          }
+          if (k >= 1) refs.avatar.position.y += Math.sin(ph * 2.5) * 0.004;
+          break;
+        }
+        case 'sipping_at_bar':
+          setLegs(refs, SEATED_LEG * f.k);
+          if (f.k >= 1) {
+            const sipCycle = (t * 0.8 + off) % (Math.PI * 2);
+            R.set(Math.sin(sipCycle) > 0.55 ? -1.45 : -0.75, 0, -0.16);
+            L.set(-0.85 + Math.sin(t * 1.3 + off) * 0.05, 0, 0.15);
+            refs.avatar.position.y += Math.sin(t * 2.5 + off) * 0.004;
+          } else {
+            R.set(-0.65, 0, -0.1);
+            L.set(-0.2, 0, 0.1);
+          }
+          break;
+        case 'drinking': {
+          setLegs(refs, SEATED_LEG);
+          const sipCycle = (t * 0.8 + off) % (Math.PI * 2);
+          if (Math.sin(sipCycle) > 0.6) {
+            R.set(-1.45, 0, -0.15);
+            L.set(-0.5, 0, 0.1);
+          } else {
+            R.set(-0.7, 0, -0.2);
+            L.set(-0.95 + Math.sin(t * 14) * 0.12, 0, 0.18);
+          }
+          break;
+        }
+        case 'disposing':
+          setLegs(refs, 0);
+          R.set(-0.8 + Math.sin(f.t * 5) * 0.2, 0, -0.2);
+          break;
+        default: {
+          // Semua state walk_*: kaki berayun, lengan mengikuti cangkir / dokumen.
+          if (f.gateWait) {
+            setLegs(refs, 0);
+            L.set(-0.15, 0, 0.08);
+            R.set(-0.15, 0, -0.08);
+            break;
+          }
+          const legSwing = Math.sin(f.t * 10) * 0.55;
+          refs.leftLegPivot.rotation.set(legSwing, 0, 0);
+          refs.rightLegPivot.rotation.set(-legSwing, 0, 0);
+          refs.avatar.position.y = Math.abs(Math.sin(f.t * 10)) * 0.04;
+          if (f.doc) {
+            L.set(-1.0, 0, 0.1);
+            R.set(-legSwing * 0.7, 0, -0.08);
+          } else if (f.cup) {
+            R.set(-0.65, 0, -0.1);
+            L.set(legSwing * 0.7, 0, 0.08);
+          } else {
+            L.set(legSwing * 0.7, 0, 0.08);
+            R.set(-legSwing * 0.7, 0, -0.08);
+          }
+          break;
+        }
+      }
+    };
+
     // ================================================================
-    // SIMULASI (satu langkah waktu) — dipisah dari render
+    // LANGKAH PER FRAME (dunia → avatar, layar, pintu, KPI)
     // ================================================================
     const step = (dt: number) => {
       globalTime += dt;
@@ -2463,277 +1352,29 @@ export function IsometricOfficeStage({
         renderCodeTexture();
       }
 
+      const v = feedRef.current ? feedRef.current.sample(dt) : null;
+      if (!v) return;
+      view = v;
       const sel = selectedRef.current;
-      const isLive = liveRef.current;
+      const t = globalTime;
+      frameOf.clear();
 
-      // ---------- Event live dari server (bicara, kunjungan meja, rapat) ----------
-      while (pendingStageRef.current.length > 0) {
-        handleStageEvent(pendingStageRef.current.shift()!);
-      }
-
-      // ---------- Transisi status agen sebenarnya ----------
-      if (isLive) {
-        for (const ag of agentsRef.current) {
-          const anim = animMap.get(ag.id);
-          if (!anim) continue;
-          const prev = lastStatus.get(ag.id);
-          if (prev !== ag.status) {
-            lastStatus.set(ag.id, ag.status);
-            const line = LIVE_STATUS_LINES[ag.status];
-            if (line && prev !== undefined) {
-              anim.bubbleText = pick(line);
-              anim.bubbleTimer = 4.0;
-            }
-          }
-          // Tahap 3: offline → pulang lewat Lobi; online lagi → datang dari Lobi.
-          const refs = meshMap.get(ag.id);
-          if (refs) {
-            if (ag.status === 'offline') {
-              if (prev === undefined && anim.state !== 'away') setAway(anim, refs);
-              else if (atDesk(anim)) startLeaving(ag.id, anim, refs);
-            } else if (anim.state === 'away') {
-              startArrival(ag.id, anim, refs);
-            }
-          }
-          // Tahap 4: tugas selesai (working/thinking/messaging → idle) → rehat di Digital Garden.
-          if (refs && prev !== undefined && BUSY_STATUSES.has(prev) && ag.status === 'idle' && anim.state === 'working' && !coffeeQueue.includes(ag.id) && !meeting) {
-            startGardenErrand(ag.id, anim, refs);
-          }
-          // Pekerjaan nyata masuk saat sedang rehat kopi -> kembali ke meja
-          if (ag.status !== 'idle' && ag.status !== 'meeting' && COFFEE_STATES.has(anim.state)) {
-            recallToDesk(ag.id, ag.status === 'waiting_approval' ? 'Eh, ada yang butuh izin CEO!' : 'Ada tugas masuk, balik ke meja!');
-          }
-          // Tangan terangkat terus diingatkan selama menunggu izin
-          if (ag.status === 'waiting_approval' && anim.bubbleTimer <= 0 && atDesk(anim)) {
-            anim.bubbleText = pick(LIVE_STATUS_LINES.waiting_approval ?? ['Menunggu izin CEO']);
-            anim.bubbleTimer = 3.5;
-          }
-        }
-      } else if (lastStatus.size > 0) {
-        lastStatus.clear();
-      }
-
-      updateMeeting();
-
-      /** Live: hanya agen yang benar-benar santai boleh ikut rutinitas kopi/obrolan. */
-      const ambientOk = (id: string) => {
-        const st = statusOf(id);
-        return st === null || st === 'idle' || st === 'meeting';
-      };
-
-      // ---------- Scheduler: inspeksi Server / IT oleh Satria atau Bima (yang sedang santai) ----------
-      if (globalTime >= nextServerT) {
-        const techs = ['satria', 'bima'].filter((id) => animMap.get(id)?.state === 'working' && ambientOk(id) && !coffeeQueue.includes(id));
-        const id = techs.length ? pick(techs) : null;
-        const a = id ? animMap.get(id) : undefined;
-        const r = id ? meshMap.get(id) : undefined;
-        if (id && a && r) startServerErrand(id, a, r);
-        nextServerT = globalTime + rand(SERVER_MIN_S, SERVER_MAX_S);
-      }
-
-      // ---------- Scheduler Tahap 4: diskusi kelompok lintas tim di Collaboration Commons ----------
-      if (globalTime >= nextCommonsT) {
-        const cands: string[] = [];
-        for (const [id, a] of animMap) {
-          if (a.state === 'working' && ambientOk(id) && !coffeeQueue.includes(id)) cands.push(id);
-        }
-        if (!meeting && commonsOccupant.every((o) => o === null)) startCommonsDiscussion(pickCommonsGroup(cands));
-        nextCommonsT = globalTime + rand(COMMONS_MIN_S, COMMONS_MAX_S);
-      }
-
-      // ---------- Scheduler Tahap 4: rehat di Digital Garden (demo; live dipicu selesai tugas) ----------
-      if (!isLive && globalTime >= nextGardenT) {
-        const cands: string[] = [];
-        for (const [id, a] of animMap) {
-          if (a.state === 'working' && !coffeeQueue.includes(id)) cands.push(id);
-        }
-        const id = cands.length ? pick(cands) : null;
-        const a = id ? animMap.get(id) : undefined;
-        const r = id ? meshMap.get(id) : undefined;
-        if (id && a && r && !meeting) startGardenErrand(id, a, r);
-        nextGardenT = globalTime + rand(GARDEN_MIN_S, GARDEN_MAX_S);
-      }
-
-      // ---------- Scheduler Tahap 5: sesi Workshop, cek Information Wall, pair huddle di Pods ----------
-      const relaxed = () => [...animMap].filter(([id, a]) => a.state === 'working' && ambientOk(id) && !coffeeQueue.includes(id)).map(([id]) => id);
-      if (globalTime >= nextWorkshopT) {
-        const cands = relaxed(), hosts = WORKSHOP_PRESENTERS.filter((id) => cands.includes(id));
-        if (!meeting && !workshopPresenter && hosts.length > 0) {
-          const host = pick(hosts);
-          const rest = cands.filter((id) => id !== host).sort(() => Math.random() - 0.5);
-          const n = 2 + Math.floor(Math.random() * 3);
-          if (rest.length >= 2) startWorkshopSession(host, rest.slice(0, n));
-        }
-        nextWorkshopT = globalTime + rand(WORKSHOP_MIN_S, WORKSHOP_MAX_S);
-      }
-      if (globalTime >= nextInfoT) {
-        const cands = relaxed();
-        const ordered = [...INFOWALL_PREFERRED.filter((id) => cands.includes(id)), ...cands.filter((id) => !INFOWALL_PREFERRED.includes(id)).sort(() => Math.random() - 0.5)];
-        if (!meeting && infoOccupant.every((o) => o === null) && ordered.length > 0) startInfoWallCheck(ordered.slice(0, Math.random() < 0.5 ? 1 : 2));
-        nextInfoT = globalTime + rand(INFOWALL_MIN_S, INFOWALL_MAX_S);
-      }
-      if (globalTime >= nextPodsT) {
-        const cands = relaxed().sort(() => Math.random() - 0.5);
-        if (!meeting && cands.length >= 2) startPodHuddle(cands[0]!, cands[1]!);
-        nextPodsT = globalTime + rand(PODS_MIN_S, PODS_MAX_S);
-      }
-      // ---------- Scheduler Tahap 6: produksi Studio, deep focus di Focus Pods, kunjungan Access Hub ----------
-      if (globalTime >= nextStudioT) {
-        const cands = relaxed();
-        const ordered = [
-          ...STUDIO_PREFERRED.filter((id) => cands.includes(id)).sort(() => Math.random() - 0.5),
-          ...cands.filter((id) => !STUDIO_PREFERRED.includes(id)).sort(() => Math.random() - 0.5),
-        ];
-        if (!meeting && studioOccupant.every((o) => o === null) && ordered.length > 0) startStudioSession(ordered.slice(0, Math.random() < 0.6 ? 2 : 1));
-        nextStudioT = globalTime + rand(STUDIO_MIN_S, STUDIO_MAX_S);
-      }
-      if (globalTime >= nextFocusT) {
-        const cands = relaxed(), techs = FOCUS_PREFERRED.filter((id) => cands.includes(id));
-        if (!meeting && techs.length > 0) startFocusSession(pick(techs));
-        nextFocusT = globalTime + rand(FOCUS_MIN_S, FOCUS_MAX_S);
-      }
-      if (globalTime >= nextAccessT) {
-        const cands = relaxed(), pref = ACCESS_PREFERRED.filter((id) => cands.includes(id));
-        const id = pref.length > 0 && Math.random() < 0.75 ? pick(pref) : cands.length > 0 ? pick(cands) : null;
-        if (!meeting && id && !accessBusy) startAccessVisit(id);
-        nextAccessT = globalTime + rand(ACCESS_MIN_S, ACCESS_MAX_S);
-      }
-      // Live: pasangan yang baru berbalas pesan & kini sama-sama idle di meja → pair huddle.
-      if (isLive && recentPairs.length > 0) {
-        for (let i = recentPairs.length - 1; i >= 0; i--) {
-          const pr = recentPairs[i]!;
-          if (globalTime - pr.t > PAIR_MEMORY_S) { recentPairs.splice(i, 1); continue; }
-          const ok = (id: string) => statusOf(id) === 'idle' && animMap.get(id)?.state === 'working' && !coffeeQueue.includes(id);
-          if (!meeting && ok(pr.a) && ok(pr.b) && startPodHuddle(pr.a, pr.b)) recentPairs.splice(i, 1);
-        }
-      }
-
-      // ---------- Scheduler: Jadwalkan Karyawan Rehat Kopi (Antrean Teratur) ----------
-      if (globalTime >= nextCoffeeT) {
-        const candidates: string[] = [];
-        for (const [id, a] of animMap) {
-          if (a.state === 'working' && !coffeeQueue.includes(id) && ambientOk(id)) {
-            candidates.push(id);
-          }
-        }
-        // Maksimal 3 orang dalam antrean kopi pada saat yang sama
-        if (candidates.length > 0 && coffeeQueue.length < 3) {
-          const luckyId = pick(candidates);
-          const a = animMap.get(luckyId)!;
-          const refs = meshMap.get(luckyId);
-          if (refs) {
-            coffeeQueue.push(luckyId);
-            const qIdx = coffeeQueue.indexOf(luckyId);
-            const destSpot = queueSpot(qIdx);
-            a.state = 'walk_to_coffee';
-            a.stateTime = 0;
-            setWalk(luckyId, a, walkPath(deskPos(refs), destSpot));
-            a.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.going_to_pantry);
-            a.bubbleTimer = 3.0;
-          }
-        }
-        nextCoffeeT = globalTime + rand(COFFEE_MIN_S, COFFEE_MAX_S);
-      }
-
-      // ---------- Scheduler: Percakapan Berbalas Antar Agen ----------
-      if (globalTime >= nextConvoT) {
-        const convo = pick(OFFICE_CONVERSATIONS);
-        const ok = convo.dialogues.every((d) => {
-          const a = animMap.get(d.speakerId);
-          return a && (a.state === 'working' || a.state === 'drinking') && a.bubbleTimer <= 0 && ambientOk(d.speakerId);
-        });
-        if (ok) {
-          let t = globalTime + 0.5;
-          convo.dialogues.forEach((d) => {
-            dlgQueue.push({ agentId: d.speakerId, text: d.text, showAt: t, dur: d.durationMs / 1000 });
-            t += d.durationMs / 1000 + 0.3;
-          });
-        }
-        nextConvoT = globalTime + rand(CONVO_MIN_S, CONVO_MAX_S);
-      }
-
-      // ---------- Scheduler: Gumaman Solo Saat Koding ----------
-      if (globalTime >= nextThoughtT) {
-        const cands: string[] = [];
-        for (const [id, a] of animMap) {
-          if (a.state === 'working' && a.bubbleTimer <= 0 && ambientOk(id)) cands.push(id);
-        }
-        if (cands.length > 0) {
-          const id = pick(cands);
-          const thoughts = AGENT_SOLO_THOUGHTS[id];
-          if (thoughts && thoughts.length > 0) {
-            const a = animMap.get(id)!;
-            a.bubbleText = pick(thoughts);
-            a.bubbleTimer = 4.0;
-          }
-        }
-        nextThoughtT = globalTime + rand(THOUGHT_MIN_S, THOUGHT_MAX_S);
-      }
-
-      // ---------- Proses Antrian Dialog ----------
-      for (let i = dlgQueue.length - 1; i >= 0; i--) {
-        const dq = dlgQueue[i]!;
-        if (globalTime >= dq.showAt) {
-          const a = animMap.get(dq.agentId);
-          // Ucapan live yang masih tampil tidak ditimpa obrolan template
-          if (a && (a.bubbleTimer <= 0.5 || !isLive)) { a.bubbleText = dq.text; a.bubbleTimer = dq.dur; }
-          dlgQueue.splice(i, 1);
-        }
-      }
-
-      // ---------- Dynamic Collision Avoidance Antara Agen yang Sedang Berjalan ----------
-      const movingAgents: string[] = [];
-      for (const [id, a] of animMap) {
-        if (a.state.startsWith('walk')) movingAgents.push(id);
-      }
-      for (let i = 0; i < movingAgents.length; i++) {
-        for (let j = i + 1; j < movingAgents.length; j++) {
-          const rA = meshMap.get(movingAgents[i]!);
-          const rB = meshMap.get(movingAgents[j]!);
-          if (!rA || !rB) continue;
-          const dx = rA.avatar.position.x - rB.avatar.position.x;
-          const dz = rA.avatar.position.z - rB.avatar.position.z;
-          const distSq = dx * dx + dz * dz;
-          if (distSq < 0.45 && distSq > 0.0001) {
-            const d = Math.sqrt(distSq);
-            const push = (0.67 - d) * 0.12;
-            const nx = (dx / d) * push;
-            const nz = (dz / d) * push;
-            rA.avatar.position.x += nx;
-            rA.avatar.position.z += nz;
-            rB.avatar.position.x -= nx;
-            rB.avatar.position.z -= nz;
-          }
-        }
-      }
-
-      // ---------- Update Setiap Agen ----------
-      for (const [agentId, anim] of animMap) {
-        const refs = meshMap.get(agentId);
+      for (const f of v.agents) {
+        frameOf.set(f.id, f);
+        const refs = meshMap.get(f.id);
         if (!refs) continue;
-
-        anim.stateTime += dt;
-        if (anim.bubbleTimer > 0) anim.bubbleTimer -= dt;
-        if (anim.bubbleTimer <= 0) anim.bubbleText = null;
-
-        const isSelected = agentId === sel;
-
-        // Selection ring
+        const isSelected = f.id === sel;
         (refs.selRing.material as THREE.MeshBasicMaterial).opacity = isSelected ? 0.75 : 0;
 
         // Beacon melayang di atas kepala
         const bData = refs.beacon.userData;
-        refs.beacon.position.y = (bData.baseY || 0.92) + Math.sin(globalTime * 2 + (bData.offset || 0)) * 0.04;
+        refs.beacon.position.y = (bData.baseY || 0.92) + Math.sin(t * 2 + (bData.offset || 0)) * 0.04;
         refs.beacon.rotation.y += 0.025;
-        (refs.beacon.material as THREE.MeshStandardMaterial).emissiveIntensity = isSelected ? 1.8 : 0.9;
+        let glow = isSelected ? 3.0 : 1.8 + Math.sin(t * 4 + (bData.offset || 0)) * 0.3;
 
-        // Pendar layar ke meja (flicker & intensitas), dulu PointLight screenGlow.
-        let glow = isSelected ? 3.0 : 1.8 + Math.sin(globalTime * 4 + (bData.offset || 0)) * 0.3;
-
-        // ---------- Visual mengikuti status asli (live) ----------
-        const status = statusOf(agentId);
+        // Visual mengikuti status asli (live)
+        const status = f.status;
         const beaconMat = refs.beacon.material as THREE.MeshStandardMaterial;
-        refs.avatar.visible = anim.state !== 'away';
         if (status !== null) {
           const look = STATUS_LOOK[status];
           if (refs.screenMat) {
@@ -2748,7 +1389,7 @@ export function IsometricOfficeStage({
             beaconMat.emissive.set(beaconMat.userData.baseColor ?? beaconMat.color);
             beaconMat.color.set(beaconMat.userData.baseColor ?? beaconMat.color);
           }
-          const pulse = status === 'waiting_approval' || status === 'error' ? 0.6 + Math.abs(Math.sin(globalTime * 4)) * 1.6 : 1;
+          const pulse = status === 'waiting_approval' || status === 'error' ? 0.6 + Math.abs(Math.sin(t * 4)) * 1.6 : 1;
           beaconMat.emissiveIntensity = (isSelected ? 1.8 : look.beaconIntensity) * pulse;
           refs.beacon.rotation.y += status === 'thinking' || status === 'working' ? 0.06 : 0;
         } else {
@@ -2760,567 +1401,107 @@ export function IsometricOfficeStage({
             beaconMat.emissive.set(beaconMat.userData.baseColor);
             beaconMat.color.set(beaconMat.userData.baseColor);
           }
+          beaconMat.emissiveIntensity = isSelected ? 1.8 : 0.9;
         }
         deskGlows.setColor(refs.glowIndex, refs.glowColor, glow * 0.15);
-
-        switch (anim.state) {
-          case 'working': {
-            // Duduk sempurna di kursi menghadap ke keyboard dan monitor
-            sitAtDesk(refs);
-            refs.cup.visible = false;
-            refs.doc.visible = false;
-
-            const phase = globalTime * 16 + (bData.offset || 0);
-            if (status === 'waiting_approval') {
-              // Angkat tangan memanggil CEO, tangan kiri tetap di keyboard
-              refs.rightArmPivot.rotation.set(-2.85, 0, -0.15 + Math.sin(globalTime * 6) * 0.18);
-              refs.leftArmPivot.rotation.set(-0.95, 0, 0.18);
-            } else if (status === 'error') {
-              // Bingung: garuk kepala
-              refs.rightArmPivot.rotation.set(-2.45 + Math.sin(globalTime * 7) * 0.08, 0, 0.55);
-              refs.leftArmPivot.rotation.set(-0.6, 0, 0.12);
-            } else if (status === 'idle' || status === 'meeting' || status === 'offline') {
-              // Santai bersandar, tangan di pangkuan
-              refs.leftArmPivot.rotation.set(-0.5 + Math.sin(globalTime * 1.2 + (bData.offset || 0)) * 0.04, 0, 0.12);
-              refs.rightArmPivot.rotation.set(-0.5 + Math.cos(globalTime * 1.2 + (bData.offset || 0)) * 0.04, 0, -0.12);
-            } else {
-              // Mengetik aktif bergantian tepat di atas keyboard (thinking/working/messaging, juga mode demo)
-              const speed = status === 'thinking' ? 0.55 : 1;
-              refs.leftArmPivot.rotation.set(-0.95 + Math.sin(phase * speed) * 0.12, 0, 0.18);
-              refs.rightArmPivot.rotation.set(-0.95 + Math.cos(phase * 1.2 * speed) * 0.12, 0, -0.18);
-            }
-
-            // Efek bernapas halus
-            refs.avatar.position.y = refs.sitPos.y + Math.sin(globalTime * 2.5 + (bData.offset || 0)) * 0.005;
-            break;
-          }
-
-          case 'meeting_called': {
-            // Menyimpan pekerjaan sebentar sebelum berangkat (jeda bertahap)
-            sitAtDesk(refs);
-            refs.leftArmPivot.rotation.set(-0.5, 0, 0.12);
-            refs.rightArmPivot.rotation.set(-0.5, 0, -0.12);
-            if (globalTime >= (anim.departAt ?? 0) && anim.meetingSeat !== undefined) {
-              walkToSeat(agentId, anim, refs);
-            }
-            break;
-          }
-
-          case 'meeting_sitting': {
-            const i = anim.meetingSeat;
-            if (i === undefined) { anim.state = 'walk_from_meeting'; setWalk(agentId, anim, walkPath(currentPos(refs), deskPos(refs))); break; }
-            const rig = board.rigs[i]!;
-            const yaw = board.seatYaw(i);
-            const appr = board.approachWorld(i);
-            refs.leftArmPivot.rotation.set(-0.2, 0, 0.1);
-            refs.rightArmPivot.rotation.set(-0.2, 0, -0.1);
-            if (anim.stateTime < 0.45) {
-              // Tarik kursi keluar
-              rig.pullTarget = 1;
-              refs.avatar.position.set(appr.x, 0, appr.z);
-              refs.avatar.rotation.y = yaw;
-              refs.leftLegPivot.rotation.set(0, 0, 0);
-              refs.rightLegPivot.rotation.set(0, 0, 0);
-            } else if (anim.stateTime < 0.85) {
-              // Melangkah ke kursi & duduk
-              const k = smoothstep((anim.stateTime - 0.45) / 0.4);
-              const seat = board.seatWorld(i, rig.pull);
-              refs.avatar.position.set(appr.x + (seat.x - appr.x) * k, seat.y * k, appr.z + (seat.z - appr.z) * k);
-              refs.avatar.rotation.y = yaw;
-              refs.leftLegPivot.rotation.set(SEATED_LEG * k, 0, 0);
-              refs.rightLegPivot.rotation.set(SEATED_LEG * k, 0, 0);
-            } else {
-              // Dorong kursi ke meja bersama agen
-              rig.pullTarget = 0;
-              const seat = board.seatWorld(i, rig.pull);
-              refs.avatar.position.copy(seat);
-              refs.avatar.rotation.y = yaw + rig.swivelAngle;
-              refs.leftLegPivot.rotation.set(SEATED_LEG, 0, 0);
-              refs.rightLegPivot.rotation.set(SEATED_LEG, 0, 0);
-              if (rig.pull <= 0.001) {
-                anim.state = 'in_meeting';
-                anim.stateTime = 0;
-              }
-            }
-            break;
-          }
-
-          case 'in_meeting': {
-            const i = anim.meetingSeat;
-            if (i !== undefined) {
-              const rig = board.rigs[i]!;
-              refs.avatar.position.copy(board.seatWorld(i, rig.pull));
-              refs.avatar.position.y += Math.sin(globalTime * 2.5 + (bData.offset || 0)) * 0.005;
-              refs.avatar.rotation.y = board.seatYaw(i) + rig.swivelAngle;
-            }
-            refs.leftLegPivot.rotation.set(SEATED_LEG, 0, 0);
-            refs.rightLegPivot.rotation.set(SEATED_LEG, 0, 0);
-            const talking = anim.bubbleTimer > 0;
-            refs.leftArmPivot.rotation.set(talking ? -0.6 + Math.sin(globalTime * 4) * 0.2 : -0.45, 0, 0.1);
-            refs.rightArmPivot.rotation.set(talking ? -0.7 + Math.cos(globalTime * 3.5) * 0.2 : -0.45, 0, -0.1);
-            if ((!meeting || meeting.phase === 'dispersing') && globalTime >= (anim.departAt ?? 0)) {
-              anim.state = 'meeting_standing';
-              anim.stateTime = 0;
-              anim.subT = -1;
-            }
-            break;
-          }
-
-          case 'meeting_standing': {
-            const i = anim.meetingSeat;
-            if (i === undefined) { anim.state = 'walk_from_meeting'; setWalk(agentId, anim, walkPath(currentPos(refs), deskPos(refs))); break; }
-            const rig = board.rigs[i]!;
-            const yaw = board.seatYaw(i);
-            const appr = board.approachWorld(i);
-            rig.swivelTarget = 0;
-            refs.leftArmPivot.rotation.set(-0.2, 0, 0.1);
-            refs.rightArmPivot.rotation.set(-0.2, 0, -0.1);
-            if ((anim.subT ?? -1) < 0) {
-              // Tarik kursi keluar bersama agen
-              rig.pullTarget = 1;
-              refs.avatar.position.copy(board.seatWorld(i, rig.pull));
-              refs.avatar.rotation.y = yaw + rig.swivelAngle;
-              refs.leftLegPivot.rotation.set(SEATED_LEG, 0, 0);
-              refs.rightLegPivot.rotation.set(SEATED_LEG, 0, 0);
-              if (rig.pull >= 0.999) anim.subT = anim.stateTime;
-            } else {
-              // Berdiri & mundur ke belakang kursi
-              const k = smoothstep((anim.stateTime - anim.subT!) / 0.4);
-              const seat = board.seatWorld(i, 1);
-              refs.avatar.position.set(seat.x + (appr.x - seat.x) * k, seat.y * (1 - k), seat.z + (appr.z - seat.z) * k);
-              refs.avatar.rotation.y = yaw;
-              refs.leftLegPivot.rotation.set(SEATED_LEG * (1 - k), 0, 0);
-              refs.rightLegPivot.rotation.set(SEATED_LEG * (1 - k), 0, 0);
-              if (k >= 1) {
-                rig.pullTarget = 0;
-                anim.stateTime = 0;
-                if (meeting && meeting.phase !== 'dispersing') {
-                  // Rapat baru dipanggil saat sedang bubar: duduk kembali.
-                  anim.state = 'meeting_sitting';
-                } else if (anim.loungeAfter && ambientOk(agentId) && startLoungeErrand(agentId, anim, appr)) {
-                  anim.loungeAfter = false;
-                  releaseSeat(agentId, anim);
-                } else {
-                  anim.loungeAfter = false;
-                  anim.state = 'walk_from_meeting';
-                  setWalk(agentId, anim, walkPath(appr, deskPos(refs)));
-                }
-              }
-            }
-            break;
-          }
-
-          case 'visiting': {
-            // Berdiri di meja rekan sambil menjelaskan / menyerahkan dokumen
-            refs.leftLegPivot.rotation.set(0, 0, 0);
-            refs.rightLegPivot.rotation.set(0, 0, 0);
-            refs.doc.visible = anim.hasDoc && anim.stateTime < VISIT_STAY_S * 0.6;
-            refs.leftArmPivot.rotation.set(anim.hasDoc ? -1.1 : -0.3, 0, 0.1);
-            refs.rightArmPivot.rotation.set(-0.5 + Math.sin(globalTime * 5) * 0.25, 0, -0.15);
-            if (anim.stateTime > anim.stateDuration) {
-              anim.hasDoc = false;
-              refs.doc.visible = false;
-              anim.state = 'walk_from_visit';
-              anim.stateTime = 0;
-              setWalk(agentId, anim, walkPath(currentPos(refs), deskPos(refs)));
-            }
-            break;
-          }
-
-          case 'waiting_in_queue': {
-            // Berdiri tertib di dalam barisan antrean menghadap ke mesin kopi
-            const qIdx = coffeeQueue.indexOf(agentId);
-            const spot = queueSpot(qIdx);
-            refs.avatar.position.set(spot.x, 0, spot.z);
-            refs.avatar.rotation.y = spot.rotY;
-            refs.leftLegPivot.rotation.set(0, 0, 0);
-            refs.rightLegPivot.rotation.set(0, 0, 0);
-
-            // Gerakan santai menunggu antrean
-            refs.leftArmPivot.rotation.set(-0.2 + Math.sin(globalTime * 1.5) * 0.05, 0, 0.08);
-            refs.rightArmPivot.rotation.set(-0.2 + Math.cos(globalTime * 1.5) * 0.05, 0, -0.08);
-            refs.cup.visible = false;
-            break;
-          }
-
-          case 'brewing': {
-            // Berdiri di depan mesin barista (Slot 0)
-            const head = queueSpot(0);
-            refs.avatar.position.set(head.x, 0, head.z);
-            refs.avatar.rotation.y = head.rotY;
-            refs.leftLegPivot.rotation.set(0, 0, 0);
-            refs.rightLegPivot.rotation.set(0, 0, 0);
-
-            // Gestur meracik kopi di mesin
-            refs.leftArmPivot.rotation.set(-0.8 + Math.sin(globalTime * 3) * 0.18, 0, 0.25);
-            refs.rightArmPivot.rotation.set(-0.6 + Math.cos(globalTime * 2.5) * 0.15, 0, -0.25);
-            refs.cup.visible = anim.stateTime > anim.stateDuration * 0.65;
-
-            // Selesai menyeduh -> Tinggalkan antrean dan bawa kopi ke meja
-            if (anim.stateTime > anim.stateDuration) {
-              anim.hasCup = true;
-              refs.cup.visible = true;
-
-              // Keluarkan dari antrean Slot 0
-              coffeeQueue.shift();
-
-              // Majukan agen berikutnya dalam antrean!
-              coffeeQueue.forEach((waitingId, newIdx) => moveToQueueSlot(waitingId, newIdx));
-
-              // Ngopi di kursi bar Pantry yang kosong; bila penuh, kopi dibawa ke meja.
-              anim.stateTime = 0;
-              const free = stoolOccupant.indexOf(null);
-              if (free >= 0) {
-                stoolOccupant[free] = agentId;
-                anim.stool = free;
-                anim.state = 'walk_to_stool';
-                setWalk(agentId, anim, walkPath(head, stools[free]!.approach));
-                anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.walking_to_bar);
-              } else {
-                anim.state = 'walk_to_desk';
-                setWalk(agentId, anim, walkPath(head, deskPos(refs)));
-                anim.bubbleText = pick(COFFEE_ROUTINE_DIALOGUES.walking_with_coffee);
-              }
-              anim.bubbleTimer = 3.0;
-            }
-            break;
-          }
-
-          case 'away': {
-            // Demo: datang bertahap dari Lobi saat halaman dibuka.
-            if (!isLive && anim.departAt !== undefined && globalTime >= anim.departAt) startArrival(agentId, anim, refs);
-            break;
-          }
-
-          case 'errand_stay': {
-            const stop = anim.errand?.stops[anim.errand.i];
-            if (!anim.errand || !stop) { finishErrand(agentId, anim, refs); break; }
-            const SIT_S = 0.4, t = anim.stateTime, seated = stop.sitY > 0;
-            const k = !seated ? 0 : t < SIT_S ? smoothstep(t / SIT_S) : t < SIT_S + stop.duration ? 1 : 1 - smoothstep((t - SIT_S - stop.duration) / SIT_S);
-            refs.avatar.position.set(
-              stop.approach.x + (stop.spot.x - stop.approach.x) * k,
-              stop.sitY * k,
-              stop.approach.z + (stop.spot.z - stop.approach.z) * k,
-            );
-            refs.avatar.rotation.y = stop.spot.rotY;
-            refs.leftLegPivot.rotation.set(SEATED_LEG * k, 0, 0);
-            refs.rightLegPivot.rotation.set(SEATED_LEG * k, 0, 0);
-            const ph = globalTime + (bData.offset || 0);
-            if (stop.pose === 'inspect') {
-              // Menunjuk & memeriksa LED rak bergantian
-              refs.rightArmPivot.rotation.set(-2.1 + Math.sin(ph * 2.2) * 0.25, 0, -0.15);
-              refs.leftArmPivot.rotation.set(-0.7 + Math.cos(ph * 1.6) * 0.15, 0, 0.12);
-            } else if (stop.pose === 'type' && k >= 1) {
-              refs.leftArmPivot.rotation.set(-0.95 + Math.sin(ph * 16) * 0.12, 0, 0.18);
-              refs.rightArmPivot.rotation.set(-0.95 + Math.cos(ph * 19) * 0.12, 0, -0.18);
-            } else if (stop.pose === 'present') {
-              // Talent berdiri di depan kamera: satu tangan bergestur saat bicara.
-              const talking = anim.bubbleTimer > 0;
-              refs.rightArmPivot.rotation.set(talking ? -1.2 + Math.sin(ph * 3.6) * 0.35 : -0.3, 0, talking ? -0.3 : -0.1);
-              refs.leftArmPivot.rotation.set(talking ? -0.55 + Math.cos(ph * 2.4) * 0.2 : -0.25, 0, 0.12);
-            } else if (stop.pose === 'discuss' && k >= 1) {
-              // Lengan di atas meja; saat bicara satu tangan bergestur menjelaskan.
-              const talking = anim.bubbleTimer > 0;
-              refs.leftArmPivot.rotation.set(-0.85 + (talking ? Math.sin(ph * 2.6) * 0.08 : 0), 0, 0.2);
-              refs.rightArmPivot.rotation.set(talking ? -1.35 + Math.sin(ph * 4.2) * 0.35 : -0.85, 0, talking ? -0.35 : -0.2);
-            } else {
-              // Santai di sofa; bergestur saat bicara
-              const talking = anim.bubbleTimer > 0 && k >= 1;
-              refs.leftArmPivot.rotation.set(talking ? -0.7 + Math.sin(ph * 4) * 0.25 : -0.4, 0, 0.14);
-              refs.rightArmPivot.rotation.set(talking ? -0.6 + Math.cos(ph * 3.5) * 0.25 : -0.4, 0, -0.14);
-            }
-            if (k >= 1) refs.avatar.position.y += Math.sin(ph * 2.5) * 0.004;
-            // Obrolan santai di sofa / diskusi di Commons / gumaman di Garden
-            const chat = stop.chat ?? (stop.pose === 'lounge' ? LOUNGE_CHAT : null);
-            if (chat && k >= 1 && anim.bubbleTimer <= 0 && Math.random() < dt * (stop.chatRate ?? 0.18)) {
-              anim.bubbleText = pick(chat);
-              anim.bubbleTimer = 3.2;
-            }
-            const end = seated ? SIT_S * 2 + stop.duration : stop.duration;
-            if (t >= end) {
-              const er = anim.errand;
-              er.i += 1;
-              const next = er.stops[er.i];
-              if (next) {
-                anim.state = 'walk_to_errand';
-                anim.stateTime = 0;
-                setWalk(agentId, anim, walkPath(stop.approach, next.approach));
-              } else {
-                finishErrand(agentId, anim, refs);
-              }
-            }
-            break;
-          }
-
-          case 'sipping_at_bar': {
-            // Naik kursi bar (0,4 s) → ngopi → turun (0,4 s) → buang cup di Pantry → ke meja.
-            const st = anim.stool !== undefined ? stools[anim.stool] : undefined;
-            if (!st) {
-              anim.state = 'walk_to_trash';
-              anim.stateTime = 0;
-              setWalk(agentId, anim, walkPath(currentPos(refs), trashStand));
-              break;
-            }
-            const SIT_S = 0.4;
-            const { seat, approach } = st;
-            const t = anim.stateTime;
-            // k: 0 = berdiri di lorong tengah, 1 = duduk di kursi bar
-            const k = t < SIT_S
-              ? smoothstep(t / SIT_S)
-              : t < SIT_S + anim.stateDuration
-                ? 1
-                : 1 - smoothstep((t - SIT_S - anim.stateDuration) / SIT_S);
-            refs.cup.visible = true;
-            refs.avatar.rotation.y = seat.rotY;
-            refs.avatar.position.set(
-              approach.x + (seat.x - approach.x) * k,
-              PANTRY.stoolSitY * k,
-              approach.z + (seat.z - approach.z) * k,
-            );
-            refs.leftLegPivot.rotation.set(SEATED_LEG * k, 0, 0);
-            refs.rightLegPivot.rotation.set(SEATED_LEG * k, 0, 0);
-            if (k >= 1) {
-              // Sesekali menyeruput, selebihnya cangkir bertumpu di meja island
-              const sipCycle = (globalTime * 0.8 + (bData.offset || 0)) % (Math.PI * 2);
-              refs.rightArmPivot.rotation.set(Math.sin(sipCycle) > 0.55 ? -1.45 : -0.75, 0, -0.16);
-              refs.leftArmPivot.rotation.set(-0.85 + Math.sin(globalTime * 1.3 + (bData.offset || 0)) * 0.05, 0, 0.15);
-              refs.avatar.position.y += Math.sin(globalTime * 2.5 + (bData.offset || 0)) * 0.004;
-            } else {
-              refs.rightArmPivot.rotation.set(-0.65, 0, -0.1);
-              refs.leftArmPivot.rotation.set(-0.2, 0, 0.1);
-            }
-            if (t >= SIT_S * 2 + anim.stateDuration) {
-              releaseStool(agentId);
-              anim.state = 'walk_to_trash';
-              anim.stateTime = 0;
-              setWalk(agentId, anim, walkPath(approach, trashStand));
-              anim.bubbleText = 'Kopi habis, buang cup dulu sebelum balik ke meja.';
-              anim.bubbleTimer = 2.5;
-            }
-            break;
-          }
-
-          case 'drinking': {
-            sitAtDesk(refs);
-            refs.cup.visible = true;
-
-            // Siklus minum kopi: sesekali angkat cangkir ke bibir, selebihnya mengetik satu tangan
-            const sipCycle = (globalTime * 0.8 + (bData.offset || 0)) % (Math.PI * 2);
-            const isSipping = Math.sin(sipCycle) > 0.6;
-
-            if (isSipping) {
-              refs.rightArmPivot.rotation.set(-1.45, 0, -0.15); // Angkat cangkir ke bibir
-              refs.leftArmPivot.rotation.set(-0.5, 0, 0.1);
-            } else {
-              // Mengetik satu tangan, cangkir di tangan kanan istirahat di meja
-              refs.rightArmPivot.rotation.set(-0.7, 0, -0.2);
-              const phase = globalTime * 14;
-              refs.leftArmPivot.rotation.set(-0.95 + Math.sin(phase) * 0.12, 0, 0.18);
-            }
-
-            // Kopi habis -> Berjalan ke tempat sampah via koridor aman
-            if (anim.stateTime > anim.stateDuration) {
-              anim.state = 'walk_to_trash';
-              anim.stateTime = 0;
-              setWalk(agentId, anim, walkPath(deskPos(refs), trashStand));
-              anim.bubbleText = 'Kopi habis! Saatnya buang ke tempat sampah.';
-              anim.bubbleTimer = 2.5;
-            }
-            break;
-          }
-
-          case 'disposing': {
-            // Berdiri di depan tempat sampah
-            refs.avatar.position.set(trashStand.x, 0, trashStand.z);
-            refs.avatar.rotation.y = trashStand.rotY;
-            refs.leftLegPivot.rotation.set(0, 0, 0);
-            refs.rightLegPivot.rotation.set(0, 0, 0);
-
-            // Tangan kanan mengayun ke arah tempat sampah lalu cup hilang
-            refs.rightArmPivot.rotation.set(-0.8 + Math.sin(anim.stateTime * 5) * 0.2, 0, -0.2);
-            if (anim.stateTime > 0.8) {
-              anim.hasCup = false;
-              refs.cup.visible = false;
-            }
-
-            if (anim.stateTime > anim.stateDuration) {
-              anim.state = 'walk_from_trash';
-              anim.stateTime = 0;
-              setWalk(agentId, anim, walkPath(trashStand, deskPos(refs)));
-            }
-            break;
-          }
-
-          case 'walk_to_coffee':
-          case 'walk_to_stool':
-          case 'walk_in_from_lobby':
-          case 'walk_out_to_lobby':
-          case 'walk_to_errand':
-          case 'walk_to_desk':
-          case 'walk_to_trash':
-          case 'walk_from_trash':
-          case 'walk_to_visit':
-          case 'walk_from_visit':
-          case 'walk_to_meeting':
-          case 'walk_from_meeting':
-          case 'walk_back_to_desk': {
-            refs.cup.visible = anim.hasCup;
-            refs.doc.visible = anim.hasDoc;
-
-            const seg = anim.walkPath[anim.walkSeg];
-            const next = anim.walkPath[anim.walkSeg + 1];
-
-            if (!seg || !next) {
-              handleArrival(agentId, anim);
-              break;
-            }
-
-            // Door mutex: tunggu giliran melewati pintu ruang rapat
-            if (seg.gate && anim.gateSeg !== anim.walkSeg) {
-              if (!passGate(agentId, seg.gate)) {
-                const qi = Math.max(0, gateOf(seg.gate).waiting.indexOf(agentId));
-                const prev = anim.walkPath[anim.walkSeg - 1] ?? seg;
-                const ddx = seg.x - prev.x, ddz = seg.z - prev.z;
-                const dl = Math.hypot(ddx, ddz) || 1;
-                refs.avatar.position.set(seg.x - (ddx / dl) * 0.75 * qi, 0, seg.z - (ddz / dl) * 0.75 * qi);
-                refs.avatar.rotation.y = Math.atan2(next.x - seg.x, next.z - seg.z);
-                refs.leftLegPivot.rotation.set(0, 0, 0);
-                refs.rightLegPivot.rotation.set(0, 0, 0);
-                refs.leftArmPivot.rotation.set(-0.15, 0, 0.08);
-                refs.rightArmPivot.rotation.set(-0.15, 0, -0.08);
-                break;
-              }
-              anim.gateSeg = anim.walkSeg;
-            }
-
-            const sLen = segLen(seg, next);
-            if (sLen < 0.01) { anim.walkSeg++; anim.walkT = 0; break; }
-
-            anim.walkT += (WALK_SPEED * dt) / sLen;
-
-            let t = anim.walkT;
-            if (anim.walkT >= 1) {
-              // Tetap di UJUNG segmen yang baru selesai pada frame ini (tidak melompat balik di belokan).
-              t = 1;
-              anim.walkT = 0;
-              anim.walkSeg++;
-              if (anim.walkSeg >= anim.walkPath.length - 1) {
-                handleArrival(agentId, anim);
-                break;
-              }
-            }
-            const wx = seg.x + (next.x - seg.x) * t;
-            const wz = seg.z + (next.z - seg.z) * t;
-            const bob = Math.abs(Math.sin(anim.stateTime * 10)) * 0.04;
-            refs.avatar.position.set(wx, bob, wz);
-
-            const dx = next.x - seg.x, dz = next.z - seg.z;
-            if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
-              refs.avatar.rotation.y = Math.atan2(dx, dz);
-            }
-
-            // Langkah kaki berayun bolak-balik
-            const legSwing = Math.sin(anim.stateTime * 10) * 0.55;
-            refs.leftLegPivot.rotation.set(legSwing, 0, 0);
-            refs.rightLegPivot.rotation.set(-legSwing, 0, 0);
-
-            // Ayunan lengan
-            if (anim.hasDoc) {
-              refs.leftArmPivot.rotation.set(-1.0, 0, 0.1);
-              refs.rightArmPivot.rotation.set(-legSwing * 0.7, 0, -0.08);
-            } else if (anim.hasCup) {
-              refs.rightArmPivot.rotation.set(-0.65, 0, -0.1);
-              refs.leftArmPivot.rotation.set(legSwing * 0.7, 0, 0.08);
-            } else {
-              refs.leftArmPivot.rotation.set(legSwing * 0.7, 0, 0.08);
-              refs.rightArmPivot.rotation.set(-legSwing * 0.7, 0, -0.08);
-            }
-            break;
-          }
-        }
+        applyAgent(f, refs, t);
       }
 
       deskGlows.commit();
+      // Status dunia berubah → beri tahu App (Inspector mode publik tanpa /api/state).
+      const statusKey = v.agents.map((f) => f.status ?? '-').join(',');
+      if (statusKey !== lastStatusKey) {
+        lastStatusKey = statusKey;
+        const map: Record<string, AgentStatus> = {};
+        for (const f of v.agents) if (f.status) map[f.id] = f.status;
+        if (Object.keys(map).length > 0) onStatusesRef.current?.(map);
+      }
       main.update(globalTime);
-      board.update(dt);
-      // Pintu otomatis Lobi & Server (sensor gerak), LED rak & layar NOC.
+      board.applyRigs(v.rigs);
+      // Pintu otomatis (sensor gerak), LED rak & layar NOC.
       const agentPts: Pt[] = [];
       for (const r of meshMap.values()) if (r.avatar.visible) agentPts.push({ x: r.avatar.position.x, z: r.avatar.position.z });
       lobby.update(dt, agentPts);
       server.update(globalTime, dt, agentPts, roomInView(roomBoxes.server));
       garden.update(globalTime, dt, agentPts);
       workshop.update(globalTime);
-      collabPods.setOccupancy([!!(podOccupant[0] || podOccupant[1]), !!(podOccupant[2] || podOccupant[3])]);
-      // Tahap 6: pintu geser Focus Pods & Access Hub, lampu status bilik, ON AIR Studio, tombol panggil lift.
+      collabPods.setOccupancy(v.props.pods);
       focusPods.update(dt, agentPts);
       accessHub.update(dt, agentPts);
-      const staying = (id: string | null) => !!id && animMap.get(id)?.state === 'errand_stay';
-      focusPods.setBusy(focusOccupant.map(staying));
-      studio.setOnAir(staying(studioOccupant[0]!));
-      accessHub.setLiftCalled(staying(accessBusy) && animMap.get(accessBusy!)?.errand?.i === 1);
+      focusPods.setBusy(v.props.focus);
+      studio.setOnAir(v.props.onAir);
+      accessHub.setLiftCalled(v.props.liftCalled);
 
-      // ---------- TV KPI Ruang Manajer (dihitung ulang tiap 1 detik) ----------
+      // Layar TV rapat & status foyer; kamera ikut rapat (kecuali CEO baru menggeser kamera).
+      const m = v.props.meeting;
+      const boardInfo = m && m.phase !== 'dispersing'
+        ? { phase: m.phase === 'session' ? 'session' as const : 'gathering' as const, topic: m.topic, host: m.host, seated: m.seated, total: m.total }
+        : null;
+      const infoKey = JSON.stringify(boardInfo);
+      if (infoKey !== lastBoardInfo) {
+        lastBoardInfo = infoKey;
+        board.setScreen(boardInfo);
+        foyer.setStatus(boardInfo);
+      }
+      const phase = m?.phase ?? null;
+      if (phase !== lastMeetingPhase) {
+        if (phase === 'gathering' && lastMeetingPhase === null) cam.focus(board.focusPoint(), { auto: true });
+        if (phase === 'dispersing') focusBackAt = globalTime + 3.5;
+        lastMeetingPhase = phase;
+      }
+      if (focusBackAt > 0 && globalTime >= focusBackAt) {
+        focusBackAt = 0;
+        cam.focus(cam.home(), { auto: true });
+      }
+
+      // ---------- TV KPI, kios Lobi, peta Access Hub, Information Wall, Workshop (tiap 1 detik) ----------
       if (globalTime - lastKpiT >= 1) {
         lastKpiT = globalTime;
-        const kpi: KpiInfo = {
-          total: animMap.size, working: 0, waiting: 0, error: 0, offline: 0, pantry: 0,
-          meeting: meeting && meeting.phase !== 'dispersing' ? meeting.topic : null,
-          live: isLive,
-        };
-        for (const [id, a] of animMap) {
-          const st = statusOf(id);
+        const isLive = v.live;
+        const meetingTopic = m && m.phase !== 'dispersing' ? m.topic : null;
+        const kpi: KpiInfo = { total: v.agents.length, working: 0, waiting: 0, error: 0, offline: 0, pantry: 0, meeting: meetingTopic, live: isLive };
+        const rooms: Record<string, number> = {};
+        let present = 0;
+        const counts = { working: 0, idle: 0, waiting: 0, error: 0, offline: 0, meeting: 0 };
+        const rows: InfoAgentRow[] = [];
+        for (const f of v.agents) {
+          const st = f.status;
           if (st === 'waiting_approval') kpi.waiting++;
           else if (st === 'error') kpi.error++;
           else if (st === 'offline') kpi.offline++;
-          else if (st === null ? a.state === 'working' || a.state === 'drinking' : st === 'working' || st === 'thinking' || st === 'messaging') kpi.working++;
-          const r = meshMap.get(id);
-          if (r && a.state !== 'away' && nav.roomAt({ x: r.avatar.position.x, z: r.avatar.position.z }) === 'pantry') kpi.pantry++;
-        }
-        manager.setKpi(kpi);
-        // Kios direktori Lobi: kehadiran & sebaran agen per ruangan.
-        const rooms: Record<string, number> = {};
-        let present = 0;
-        for (const [id, a] of animMap) {
-          const r = meshMap.get(id);
-          if (!r || a.state === 'away') continue;
-          present += 1;
-          const room = nav.roomAt({ x: r.avatar.position.x, z: r.avatar.position.z });
-          rooms[room] = (rooms[room] ?? 0) + 1;
-        }
-        lobby.setDirectory({ present, total: animMap.size, live: isLive, rooms });
-        accessHub.setMap(rooms, isLive);
-
-        // Tahap 5: layar komando Information Wall (live = data nyata) & layar Workshop.
-        const counts = { working: 0, idle: 0, waiting: 0, error: 0, offline: 0, meeting: 0 };
-        const rows: InfoAgentRow[] = [];
-        for (const [id, a] of animMap) {
-          const st = statusOf(id), r = meshMap.get(id);
+          else if (st === null ? atDeskState(f.state) : st === 'working' || st === 'thinking' || st === 'messaging') kpi.working++;
+          const room = f.state !== 'away' ? nav.roomAt({ x: f.x, z: f.z }) : '';
+          if (room === 'pantry') kpi.pantry++;
+          if (f.state !== 'away') {
+            present += 1;
+            rooms[room] = (rooms[room] ?? 0) + 1;
+          }
           let tone: InfoAgentRow['tone'];
           if (st !== null) {
             tone = st === 'offline' ? 'away' : st === 'error' ? 'error' : st === 'waiting_approval' ? 'wait' : st === 'meeting' ? 'meet' : st === 'idle' ? 'idle' : 'work';
           } else {
-            tone = a.state === 'away' ? 'away' : MEETING_STATES.has(a.state) ? 'meet' : atDesk(a) ? 'work' : 'idle';
+            tone = f.state === 'away' ? 'away' : MEETING_STATES.has(f.state) ? 'meet' : atDeskState(f.state) ? 'work' : 'idle';
           }
           if (tone === 'work') counts.working++; else if (tone === 'idle') counts.idle++; else if (tone === 'wait') counts.waiting++;
           else if (tone === 'error') counts.error++; else if (tone === 'away') counts.offline++; else counts.meeting++;
           const label = { work: 'bekerja', idle: 'santai', wait: 'tunggu izin', error: 'error', meet: 'rapat', away: 'offline' }[tone];
-          const room = r && a.state !== 'away' ? ROOM_SHORT[nav.roomAt({ x: r.avatar.position.x, z: r.avatar.position.z })] ?? '' : '—';
-          rows.push({ name: agentName(id), status: label, tone, room });
+          rows.push({ name: agentName(f.id), status: label, tone, room: room ? ROOM_SHORT[room] ?? '' : '—' });
         }
+        manager.setKpi(kpi);
+        lobby.setDirectory({ present, total: v.agents.length, live: isLive, rooms });
+        accessHub.setMap(rooms, isLive);
         activityHistory.push(counts.working);
         if (activityHistory.length > 60) activityHistory.shift();
         const order = ['main', 'boardroom', 'manager', 'pantry', 'lobby', 'lounge', 'focus', 'server', 'garden', 'access', 'commons', 'workshop', 'studio', 'infowall', 'collabpods'];
         const info: InfoWallData = {
           live: isLive, counts, history: [...activityHistory],
           rooms: order.map((id) => [ROOM_SHORT[id] ?? id, rooms[id] ?? 0] as [string, number]),
-          meeting: meeting && meeting.phase !== 'dispersing' ? meeting.topic : null,
+          meeting: meetingTopic,
           agents: rows,
         };
         // Layar komando digambar ulang hanya saat Information Wall terlihat kamera.
         if (roomInView(roomBoxes.infowall)) infoWall.setScreen(info);
-        workshop.setSession(workshopPresenter
-          ? { topic: workshopTopic, presenter: agentName(workshopPresenter), role: agentRole(workshopPresenter), attendees: workshopOccupant.filter(Boolean).length }
-          : null);
+        workshop.setSession(v.props.workshop);
       }
     };
 
@@ -3352,12 +1533,11 @@ export function IsometricOfficeStage({
       }
 
       // Speech bubble: elemen di-cache, posisi lewat transform, DOM hanya ditulis saat berubah.
-      for (const [agentId, anim] of animMap) {
-        const b = bubbleEls.get(agentId);
-        if (!b) continue;
+      for (const [agentId, b] of bubbleEls) {
+        const anim = frameOf.get(agentId);
         const refs = meshMap.get(agentId);
         let shown = false;
-        if (refs && anim.bubbleText && anim.bubbleTimer > 0 && refs.avatar.visible) {
+        if (anim && refs && anim.bubble && anim.bubbleT > 0 && refs.avatar.visible) {
           tempVec.setFromMatrixPosition(refs.avatar.matrixWorld);
           tempVec.y += 1.05;
           tempVec.project(camera);
@@ -3370,9 +1550,9 @@ export function IsometricOfficeStage({
               b.x = sx; b.y = sy;
               b.el.style.transform = `translate3d(${sx}px, ${sy}px, 0) translate(-50%, -100%)`;
             }
-            const op = Math.round(Math.min(1, anim.bubbleTimer / 0.4) * 50) / 50;
+            const op = Math.round(Math.min(1, anim.bubbleT / 0.4) * 50) / 50;
             if (op !== b.op) { b.op = op; b.el.style.opacity = String(op); }
-            if (anim.bubbleText !== b.text) { b.text = anim.bubbleText; b.txt.textContent = anim.bubbleText; }
+            if (anim.bubble !== b.text) { b.text = anim.bubble; b.txt.textContent = anim.bubble; }
             shown = true;
           }
         }
@@ -3498,23 +1678,69 @@ export function IsometricOfficeStage({
 
     // Hook diagnostik khusus dev server (tidak ikut ke build produksi).
     const win = window as unknown as Record<string, unknown>;
+    // ---- F0 (rencana FPV §4): prototipe Rig v2 1,70 m & 3 varian seragam (hanya dev) ----
+    const f0Group = new THREE.Group();
+    f0Group.name = 'F0_Prototypes';
+    floor1.add(f0Group);
+    let f0Protos: ProtoJoints[] = [];
+    let f0HideV1 = false;
+    let f0Clones: THREE.Object3D[] = [];
+    const f0Ray = new THREE.Raycaster();
+    const f0Clear = () => {
+      f0Protos.forEach(disposeProto);
+      f0Protos = [];
+      f0Clones.forEach((c) => c.removeFromParent());
+      f0Clones = [];
+      f0HideV1 = false;
+    };
+    /** Tinggi permukaan dudukan / perabot tertinggi di bawah titik (x, z), dicari di pita 0,15–maxY m. */
+    const f0SeatTop = (x: number, z: number, maxY = 1.2): number => {
+      f0Ray.set(new THREE.Vector3(x, maxY, z), new THREE.Vector3(0, -1, 0));
+      f0Ray.far = maxY - 0.15;
+      const hits = f0Ray.intersectObjects(floor1.children.filter((c) => c !== avatarsGroup && c !== f0Group), true);
+      return hits.length > 0 ? +(maxY - hits[0]!.distance).toFixed(3) : 0;
+    };
+    /** Klon avatar v1 (statis) untuk dibandingkan berdampingan. */
+    const f0V1Clone = (id: string, x: number, y: number, z: number, rotY: number, seated: boolean) => {
+      const r = meshMap.get(id);
+      if (!r) return;
+      const c = r.avatar.clone(true);
+      c.visible = true;
+      c.position.set(x, y, z);
+      c.rotation.set(0, rotY, 0);
+      const legs = [c.children[5], c.children[6]];
+      legs.forEach((l) => l?.rotation.set(seated ? SEATED_LEG : 0, 0, 0));
+      f0Group.add(c);
+      f0Clones.push(c);
+    };
+    const f0Place = (id: string, color: string, variant: UniformVariant, x: number, z: number, rotY: number) => {
+      const p = buildProtoAvatar(id, color, variant);
+      p.root.position.set(x, 0, z);
+      p.root.rotation.y = rotY;
+      f0Group.add(p.root);
+      f0Protos.push(p);
+      return p;
+    };
+    const f0Eye = (p: ProtoJoints) => {
+      const e = eyeWorld(p);
+      const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(p.root.quaternion);
+      return { eye: [+e.x.toFixed(3), +e.y.toFixed(3), +e.z.toFixed(3)], lookAt: [+(e.x + fwd.x * 3).toFixed(3), +(e.y - 0.35).toFixed(3), +(e.z + fwd.z * 3).toFixed(3)] };
+    };
     if (import.meta.env.DEV) {
-      win.__officeStage = () =>
-        Array.from(animMap.entries()).map(([id, a]) => {
-          const r = meshMap.get(id);
-          return {
-            id,
-            state: a.state,
-            seg: `${a.walkSeg}/${a.walkPath.length}`,
-            pos: r ? `${r.avatar.position.x.toFixed(2)},${r.avatar.position.z.toFixed(2)}` : '',
-            rotDeg: r ? Math.round((r.avatar.rotation.y * 180) / Math.PI) : 0,
-            seat: a.meetingSeat !== undefined ? BOARDROOM_SEATS[a.meetingSeat]!.id : '',
-            stool: a.stool ?? -1,
-            room: r ? nav.roomAt({ x: r.avatar.position.x, z: r.avatar.position.z }) : '',
-            queue: visitQueue.get(id)?.length ?? 0,
-            bubble: a.bubbleTimer > 0 ? (a.bubbleText ?? '').slice(0, 30) : '',
-          };
-        });
+      /** Simulasi lokal (demo / server mati). Mode live dikendalikan sutradara di server. */
+      const localSim = () => {
+        const s = feedRef.current?.sim;
+        if (!s) console.warn('[office] Hook ini hanya untuk simulasi lokal (demo / server mati). Mode live dikendalikan sutradara dunia di server.');
+        return s;
+      };
+      win.__officeStage = () => {
+        const s = feedRef.current?.sim;
+        if (s) return s.debug.dump();
+        return [...frameOf.values()].map((f) => ({
+          id: f.id, state: f.state, pos: `${f.x.toFixed(2)},${f.z.toFixed(2)}`, rotDeg: Math.round((f.rotY * 180) / Math.PI),
+          room: nav.roomAt({ x: f.x, z: f.z }), bubble: f.bubbleT > 0 ? (f.bubble ?? '').slice(0, 30) : '',
+        }));
+      };
       win.__officeStageDebug = {
         /** Metrik performa terukur (rencana-optimasi-performa-3d.md Task 1). */
         perf: () => {
@@ -3546,11 +1772,33 @@ export function IsometricOfficeStage({
         },
         /** Ganti mode grafis tanpa HUD ('low' = Hemat, 'high' = Tinggi). */
         setQuality: (q: GraphicsQuality) => applyQuality(q),
-        /** Picu rapat seperti event `/rapat` dari server. */
-        meeting: (host = 'raka', text = 'Evaluasi sprint & rencana ruang rapat') => startMeeting(host, text),
-        /** Majukan simulasi N detik secara instan (render tidak ikut). */
+        /** F2: sumber dunia ('local' = simulasi peramban, 'net' = sutradara server). */
+        feed: () => feedRef.current?.kind ?? null,
+        /**
+         * F2: posisi semua agen (uji dua tab: harus sama di semua penonton). `atServerMs` = jam server
+         * yang sama untuk semua tab (tanpa bergantung pada frame render tab yang di-throttle).
+         */
+        worldState: (atServerMs?: number) => {
+          const w = feedRef.current?.peek(atServerMs) ?? view;
+          return w ? {
+            time: +w.time.toFixed(2), live: w.live,
+            agents: w.agents.map((f) => ({ id: f.id, x: +f.x.toFixed(3), z: +f.z.toFixed(3), rotY: +f.rotY.toFixed(3), state: f.state })),
+            meeting: w.props.meeting,
+          } : null;
+        },
+        /** F2: perkiraan jam server (ms epoch) & selisihnya terhadap jam dinding lokal. */
+        serverNow: () => {
+          const s = feedRef.current?.serverNowMs() ?? null;
+          return s === null ? null : { serverMs: Math.round(s), minusWallMs: Math.round(s - (performance.timeOrigin + performance.now())) };
+        },
+        /** F2: selisih jam server − lokal (ms) dari sinkronisasi ping. */
+        clockOffset: () => feedRef.current?.clockOffsetMs() ?? 0,
+        /** Picu rapat seperti event `/rapat` dari server (simulasi lokal). */
+        meeting: (host = 'raka', text = 'Evaluasi sprint & rencana ruang rapat') => localSim()?.debug.meeting(host, text),
+        /** Majukan simulasi lokal N detik secara instan (render menyusul di frame berikutnya). */
         fastForward: (seconds: number) => {
-          for (let s = 0; s < seconds; s += 0.05) step(0.05);
+          const s = localSim();
+          if (s) for (let x = 0; x < seconds; x += 0.05) s.step(0.05);
         },
         camera: (mode: CameraMode) => cam.setMode(mode),
         zoom: (z: number) => { cam.iso.zoom = z; cam.iso.updateProjectionMatrix(); },
@@ -3580,95 +1828,103 @@ export function IsometricOfficeStage({
         scene,
         sun,
         look: (x: number, z: number) => cam.focus(new THREE.Vector3(x, ISO_FOCUS_HEIGHT, z), { dur: 0.1 }),
-        meetingState: () => (meeting ? { ...meeting, attendees: [...meeting.attendees] } : null),
+        meetingState: () => (feedRef.current?.sim ? feedRef.current.sim.debug.meetingState() : view?.props.meeting ?? null),
         /** Antrean kopi & penghuni kursi bar Pantry. */
-        pantryState: () => ({ queue: [...coffeeQueue], stools: [...stoolOccupant] }),
-        /** Tahap 3: penghuni sofa Lounge & agen yang sedang di Server / IT. */
-        errandState: () => ({
-          sofa: [...sofaOccupant], server: serverBusy, commons: [...commonsOccupant], garden: [...gardenOccupant],
-          workshop: { presenter: workshopPresenter, seats: [...workshopOccupant] }, infowall: [...infoOccupant], pods: [...podOccupant],
-          studio: [...studioOccupant], focus: [...focusOccupant], access: accessBusy,
-        }),
-        /** Tahap 6: sesi Studio (bawaan: 2 agen kreatif yang sedang bekerja; 1 id = editor sendirian). */
-        studio: (ids?: string[]) => {
-          const working = [...animMap].filter(([, a]) => a.state === 'working').map(([id]) => id);
-          return startStudioSession((ids ?? STUDIO_PREFERRED.filter((id) => working.includes(id)).slice(0, 2)).filter((id) => working.includes(id)));
-        },
-        /** Tahap 6: kirim agen (yang sedang bekerja) deep focus di bilik kosong (opsional bilik 0 / 1). */
-        focusPod: (id?: string, podIndex?: number) => {
-          const working = [...animMap].filter(([, a]) => a.state === 'working').map(([k]) => k);
-          const who = id ?? FOCUS_PREFERRED.find((k) => working.includes(k));
-          if (!who || !working.includes(who)) return false;
-          return startFocusSession(who, podIndex);
-        },
-        /** Tahap 6: kirim agen (yang sedang bekerja) ke totem peta & portal lift Access Hub. */
-        access: (id?: string) => {
-          const working = [...animMap].filter(([, a]) => a.state === 'working').map(([k]) => k);
-          const who = id ?? ACCESS_PREFERRED.find((k) => working.includes(k));
-          if (!who || !working.includes(who)) return false;
-          return startAccessVisit(who);
-        },
-        /** Tahap 5: mulai sesi Workshop sekarang (bawaan: pembicara & 2–4 peserta yang sedang bekerja). */
-        workshop: (presenterId?: string, attendeeIds?: string[]) => {
-          const working = [...animMap].filter(([, a]) => a.state === 'working').map(([id]) => id);
-          const host = presenterId ?? WORKSHOP_PRESENTERS.find((id) => working.includes(id));
-          if (!host || !working.includes(host)) return [];
-          const rest = (attendeeIds ?? working.filter((id) => id !== host).slice(0, 3)).filter((id) => working.includes(id));
-          return startWorkshopSession(host, rest);
-        },
-        /** Tahap 5: kirim 1–3 agen (yang sedang bekerja) ke layar Information Wall. */
-        infowall: (ids?: string[]) => {
-          const working = [...animMap].filter(([, a]) => a.state === 'working').map(([id]) => id);
-          return startInfoWallCheck((ids ?? INFOWALL_PREFERRED.filter((id) => working.includes(id)).slice(0, 2)).filter((id) => working.includes(id)));
-        },
-        /** Tahap 5: pair huddle di Collaboration Pods (bawaan: 2 agen pertama yang sedang bekerja). */
-        pod: (idA?: string, idB?: string, podIndex?: number) => {
-          const working = [...animMap].filter(([, a]) => a.state === 'working').map(([id]) => id);
-          const a = idA ?? working[0], b = idB ?? working.find((id) => id !== a);
-          if (!a || !b || !working.includes(a) || !working.includes(b)) return false;
-          return startPodHuddle(a, b, podIndex);
-        },
-        /** Tahap 4: mulai diskusi Commons sekarang (bawaan: pilih 3–4 agen yang sedang bekerja). */
-        commons: (ids?: string[]) => {
-          const working = [...animMap].filter(([, a]) => a.state === 'working').map(([id]) => id);
-          return startCommonsDiscussion(ids ? ids.filter((id) => working.includes(id)) : pickCommonsGroup(working));
-        },
-        /** Tahap 4: kirim agen (yang sedang bekerja) rehat ke bangku Digital Garden. */
-        garden: (id: string) => {
-          const a = animMap.get(id), r = meshMap.get(id);
-          if (!a || !r || a.state !== 'working') return false;
-          return startGardenErrand(id, a, r);
-        },
-        /** Kirim agen (yang sedang bekerja) duduk di sofa Lounge sekarang. */
-        lounge: (id: string) => {
-          const a = animMap.get(id), r = meshMap.get(id);
-          if (!a || !r || a.state !== 'working') return false;
-          return startLoungeErrand(id, a, deskPos(r));
-        },
-        /** Kirim agen inspeksi ke Server / IT sekarang. */
-        inspect: (id = 'satria') => {
-          const a = animMap.get(id), r = meshMap.get(id);
-          if (!a || !r || a.state !== 'working') return false;
-          return startServerErrand(id, a, r);
-        },
-        /** Simulasikan agen pulang lewat Lobi / datang lagi (uji spawn tanpa server). */
-        leave: (id: string) => { const a = animMap.get(id), r = meshMap.get(id); if (a && r) startLeaving(id, a, r); },
-        arrive: (id: string) => { const a = animMap.get(id), r = meshMap.get(id); if (a && r) startArrival(id, a, r); },
-        /** Kirim agen ke Pantry sekarang juga (uji antrean & kursi bar). */
-        coffee: (id: string) => {
-          const a = animMap.get(id);
-          const r = meshMap.get(id);
-          if (!a || !r || a.state !== 'working' || coffeeQueue.includes(id)) return false;
-          coffeeQueue.push(id);
-          a.state = 'walk_to_coffee';
-          a.stateTime = 0;
-          setWalk(id, a, walkPath(deskPos(r), queueSpot(coffeeQueue.length - 1)));
-          return true;
-        },
+        pantryState: () => localSim()?.debug.pantryState() ?? null,
+        /** Penghuni sofa Lounge, Server, Commons, Garden, Workshop, Info Wall, Pods, Studio, Focus, Access. */
+        errandState: () => localSim()?.debug.errandState() ?? null,
+        studio: (ids?: string[]) => localSim()?.debug.studio(ids) ?? [],
+        focusPod: (id?: string, podIndex?: number) => localSim()?.debug.focusPod(id, podIndex) ?? false,
+        access: (id?: string) => localSim()?.debug.access(id) ?? false,
+        workshop: (presenterId?: string, attendeeIds?: string[]) => localSim()?.debug.workshop(presenterId, attendeeIds) ?? [],
+        infowall: (ids?: string[]) => localSim()?.debug.infowall(ids) ?? [],
+        pod: (idA?: string, idB?: string, podIndex?: number) => localSim()?.debug.pod(idA, idB, podIndex) ?? false,
+        commons: (ids?: string[]) => localSim()?.debug.commons(ids) ?? [],
+        garden: (id: string) => localSim()?.debug.garden(id) ?? false,
+        lounge: (id: string) => localSim()?.debug.lounge(id) ?? false,
+        inspect: (id = 'satria') => localSim()?.debug.inspect(id) ?? false,
+        leave: (id: string) => localSim()?.debug.leave(id),
+        arrive: (id: string) => localSim()?.debug.arrive(id),
+        coffee: (id: string) => localSim()?.debug.coffee(id) ?? false,
         /** Kunjungan meja seperti event live `visit` (mis. minta review ke Raka). */
-        visit: (from: string, to: string, text = 'Minta review sebentar, Pak.') =>
-          handleStageEvent({ kind: 'visit', seq: 0, from, to, text, carryDoc: true } as StageEvent),
-        path: (from: Pt, to: Pt) => walkPath(from, to),
+        visit: (from: string, to: string, text = 'Minta review sebentar, Pak.') => localSim()?.debug.visit(from, to, text),
+        path: (from: Pt, to: Pt) => nav.path(from, to),
+        /** F0: tinggi permukaan dudukan di bawah titik dunia (raycast ke GLB). */
+        seatTop: (x: number, z: number, maxY?: number) => f0SeatTop(x, z, maxY),
+        /**
+         * F0: prototipe v2 1,70 m vs avatar v1 di 4 stasiun (meja kerja, podium Workshop, stool Pantry, focus pod).
+         * `hideAgents` menyembunyikan 10 agen v1 asli supaya screenshot bersih. false = bersihkan.
+         */
+        rigCompare: (on = true, hideAgents = true, variant: UniformVariant = AGENT_UNIFORM) => {
+          f0Clear();
+          if (!on) return null;
+          f0HideV1 = hideAgents;
+          const out: Record<string, unknown> = {};
+          // 1) Meja kerja Dimas: berdiri di titik tamu menghadap meja.
+          const dm = meshMap.get('dimas');
+          if (dm) {
+            const yaw = Math.atan2(dm.sitPos.x - dm.visitPos.x, dm.sitPos.z - dm.visitPos.z);
+            const p = f0Place('dimas', '#A8C46B', variant, dm.visitPos.x, dm.visitPos.z, yaw);
+            poseStand(p);
+            const side = new THREE.Vector3(0.7, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+            f0V1Clone('dimas', dm.visitPos.x + side.x, 0, dm.visitPos.z + side.z, yaw, false);
+            const dw = dm.deskGroup.getWorldPosition(new THREE.Vector3());
+            out.desk = { at: [dm.visitPos.x, dm.visitPos.z], deskTop: f0SeatTop(dw.x, dw.z), ...f0Eye(p) };
+          }
+          // 2) Podium Workshop: pembicara berdiri di belakang podium.
+          {
+            const presenterSpot = worldSpots.presenter;
+            const p = f0Place('raka', '#E9A23B', variant, presenterSpot.x, presenterSpot.z, presenterSpot.rotY);
+            poseStand(p);
+            poseArmsForward(p, -0.35, -0.6);
+            const side = new THREE.Vector3(0, 0, 0.75).applyAxisAngle(new THREE.Vector3(0, 1, 0), presenterSpot.rotY + Math.PI / 2);
+            f0V1Clone('raka', presenterSpot.x + side.x, 0, presenterSpot.z + side.z, presenterSpot.rotY, false);
+            out.podium = { at: [presenterSpot.x, presenterSpot.z], ...f0Eye(p) };
+          }
+          // 3) Stool Pantry: v2 di stool 0, v1 di stool 1.
+          {
+            const s0 = worldSpots.stools[0]!.seat, s1 = worldSpots.stools[1]!.seat;
+            const top = f0SeatTop(s0.x, s0.z, 1.3);
+            const p = f0Place('gita', '#5B9BD5', variant, s0.x, s0.z, s0.rotY);
+            let gap = poseSit(p, top, 0);
+            let footY = 0;
+            if (gap > 0) { footY = Math.max(0, +(top - 0.47).toFixed(2)); gap = poseSit(p, top, footY, 0.3); }
+            poseArmsForward(p, -0.7, -0.9);
+            f0V1Clone('gita', s1.x, PANTRY.stoolSitY, s1.z, s1.rotY, true);
+            out.stool = { at: [s0.x, s0.z], seatTop: top, footY, gap: +gap.toFixed(3), ...f0Eye(p) };
+          }
+          // 4) Focus pod: v2 di bilik 0, v1 di bilik 1.
+          {
+            const f0 = worldSpots.focus[0]!.spot, f1 = worldSpots.focus[1]!.spot;
+            const top = f0SeatTop(f0.x, f0.z, 1.0);
+            const p = f0Place('bima', '#D9735F', variant, f0.x, f0.z, f0.rotY);
+            const gap = poseSit(p, top, 0, 0.4);
+            poseArmsForward(p);
+            f0V1Clone('bima', f1.x, FOCUSPODS.sitY, f1.z, f1.rotY, true);
+            out.focusPod = { at: [f0.x, f0.z], seatTop: top, gap: +gap.toFixed(3), ...f0Eye(p) };
+          }
+          return out;
+        },
+        /**
+         * F0: 10 prototipe v2 duduk mengetik di meja masing-masing memakai seragam `variant` (1–3).
+         * Avatar v1 disembunyikan. null = kembali ke v1.
+         */
+        uniform: (variant: UniformVariant | null = AGENT_UNIFORM) => {
+          f0Clear();
+          if (variant === null) return null;
+          f0HideV1 = true;
+          const seats: Record<string, unknown> = {};
+          for (const ag of initAgents) {
+            const r = meshMap.get(ag.id);
+            if (!r) continue;
+            const top = f0SeatTop(r.sitPos.x, r.sitPos.z, 0.9);
+            const p = f0Place(ag.id, ag.color, variant, r.sitPos.x, r.sitPos.z, r.sitRotY);
+            const gap = poseSit(p, top || 0.48, 0, 0.42);
+            poseArmsForward(p);
+            seats[ag.id] = { seatTop: top, gap: +gap.toFixed(3), ...f0Eye(p) };
+          }
+          return { variant, name: UNIFORMS[variant].name, seats };
+        },
       };
     }
 

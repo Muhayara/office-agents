@@ -10,6 +10,11 @@ import { OfficeScheduler } from './core/scheduler';
 import { startMcpHttpServer } from './mcp-server';
 import { createOfficeHttpServer } from './http-server';
 import { AuthSetupError, loadAuthConfig } from './security/auth';
+import { GoogleOidc, OidcError, loadGoogleConfig } from './security/google-oidc';
+import { OfficeUsers } from './users';
+import { WorldDirector } from './world/world-director';
+import { setTrustProxy } from './http-util';
+import { createStaticUi } from './static-ui';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '../../..');
@@ -56,12 +61,39 @@ const workspaceDir = path.join(ROOT_DIR, 'workspace');
 
 const db = new OfficeDb(dbPath);
 const core = new OfficeCore({ config, db, workspaceDir });
+const users = new OfficeUsers(db);
+
+let google: GoogleOidc | null = null;
+try {
+  const gcfg = loadGoogleConfig(process.env);
+  google = gcfg ? new GoogleOidc(gcfg) : null;
+} catch (err) {
+  if (err instanceof OidcError) console.error(`[Office Server] Login Google dimatikan: ${err.message}`);
+  else throw err;
+}
 
 const useMock = process.env.OFFICE_DRIVER === 'mock';
 const driver = useMock ? new MockDriver(core) : new ApiDriver(core);
 const scheduler = new OfficeScheduler(core, driver);
 
-const { server, broadcast } = createOfficeHttpServer({ core, scheduler, auth, workspaceDir });
+// Hosting publik (Tailscale Funnel): proxy lokal tepercaya + UI hasil build dari port yang sama.
+setTrustProxy(process.env.OFFICE_TRUST_PROXY === '1');
+const staticUi = process.env.OFFICE_SERVE_UI === '1'
+  ? createStaticUi(path.join(ROOT_DIR, 'workspace', 'office-next', 'dist'))
+  : null;
+if (process.env.OFFICE_SERVE_UI === '1' && !staticUi) {
+  console.error('[Office Server] OFFICE_SERVE_UI=1 tetapi workspace/office-next/dist belum ada. Jalankan npm run build:next dulu.');
+}
+
+// F2: sutradara dunia bersama (semua penonton melihat agen yang sama, kanal publik /ws/world).
+const world = new WorldDirector(core);
+world.start();
+
+const { server, broadcast } = createOfficeHttpServer({
+  core, scheduler, auth, workspaceDir, users, google,
+  upgrades: { '/ws/world': world.handleUpgrade },
+  staticUi,
+});
 core.onEvent((event) => broadcast(event));
 
 server.listen(port, bindHost, () => {
@@ -71,6 +103,10 @@ server.listen(port, bindHost, () => {
       ? '[Office Server] Token CEO: dari OFFICE_TOKEN di .env'
       : `[Office Server] Token CEO: tersimpan di ${path.relative(ROOT_DIR, auth.tokenFile ?? '')} (salin isinya untuk login)`,
   );
+  if (staticUi) console.log(`[Office Server] UI kantor 3D dilayani di http://${bindHost}:${port}/ (hasil build)`);
+  console.log(google
+    ? `[Office Server] Login Google aktif (redirect ${(google.cfg.redirectUris ?? [google.cfg.redirectUri]).join(', ')})`
+    : '[Office Server] Login Google nonaktif (isi GOOGLE_CLIENT_ID & GOOGLE_CLIENT_SECRET di .env)');
   if (auth.viewerToken) {
     console.log('[Office Server] Token pengunjung (view-only) aktif dari OFFICE_VIEWER_TOKEN');
   }

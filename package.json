@@ -14,8 +14,8 @@
     "build:next": "vite build workspace/office-next",
     "build:next:demo": "vite build workspace/office-next --mode demo",
     "build": "npm --workspace @office/server run build && npm --workspace @office/web run build",
-    "typecheck": "npm --workspace @office/shared run typecheck && npm --workspace @office/server run typecheck && npm --workspace @office/web run typecheck && tsc -p workspace/office-next/tsconfig.json",
-    "test": "npm --workspace @office/server run test",
+    "typecheck": "npm --workspace @office/shared run typecheck && npm --workspace @office/world run typecheck && npm --workspace @office/server run typecheck && npm --workspace @office/web run typecheck && tsc -p workspace/office-next/tsconfig.json",
+    "test": "npm --workspace @office/world run test && npm --workspace @office/server run test",
     "optimize:models": "node workspace/office-next/scripts/optimize-models.mjs"
   },
   "devDependencies": {

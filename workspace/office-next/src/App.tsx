@@ -1,18 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type ClientCommand, type StateSnapshot, parseServerEvent } from '@office/shared';
+import { type AgentStatus, type ClientCommand, type StateSnapshot, parseServerEvent, roleLabel } from '@office/shared';
 import { IsometricOfficeStage, type CameraMode, type StageApi, type StageRoom } from './stage/IsometricOfficeStage';
 import { loadGraphicsQuality, saveGraphicsQuality, type GraphicsQuality } from './stage/graphics';
 import { InspectorPanel } from './panels/InspectorPanel';
 import {
   DEMO_BUILD,
+  LOGIN_ERRORS,
+  ROLE_LABEL,
+  type OfficeUserRow,
+  type SessionInfo,
   type SessionRole,
-  type StageEvent,
   applyServerEvent,
+  canReadOffice,
   fetchSession,
+  fetchUsers,
   login,
   logout,
-  toStageEvents,
+  updateUser,
 } from './state/liveOffice';
+import { LocalWorldFeed, NetWorldFeed, worldUrl, type FeedStatus, type WorldFeed } from './state/worldFeed';
 
 const FALLBACK_SNAPSHOT: StateSnapshot = {
   office: {
@@ -50,12 +56,12 @@ const FALLBACK_SNAPSHOT: StateSnapshot = {
 };
 
 /**
- * - demo: build statis / pilihan pengunjung — simulasi template tanpa backend.
- * - offline: server tidak terjangkau — simulasi + tombol coba lagi.
- * - login: server aktif tapi belum login.
- * - live: terhubung; avatar mengikuti status agen sebenarnya.
+ * - demo: build statis / pilihan pengunjung — simulasi lokal tanpa backend.
+ * - offline: server tidak terjangkau — simulasi lokal + tombol coba lagi.
+ * - public: server aktif; dunia bersama real-time tanpa login (atau akun tamu Google) — F2/K2.
+ * - live: sesi CEO / viewer / karyawan; dunia bersama + state kantor lengkap (/ws).
  */
-type Connection = 'checking' | 'demo' | 'offline' | 'login' | 'live';
+type Connection = 'checking' | 'demo' | 'offline' | 'public' | 'live';
 
 /** Ruangan Lantai 1 di pilihan fokus kamera (urutan Barat → Timur, utara dulu). */
 const FOCUS_ROOMS: ReadonlyArray<[StageRoom, string, string]> = [
@@ -78,16 +84,21 @@ const FOCUS_ROOMS: ReadonlyArray<[StageRoom, string, string]> = [
   ['access', 'Digital Access Hub', 'Digital Access Hub'],
 ];
 
+/** Info agen untuk simulasi lokal (nama & jabatan di layar rapat / Workshop). */
+const LOCAL_AGENTS = FALLBACK_SNAPSHOT.agents.map((a) => ({ id: a.id, name: a.name, title: a.title ?? roleLabel(a.role, 'id') }));
+
 export function App() {
   const [snapshot, setSnapshot] = useState<StateSnapshot>(FALLBACK_SNAPSHOT);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('raka');
   const [spectatorMode, setSpectatorMode] = useState<boolean>(false);
   const [connection, setConnection] = useState<Connection>(DEMO_BUILD ? 'demo' : 'checking');
-  const [role, setRole] = useState<SessionRole | null>(null);
-  const [tokenSource, setTokenSource] = useState<'env' | 'file'>('file');
+  const [session, setSession] = useState<SessionInfo | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
-  const [stageEvents, setStageEvents] = useState<StageEvent[]>([]);
+  const [worldStatus, setWorldStatus] = useState<FeedStatus>('connecting');
+  const [worldStatuses, setWorldStatuses] = useState<Record<string, AgentStatus>>({});
   const [notice, setNotice] = useState<string | null>(null);
+  const [showLogin, setShowLogin] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const stageApiRef = useRef<StageApi | null>(null);
   const [camMode, setCamMode] = useState<CameraMode>('iso');
@@ -101,23 +112,18 @@ export function App() {
     });
   }, []);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const agentIdsRef = useRef<ReadonlySet<string>>(new Set(FALLBACK_SNAPSHOT.agents.map((a) => a.id)));
+  const role: SessionRole | null = session?.role ?? null;
 
   const checkSession = useCallback(async () => {
     if (DEMO_BUILD) return;
     setConnection('checking');
     try {
       const info = await fetchSession();
-      setTokenSource(info.tokenSource);
-      if (info.authenticated && info.role) {
-        setRole(info.role);
-        setConnection('live');
-      } else {
-        setRole(null);
-        setConnection('login');
-      }
+      setSession(info);
+      // Semua orang menonton dunia bersama; sesi berhak (CEO / viewer / karyawan) juga membaca kantor.
+      setConnection(info.authenticated && canReadOffice(info.role) ? 'live' : 'public');
     } catch {
-      setRole(null);
+      setSession(null);
       setConnection('offline');
     }
   }, []);
@@ -126,7 +132,30 @@ export function App() {
     void checkSession();
   }, [checkSession]);
 
-  // Koneksi live: snapshot awal + WebSocket dengan reconnect.
+  // Hasil callback login Google (`/?login=google` atau `/?login_error=<kode>`): tampilkan & bersihkan URL.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const err = q.get('login_error');
+    if (q.has('login') || err) {
+      if (err) setNotice(LOGIN_ERRORS[err] ?? 'Login Google gagal. Coba lagi.');
+      else setNotice('Berhasil masuk dengan Google.');
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
+
+  // ---- Sumber dunia (F2): jaringan = sutradara server (sama untuk semua penonton), lokal = simulasi ----
+  const feedKey = connection === 'public' || connection === 'live'
+    ? `net:${connection === 'live' ? 'full' : 'public'}`
+    : connection === 'demo' || connection === 'offline' ? 'local' : null;
+  const [feed, setFeed] = useState<WorldFeed | null>(null);
+  useEffect(() => {
+    if (!feedKey) return;
+    const f: WorldFeed = feedKey === 'local' ? new LocalWorldFeed(LOCAL_AGENTS) : new NetWorldFeed(worldUrl(), setWorldStatus);
+    setFeed(f);
+    return () => f.dispose();
+  }, [feedKey]);
+
+  // Koneksi live: snapshot kantor + WebSocket /ws dengan reconnect (hanya sesi berhak).
   useEffect(() => {
     if (connection !== 'live') return;
     let unmounted = false;
@@ -148,11 +177,7 @@ export function App() {
         const parsed = parseServerEvent(raw);
         if (!parsed.success) return;
         const event = parsed.data;
-        if (event.type === 'state.snapshot') {
-          agentIdsRef.current = new Set(event.state.agents.map((a) => a.id));
-        }
         setSnapshot((prev) => applyServerEvent(prev, event));
-        setStageEvents((list) => toStageEvents(list, event, agentIdsRef.current));
         if (event.type === 'error') setNotice(event.message);
       };
       ws.onclose = () => {
@@ -162,10 +187,9 @@ export function App() {
           void fetchSession()
             .then((s) => {
               if (unmounted) return;
-              if (!s.authenticated) {
-                setRole(null);
-                setConnection('login');
-              } else connect();
+              setSession(s);
+              if (!s.authenticated || !canReadOffice(s.role)) setConnection('public');
+              else connect();
             })
             .catch(() => {
               if (!unmounted) connect();
@@ -204,34 +228,45 @@ export function App() {
 
   const handleLogout = useCallback(() => {
     void logout().then(() => {
-      setRole(null);
       setSnapshot(FALLBACK_SNAPSHOT);
-      setConnection('login');
+      setSpectatorMode(false);
+      void checkSession();
     });
-  }, []);
+  }, [checkSession]);
 
   const live = connection === 'live';
+  const publicView = connection === 'public';
   const viewOnly = spectatorMode || role !== 'ceo';
   const lang = snapshot.office.language;
   const t = (id: string, en: string) => (lang === 'id' ? id : en);
   const hudButton: React.CSSProperties = { padding: '4px 10px', minHeight: 28, fontSize: 12 };
-  const selectedAgent = snapshot.agents.find((a) => a.id === selectedAgentId);
+  // Mode publik / tamu: status agen dari dunia bersama (tanpa /api/state).
+  const agentsView = useMemo(
+    () => (live ? snapshot.agents : snapshot.agents.map((a) => (worldStatuses[a.id] ? { ...a, status: worldStatuses[a.id]! } : a))),
+    [live, snapshot.agents, worldStatuses],
+  );
+  const selectedAgent = agentsView.find((a) => a.id === selectedAgentId);
   const connectionChip = useMemo(() => {
     switch (connection) {
       case 'live':
-        return wsConnected
+        return wsConnected && worldStatus === 'open'
           ? { text: 'LIVE', color: 'var(--color-ok)' }
           : { text: 'Menyambung ulang…', color: 'var(--color-warn)' };
+      case 'public':
+        return worldStatus === 'open'
+          ? { text: 'LIVE · dunia bersama', color: 'var(--color-ok)' }
+          : { text: 'Menyambung…', color: 'var(--color-warn)' };
       case 'demo':
         return null;
       case 'offline':
         return { text: 'Server mati · simulasi', color: 'var(--color-danger)' };
-      case 'login':
-        return { text: 'Belum login', color: 'var(--color-warn)' };
       default:
         return { text: 'Memeriksa…', color: 'var(--color-muted)' };
     }
-  }, [connection, wsConnected]);
+  }, [connection, wsConnected, worldStatus]);
+  const who = role
+    ? session?.user ? `${session.user.name} · ${ROLE_LABEL[role]}` : role === 'viewer' ? 'Pengunjung (lihat saja)' : ROLE_LABEL[role]
+    : null;
 
   return (
     <>
@@ -328,10 +363,20 @@ export function App() {
               {spectatorMode ? 'Tampilan: Pengunjung' : 'Tampilan: CEO'}
             </button>
           )}
-          {live && role === 'viewer' && <span className="chip mono">Pengunjung (lihat saja)</span>}
-          {live && (
+          {live && role === 'ceo' && (
+            <button type="button" onClick={() => setShowUsers(true)} style={hudButton} title="Akun Google: naikkan ke karyawan, turunkan, atau blokir">
+              Pengguna
+            </button>
+          )}
+          {who && <span className="chip mono" title="Sesi saat ini">{who}</span>}
+          {role && (
             <button type="button" onClick={handleLogout} style={hudButton}>
               Keluar
+            </button>
+          )}
+          {publicView && !role && (
+            <button type="button" className="btn-primary" onClick={() => setShowLogin(true)} style={hudButton}>
+              Masuk
             </button>
           )}
           {(connection === 'demo' || connection === 'offline') && !DEMO_BUILD && (
@@ -348,8 +393,8 @@ export function App() {
           selectedAgentId={selectedAgentId}
           language={lang}
           onSelectAgent={setSelectedAgentId}
-          live={live}
-          stageEvents={stageEvents}
+          feed={feed}
+          onAgentStatuses={setWorldStatuses}
           stageApiRef={stageApiRef}
           onCamModeChange={setCamMode}
           onLoadErrorChange={setLoadError}
@@ -357,7 +402,7 @@ export function App() {
         />
 
         <InspectorPanel
-          agents={snapshot.agents}
+          agents={agentsView}
           tasks={snapshot.tasks}
           approvals={snapshot.approvals}
           selectedAgent={selectedAgent}
@@ -365,6 +410,7 @@ export function App() {
           securityFindings={snapshot.securityFindings ?? []}
           language={lang}
           live={live}
+          publicView={publicView}
           role={role}
           viewOnly={viewOnly}
           onSelectAgent={setSelectedAgentId}
@@ -372,16 +418,23 @@ export function App() {
         />
       </main>
 
-      {connection === 'login' && (
+      {showLogin && (
         <LoginOverlay
-          tokenSource={tokenSource}
-          onLoggedIn={(r) => {
-            setRole(r);
-            setConnection('live');
+          tokenSource={session?.tokenSource ?? 'file'}
+          googleEnabled={Boolean(session?.googleEnabled)}
+          onLoggedIn={() => {
+            setShowLogin(false);
+            void checkSession();
           }}
-          onDemo={() => setConnection('demo')}
+          onDemo={() => {
+            setShowLogin(false);
+            setConnection('demo');
+          }}
+          onClose={() => setShowLogin(false)}
         />
       )}
+
+      {showUsers && <UsersPanel onClose={() => setShowUsers(false)} onNotice={setNotice} />}
 
       {notice && (
         <div className="toast" role="status">
@@ -394,12 +447,16 @@ export function App() {
 
 function LoginOverlay({
   tokenSource,
+  googleEnabled,
   onLoggedIn,
   onDemo,
+  onClose,
 }: {
   tokenSource: 'env' | 'file';
+  googleEnabled: boolean;
   onLoggedIn: (role: SessionRole) => void;
   onDemo: () => void;
+  onClose: () => void;
 }) {
   const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -422,22 +479,29 @@ function LoginOverlay({
   };
 
   return (
-    <div className="login-backdrop">
+    <div className="login-backdrop" onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}>
       <form className="login-card" onSubmit={(e) => void submit(e)} aria-labelledby="login-title">
-        <h2 id="login-title">Masuk ke kantor live</h2>
+        <h2 id="login-title">Masuk ke kantor</h2>
         <p>
-          {tokenSource === 'file' ? (
-            <>
-              Tempel token CEO dari file <code>data/.office-token</code>, atau token pengunjung bila
-              disediakan.
-            </>
-          ) : (
-            <>
-              Tempel token CEO (<code>OFFICE_TOKEN</code> di <code>.env</code>), atau token pengunjung.
-            </>
-          )}
+          Tanpa login Anda tetap menonton kantor secara real-time (dunia bersama). Masuk untuk fitur
+          tamu; karyawan yang dinaikkan CEO juga bisa melihat ucapan &amp; tugas asli agen.
         </p>
-        <label htmlFor="office-token">Token</label>
+        {googleEnabled ? (
+          <a className="btn-primary" href="/api/auth/google" style={{ textAlign: 'center', padding: '8px 12px', borderRadius: 6, textDecoration: 'none' }}>
+            Masuk dengan Google
+          </a>
+        ) : (
+          <p className="muted small">
+            Login Google belum diaktifkan di server (isi <code>GOOGLE_CLIENT_ID</code> &amp; <code>GOOGLE_CLIENT_SECRET</code> di <code>.env</code>).
+          </p>
+        )}
+        <label htmlFor="office-token">
+          {tokenSource === 'file' ? (
+            <>Atau token CEO dari <code>data/.office-token</code> / token pengunjung</>
+          ) : (
+            <>Atau token CEO (<code>OFFICE_TOKEN</code>) / token pengunjung</>
+          )}
+        </label>
         <input
           id="office-token"
           className="mono"
@@ -453,14 +517,84 @@ function LoginOverlay({
           </p>
         )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="submit" className="btn-primary" disabled={busy || !token.trim()}>
-            {busy ? 'Memeriksa…' : 'Masuk'}
+          <button type="submit" disabled={busy || !token.trim()}>
+            {busy ? 'Memeriksa…' : 'Masuk dengan token'}
           </button>
           <button type="button" onClick={onDemo}>
-            Lihat simulasi saja
+            Simulasi lokal
+          </button>
+          <button type="button" onClick={onClose}>
+            Tutup
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/** Panel CEO (F4): akun Google — naikkan ke karyawan / turunkan ke tamu, blokir / buka blokir. */
+function UsersPanel({ onClose, onNotice }: { onClose: () => void; onNotice: (msg: string) => void }) {
+  const [users, setUsers] = useState<OfficeUserRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetchUsers()
+      .then((u) => { if (alive) setUsers(u); })
+      .catch((e: unknown) => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
+    return () => { alive = false; };
+  }, []);
+
+  const apply = async (u: OfficeUserRow, patch: { role?: 'guest' | 'employee'; blocked?: boolean }) => {
+    setBusyId(u.id);
+    try {
+      const next = await updateUser(u.id, patch);
+      setUsers((list) => list?.map((x) => (x.id === next.id ? next : x)) ?? null);
+      onNotice(`${next.name}: ${next.blocked ? 'diblokir' : next.role === 'employee' ? 'karyawan' : 'tamu'}.`);
+    } catch (e) {
+      onNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="login-backdrop" onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}>
+      <section className="login-card" style={{ maxWidth: 640 }} aria-labelledby="users-title">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <h2 id="users-title">Pengguna (akun Google)</h2>
+          <button type="button" onClick={onClose}>Tutup</button>
+        </div>
+        <p>
+          Akun baru masuk sebagai <strong>tamu</strong> (hanya menonton dunia bersama). Karyawan juga melihat
+          ucapan &amp; tugas asli. Akun Google tidak pernah mendapat hak CEO.
+        </p>
+        {error && <p className="login-error" role="alert">{error}</p>}
+        {!users && !error && <p className="muted small">Memuat…</p>}
+        {users && users.length === 0 && <p className="muted small">Belum ada yang masuk dengan Google.</p>}
+        {users && users.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '55vh', overflowY: 'auto' }}>
+            {users.map((u) => (
+              <div key={u.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '8px 10px', border: '1px solid var(--color-rule)', borderRadius: 6 }}>
+                <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                  <div style={{ fontWeight: 600 }}>{u.name}</div>
+                  <div className="mono muted small" style={{ overflowWrap: 'anywhere' }}>{u.email}</div>
+                  <div className="muted small">
+                    {u.blocked ? 'Diblokir' : u.role === 'employee' ? 'Karyawan' : 'Tamu'} · terakhir {new Date(u.lastLoginAt).toLocaleString('id-ID')}
+                  </div>
+                </div>
+                <button type="button" disabled={busyId === u.id || u.blocked} onClick={() => void apply(u, { role: u.role === 'employee' ? 'guest' : 'employee' })}>
+                  {u.role === 'employee' ? 'Jadikan tamu' : 'Jadikan karyawan'}
+                </button>
+                <button type="button" disabled={busyId === u.id} onClick={() => void apply(u, { blocked: !u.blocked })}>
+                  {u.blocked ? 'Buka blokir' : 'Blokir'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

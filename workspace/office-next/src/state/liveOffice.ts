@@ -4,14 +4,35 @@ import type { ServerEvent, StateSnapshot } from '@office/shared';
 /* Sesi                                                                */
 /* ------------------------------------------------------------------ */
 
-export type SessionRole = 'ceo' | 'viewer';
+/**
+ * - `ceo` / `viewer`: token (CEO / pengunjung tepercaya).
+ * - `employee` / `guest`: akun Google (F4). Tamu hanya menonton dunia terfilter; karyawan setara viewer.
+ */
+export type SessionRole = 'ceo' | 'viewer' | 'employee' | 'guest';
+
+export interface SessionUser {
+  id: string;
+  name: string;
+}
 
 export interface SessionInfo {
   authenticated: boolean;
   role: SessionRole | null;
+  user: SessionUser | null;
   tokenSource: 'env' | 'file';
   viewerEnabled: boolean;
+  googleEnabled: boolean;
 }
+
+/** Boleh membaca state kantor penuh (/api/state, /ws). Sama dengan `canReadOffice` di server. */
+export const canReadOffice = (role: SessionRole | null) => role === 'ceo' || role === 'viewer' || role === 'employee';
+
+export const ROLE_LABEL: Record<SessionRole, string> = {
+  ceo: 'CEO',
+  viewer: 'Pengunjung',
+  employee: 'Karyawan',
+  guest: 'Tamu',
+};
 
 /** `VITE_DEMO=1` saat build statis (hosting tanpa backend): tidak ada panggilan jaringan sama sekali. */
 export const DEMO_BUILD = import.meta.env.VITE_DEMO === '1';
@@ -20,7 +41,15 @@ export async function fetchSession(): Promise<SessionInfo> {
   const res = await fetch('/api/session', { credentials: 'same-origin' });
   const type = res.headers.get('content-type') ?? '';
   if (!res.ok || !type.includes('application/json')) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as SessionInfo;
+  const data = (await res.json()) as Partial<SessionInfo>;
+  return {
+    authenticated: Boolean(data.authenticated),
+    role: data.role ?? null,
+    user: data.user ?? null,
+    tokenSource: data.tokenSource ?? 'file',
+    viewerEnabled: Boolean(data.viewerEnabled),
+    googleEnabled: Boolean(data.googleEnabled),
+  };
 }
 
 export async function login(
@@ -42,56 +71,50 @@ export async function logout(): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Event panggung 3D                                                   */
+/* Akun Google (panel CEO, F4)                                         */
 /* ------------------------------------------------------------------ */
 
-/** Event yang menggerakkan avatar di luar status kursi biasa. */
-export type StageEvent =
-  | { seq: number; kind: 'say'; agentId: string; text: string }
-  | { seq: number; kind: 'visit'; from: string; to: string; text: string; carryDoc: boolean }
-  | { seq: number; kind: 'meeting'; host: string; text: string };
-
-type StageEventInput = StageEvent extends infer E ? (E extends StageEvent ? Omit<E, 'seq'> : never) : never;
-
-let stageSeq = 0;
-const MAX_STAGE_EVENTS = 40;
-
-function pushStage(list: StageEvent[], ev: StageEventInput): StageEvent[] {
-  stageSeq += 1;
-  const next = [...list, { ...ev, seq: stageSeq } as StageEvent];
-  return next.length > MAX_STAGE_EVENTS ? next.slice(-MAX_STAGE_EVENTS) : next;
+export interface OfficeUserRow {
+  id: string;
+  name: string;
+  email: string;
+  role: 'guest' | 'employee';
+  blocked: boolean;
+  createdAt: string;
+  lastLoginAt: string;
 }
 
-/** Mengubah event server menjadi event panggung (bicara, kunjungan meja, rapat). */
-export function toStageEvents(
-  list: StageEvent[],
-  event: ServerEvent,
-  agentIds: ReadonlySet<string>,
-): StageEvent[] {
-  if (event.type === 'agent.say') {
-    return pushStage(list, { kind: 'say', agentId: event.agentId, text: event.text });
-  }
-  if (event.type === 'message.created') {
-    const m = event.message;
-    // Salinan broadcast per-agen tidak dikirim ulang ke UI; pesan "all" = rapat.
-    if (m.recipient === 'all' || m.kind === 'meeting') {
-      const host = agentIds.has(m.sender) ? m.sender : 'raka';
-      // "/rapat Evaluasi sprint" -> "Evaluasi sprint"
-      const text = m.body.replace(/^\/(rapat|meeting)\s*/i, '').trim() || 'Rapat dimulai.';
-      return pushStage(list, { kind: 'meeting', host, text });
-    }
-    if (agentIds.has(m.sender) && agentIds.has(m.recipient) && m.sender !== m.recipient) {
-      return pushStage(list, {
-        kind: 'visit',
-        from: m.sender,
-        to: m.recipient,
-        text: m.body,
-        carryDoc: m.kind === 'review' || m.kind === 'handoff',
-      });
-    }
-  }
-  return list;
+export async function fetchUsers(): Promise<OfficeUserRow[]> {
+  const res = await fetch('/api/users', { credentials: 'same-origin' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return ((await res.json()) as { users: OfficeUserRow[] }).users;
 }
+
+export async function updateUser(id: string, patch: { role?: 'guest' | 'employee'; blocked?: boolean }): Promise<OfficeUserRow> {
+  const res = await fetch('/api/users/update', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, ...patch }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { user?: OfficeUserRow; error?: string };
+  if (!res.ok || !data.user) throw new Error(data.error ?? `HTTP ${res.status}`);
+  return data.user;
+}
+
+/** Pesan untuk `/?login_error=<kode>` dari callback Google. */
+export const LOGIN_ERRORS: Record<string, string> = {
+  state: 'Sesi login kedaluwarsa atau tidak sah. Coba masuk lagi.',
+  cancelled: 'Login Google dibatalkan.',
+  blocked: 'Akun ini diblokir CEO.',
+  throttled: 'Terlalu banyak percobaan. Coba lagi 1 menit lagi.',
+  email: 'Email akun Google belum terverifikasi.',
+  nonce: 'Login Google ditolak (nonce tidak cocok).',
+  audience: 'Login Google ditolak (token untuk aplikasi lain).',
+  expired: 'Login Google kedaluwarsa. Coba lagi.',
+  signature: 'Login Google ditolak (tanda tangan tidak sah).',
+  network: 'Server Google tidak terjangkau.',
+};
 
 /* ------------------------------------------------------------------ */
 /* Reducer snapshot                                                    */

@@ -18,27 +18,33 @@
 ```text
 P:\gemini-lab\office\
 ├── packages/
-│   └── shared/                 # @office/shared — Shared TypeScript types, Zod schemas, MCP tools, permissions
+│   ├── shared/                 # @office/shared — Shared TypeScript types, Zod schemas, MCP tools, permissions
+│   └── world/                  # @office/world (F2) — pure TS, no Three.js: layout.ts, navigation.ts, dialogues.ts,
+│                               #   rng.ts (seeded), spots.ts (world spots + boardroom chairs + Floor-1 router),
+│                               #   sim.ts (WorldSim: every agent routine/state machine), wire.ts (/ws/world protocol), events.ts
 ├── apps/
 │   ├── server/                 # @office/server — node:http + ws (:7420) + MCP (:7421) + node:sqlite WAL, run with tsx
 │   │   └── src/                # Core engine, git service, scheduler, prompt builders
-│   │       ├── http-server.ts  # HTTP/WS routes, session login, Host/Origin checks, body limits
-│   │       └── security/       # auth.ts (tokens, HMAC cookies), command-policy.ts (run_command), scanner.ts
+│   │       ├── http-server.ts  # HTTP/WS routes, session + Google login, /api/users, Host/Origin checks, body limits
+│   │       ├── users.ts        # Google accounts table (guest / employee / blocked)
+│   │       ├── world/world-director.ts # F2: authoritative WorldSim (20 Hz) + public /ws/world channel (10 Hz snapshots)
+│   │       └── security/       # auth.ts (tokens, v1/v2 HMAC cookies, roles), google-oidc.ts (PKCE + JWKS), command-policy.ts, scanner.ts
 │   └── web/                    # @office/web — React 19 + Vite classic dispatch dashboard (:5173)
 ├── workspace/
 │   └── office-next/            # Next-Gen 3D Three.js Diorama Studio (:5174)
 │       ├── public/models/      # Production 3D GLB Models (room shell, desk, chair, coffee bar, server racks, plants)
 │       ├── src/
 │       │   ├── stage/
-│       │   │   ├── IsometricOfficeStage.tsx # Scene, lights, avatar rigs, agent & meeting state machines
-│       │   │   ├── layout.ts               # All coordinates: desks, pantry, room layers, boardroom seat table
-│       │   │   ├── navigation.ts           # Room-local nav + building router via door portals (door mutex gates)
+│       │   │   ├── IsometricOfficeStage.tsx # Scene, lights, avatar rigs; RENDERS a WorldFeed (logic lives in @office/world)
+│       │   │   ├── avatar/                 # F0: protoRig.ts (static 1.70 m Rig v2 prototype + sit IK), looks.ts (palettes, 3 uniforms)
+│       │   │   ├── layout.ts / navigation.ts / officeDialogues.ts # shims re-exporting @office/world
 │       │   │   ├── rooms/                  # Layer builders: mainWorkspace, mainCorridor (Jalan Utama/bus), meetingFoyer, boardroom, managerOffice, pantryCafe, lobbyReception, loungeRelax, serverRoom, collabCommons, digitalGarden, workshopTraining, infoWall, collabPods, studioContent, focusPods, accessHub, southWing / northWing (shells for rooms south / north of the bus + the second north tier), doors (motion-sensor sliding / swing doors), walls (procedural walls/doors), assets (GLB/placeholder)
 │       │   │   ├── camera/                 # cameraRig (Isometric ↔ Free Cam 3D), wallFade (Sims-style auto-fade)
 │       │   │   └── officeDialogues.ts      # Template-based Indonesian dialogue lines (Zero API keys needed)
 │       │   ├── isometric/      # 2.5D coordinates and zone definitions
 │       │   ├── panels/         # Inspector panel: live status, approvals, work history (/api/runs)
-│       │   ├── state/liveOffice.ts # Session helpers, server-event reducer, stage events (say/visit/meeting)
+│       │   ├── state/liveOffice.ts # Session (roles ceo/viewer/employee/guest), users API, server-event reducer
+│       │   ├── state/worldFeed.ts  # F2: NetWorldFeed (/ws/world, 200 ms interpolation, ping clock sync) / LocalWorldFeed
 │       │   └── App.tsx         # UI shell: demo / login / live modes, WebSocket with reconnect
 │       ├── docs/
 │       │   ├── blueprint-lantai-1-v6.2.html     # Floor 1 master plan (38 × 18.4 m, 16 zones, build stages 1–6)
@@ -55,7 +61,10 @@ P:\gemini-lab\office\
 │       │   ├── tahap-6-studio-focus-access.md   # Stage 6 spec + §8 corrections, final coordinates, GLB verification (Floor 1 complete)
 │       │   ├── tahap-6-3d-prompts.md            # Stage 6 GLB prompts (7 models) + §4 GLB status & scene placement changes
 │       │   ├── office-density-expansion-plan.md # 3D prompts for Claude Sonnet 3.5/5.5 (AC, Bookshelf, etc.)
-│       │   └── deployment-and-hosting-guide.md  # Phased hosting plan (free static demo, Tailscale, later VPS)
+│       │   ├── deployment-and-hosting-guide.md  # Phased hosting plan (free static demo, Tailscale, later VPS)
+│       │   ├── ide-fpv-kustomisasi-dan-gemini-ai.md       # CEO idea doc: FPV, avatar studio, Gemini key pool
+│       │   ├── rencana-fpv-dan-kustomisasi-karakter.md    # FPV/avatar/shared-world plan F0–F7 + §10 ledger (F0, F2, F4 done)
+│       │   └── img/f0/                          # F0 rig/uniform screenshots, F2/F4 UI screenshots
 │       └── tools/3d-generator/ # Standalone HTML generators used to produce .glb files
 ├── docs/                       # Monorepo architecture and seat matrix documentation
 ├── package.json                # Root package.json scripts (typecheck, test, dev:next, dev:server)
@@ -74,8 +83,9 @@ P:\gemini-lab\office\
     - Slot 0: Brewing at the espresso machine of the Coffee Bar on the pantry WEST wall (world `(5.35, 11.37)`, facing west).
     - Slot 1, 2, 3: queue along the bar front toward the door (`X 5.35`, `Z 10.47 / 9.57 / 8.67`, facing the head of the queue). `moveToQueueSlot` steps agents forward in line, or re-routes them through doors if they are still on the way.
     - Cup lifecycle: brewed -> sit on a free bar-island stool (4 stools, `walk_to_stool` / `sipping_at_bar`) -> dispose at the recycle bin next to the pantry door (`(7.55, 7.86)`) -> return to desk. If all stools are taken: carry the cup to the desk (old flow) and dispose in the pantry later.
-  - **Collision-Free Pathfinding:** NavMesh corridor graph (North Aisle Z=-3.4, Central Avenue X=0.0, South Promenade Z=0.8-1.2). Back-row agents never clip through front-row desks. Dynamic avoidance steers walking agents around each other. The building router tries every door route between rooms and takes the shortest total walk (the workspace has 2 doors onto the bus). Single-lane rooms use `laneX` / `laneZ` (bus, foyer, Manager lane `Z 8.6`, Pantry spine `X 6.5`).
+  - **Collision-Free Pathfinding:** NavMesh corridor graph (North Aisle Z=-3.4, Central Avenue X=0.0, South Promenade Z=0.8-1.2). Back-row agents never clip through front-row desks. (The old "dynamic avoidance" push was always overwritten by path following in the same step, so it never had an effect; it was not ported to `WorldSim`.) The building router tries every door route between rooms and takes the shortest total walk (the workspace has 2 doors onto the bus). Single-lane rooms use `laneX` / `laneZ` (bus, foyer, Manager lane `Z 8.6`, Pantry spine `X 6.5`).
   - **Speech Bubbles:** Projected 3D head coordinates to 2D HTML glassmorphism overlays in Indonesian (zero API keys).
+  - **Shared world (F2, `rencana-fpv-dan-kustomisasi-karakter.md` §10.2):** every routine below now runs in `WorldSim` (`packages/world/src/sim.ts`, seeded PRNG). Live = ONE authoritative sim in the server (`WorldDirector`, 20 Hz) streamed over `/ws/world` (10 Hz snapshots of changed agents, bubbles once per `bubbleSeq`, props on change; < 2 KB/s average). Every viewer sees the same agents (verified: two tabs 0 cm apart at the same server time, clocks 1 ms apart). Public (no login) may watch; real `agent.say` / visit text / CEO meeting topics are redacted server-side for public & Google guests (K9). Demo build / server down = `LocalWorldFeed` (same sim in the browser). The stage only renders poses from `AgentFrame` (`applyAgent`). When changing routines, edit `sim.ts` (+ its tests), not the stage. World spots in `spots.ts` are checked against the scene graph on every dev start (console `[office] F2: semua titik …`).
   - **Live Binding (mode live):** avatar poses follow real `AgentStatus` (typing / raised hand for `waiting_approval` / head-scratch for `error` / relaxed for `idle`); going `offline` = the agent walks out to the Lobby and disappears (state `away`), coming back online = it appears on the Lobby welcome rug and walks to its desk; `agent.say` shows as bubbles; agent→agent messages make the sender walk to the recipient's desk visit spot (carrying a document for review/handoff; reviews for Raka go to the Manager office). Coffee & chit-chat only for idle agents. Demo mode keeps the full template simulation and starts with every agent arriving from the Lobby (1.2 s apart).
   - **Floor 1 bus topology (Stage 1 of `blueprint-lantai-1-v6.2.html`, details in `tahap-1-bus-architecture.md` §6):** `BuildingRoot → Floor_1_Group → Room_MainWorkspace (0,0) / Corridor_MainBus (12, 6.2) / Room_MeetingFoyer (11, 4) / Room_Boardroom_10p (11, -1)`. World = blueprint metres − (7, 5); site spans X -7..31, Z -5..13.4. The workspace has a south wall with 2 doors (X -3.5 and +3.5) onto the 38 × 2.4 m Jalan Utama; the boardroom sits right next to the workspace (shared wall at X 7) and is entered through the open foyer (center door X 11). Room coordinates are local; read world positions through the scene graph. Every boardroom asset shows a procedural placeholder until its GLB exists in `public/models/`.
   - **Floor 1 Stage 2 (`tahap-2-pantry-manager.md` §7):** `Room_ManagerOffice` (-4, 10.4) and `Room_PantryCafe` (6.5, 10.4) south of the bus, built with `buildSouthRoomShell` (glass north wall with door at `Z 7.40..7.64` + threshold, solid S/W/E walls). Manager: Raka's walnut L-desk facing east, credenza + 55" KPI TV (canvas, live counts) + bookshelf on the west wall (the only wall that stays solid from the SE camera), 2 guest lounge chairs, smoked glass with privacy band, city-view window + walnut slats. Pantry: Coffee Bar / dispenser / tall utility cabinet on the west wall, counter + sink + subway tiles on the south wall, bar island with 4 stools, mosaic tile floor. North walls and walls facing future rooms (Manager east, Pantry west/east) are `interior` (always fade in dollhouse view).
@@ -118,6 +128,8 @@ P:\gemini-lab\office\
 - **Security model (server):**
   - CEO token: `OFFICE_TOKEN` in `.env` (≥24 chars) or auto-generated in `data/.office-token`. Optional view-only `OFFICE_VIEWER_TOKEN`.
   - Browser login via `POST /api/session` → HttpOnly + SameSite=Strict HMAC cookie. Non-browser clients (MCP) use `Authorization: Bearer`.
+  - **Google login (F4):** `GET /api/auth/google` → Google (PKCE S256 + state + nonce, state cookie SameSite=Lax) → `/api/auth/google/callback` (code exchanged server-side, ID token verified with Google JWKS: iss/aud/azp/exp/iat/nonce/email_verified) → cookie `v2.<userId>.<exp>.<sig>`. Roles come from the `users` table on EVERY request (demote/block is instant). New accounts = `guest` (world only); CEO promotes to `employee` via `/api/users/update` (UI: "Pengguna"). Google accounts never get CEO rights. Needs `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (+ optional `GOOGLE_REDIRECT_URI`, default `http://localhost:5174/api/auth/google/callback`) in `.env`; setup steps in the plan §10.3.
+  - Roles: `ceo` (token, commands), `viewer` (token) & `employee` (Google) = read full state + real speech, `guest` (Google) & public = filtered world only. `/ws/world`: public read-only, max 6 connections/IP & 200 total, client may only send `{t:'ping'}` (≤ 512 B).
   - Host/Origin allowlists (`OFFICE_ALLOWED_HOSTS`, `OFFICE_ALLOWED_ORIGINS`), no CORS, JSON-only POST, body limits.
   - Tool guards are deny-by-default (unknown/disabled agent IDs get nothing). Task ownership enforced; tasks with files are `done` only via reviewer ACC; REJECT is never committed.
   - `run_command`: always needs CEO approval in Semi mode, safe-charset args, no inline code (`node -e`, `python -c`), git read-only, `npx --no`, secrets stripped from child env.
@@ -130,8 +142,11 @@ P:\gemini-lab\office\
 # Typecheck entire monorepo (shared, server, web, office-next)
 npm run typecheck
 
-# Run Vitest test suites (64 tests, incl. HTTP/WS/MCP attack simulations)
+# Run Vitest test suites (90 tests: @office/world 8 + server 82, incl. HTTP/WS/MCP/OAuth/hosting attack simulations)
 npm test
+
+# Public office (Tailscale Funnel): build UI, start 9router + server serving dist on 7420, open the funnel
+# start-public.bat   (stop.bat also runs `tailscale funnel reset`)
 
 # Run 3D Office Next dev server (port 5174)
 npm run dev:next
@@ -172,4 +187,5 @@ npm run dev:server
 ## 6. Immediate Next Tasks
 1. **Floor 1 is complete (Stage 6 done, 16/16 zones).** All 7 Stage 6 GLBs are in `public/models/` (along with their 7 HTML generators in `tools/3d-generator/`) and verified in the scene (`tahap-6-studio-focus-access.md` §8.C). *(Only `Office_Meeting_Table_Round` in the main workspace still uses a placeholder, with its older 16 Nov HTML generator in `tools/3d-generator/`.)*
 2. **3D performance optimization is done** (`docs/rencana-optimasi-performa-3d.md` §7–§8). Next stage plans (e.g. Floor 2): analyse against code/GLB measurements before coding, as in every previous stage, and keep the performance rules above (light anchors, `optimize:models`, wave lists).
-3. Hosting Phase 1: static demo on Cloudflare Pages (`npm run build:next:demo`, output `workspace/office-next/dist`). Phase 2: Tailscale for live CEO access. See `deployment-and-hosting-guide.md`.
+3. **FPV / avatar plan (`docs/rencana-fpv-dan-kustomisasi-karakter.md`):** F0 (prototype + baseline), F2 (shared world) and F4 (Google login & roles) are DONE (§10). CEO decisions 18 Nov: agent uniform = **Navy Tech** (`AGENT_UNIFORM`, applied to v1 avatars for now), public hosting & Google login **DEFERRED by CEO** until a spare rooted phone becomes the server (code is ready & tested locally, don't push it; option was Tailscale Funnel: `start-public.bat`, guide Option 3B; server serves the built UI on 7420 with `OFFICE_SERVE_UI=1`, `OFFICE_TRUST_PROXY=1`). Next: F1 Rig v2 (pose code is already isolated in the stage's `applyAgent`), then F3 Mata Agen, F5 Avatar Studio, F6 explorer. Live verification: run the server with `OFFICE_DRIVER=mock` so no LLM is called.
+4. Hosting Phase 1: static demo on Cloudflare Pages (`npm run build:next:demo`, output `workspace/office-next/dist`). Phase 2: Tailscale for live CEO access. See `deployment-and-hosting-guide.md`.

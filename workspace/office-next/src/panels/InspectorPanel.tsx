@@ -38,6 +38,8 @@ interface InspectorPanelProps {
   securityFindings: SecurityFinding[];
   language: Lang;
   live: boolean;
+  /** F2: penonton publik / tamu — status asli dari dunia bersama, tanpa tugas & kuota. */
+  publicView?: boolean;
   role: SessionRole | null;
   viewOnly: boolean;
   onSelectAgent: (agentId: string) => void;
@@ -91,6 +93,7 @@ export function InspectorPanel({
   securityFindings,
   language,
   live,
+  publicView = false,
   role,
   viewOnly,
   onSelectAgent,
@@ -145,7 +148,7 @@ export function InspectorPanel({
           {language === 'id' ? 'Inspektur Kursi & Telemetri' : 'Seat & Telemetry Inspector'}
         </strong>
         <span className="chip mono" style={{ color: viewOnly ? 'var(--color-focus)' : 'var(--color-accent)' }}>
-          {!live ? 'Simulasi' : viewOnly ? 'Lihat saja' : 'Mode CEO'}
+          {publicView ? 'Publik · dunia bersama' : !live ? 'Simulasi' : viewOnly ? 'Lihat saja' : 'Mode CEO'}
         </span>
       </div>
 
@@ -161,7 +164,7 @@ export function InspectorPanel({
           <div className="status-line">
             <span className="status-dot" style={{ background: STATUS_COLORS[selectedAgent.status] }} />
             <strong>{STATUS_LABELS[language][selectedAgent.status]}</strong>
-            {!live && <span className="muted">(simulasi)</span>}
+            {!live && !publicView && <span className="muted">(simulasi)</span>}
           </div>
 
           {selectedAgent.offlineReason && <div className="muted small">{selectedAgent.offlineReason}</div>}
@@ -173,10 +176,10 @@ export function InspectorPanel({
             </div>
           )}
 
-          <div className="mono muted small">
+          {!publicView && <div className="mono muted small">
             {formatPublicModelName(selectedAgent.model)} · Kuota {selectedAgent.quota.used}/{selectedAgent.quota.cap}
             {live ? ` · reset ${timeShort(selectedAgent.quota.resetAt)}` : ''}
-          </div>
+          </div>}
         </section>
       )}
 
@@ -265,11 +268,11 @@ export function InspectorPanel({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="status-dot" style={{ background: live ? STATUS_COLORS[ag.status] : ag.color }} />
+                <span className="status-dot" style={{ background: live || publicView ? STATUS_COLORS[ag.status] : ag.color }} />
                 <span style={{ fontWeight: 600, color: ag.color, fontSize: 13 }}>{ag.name}</span>
               </div>
               <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>
-                {live ? STATUS_LABELS[language][ag.status] : roleLabel(ag.role, language)}
+                {live || publicView ? STATUS_LABELS[language][ag.status] : roleLabel(ag.role, language)}
               </div>
             </button>
           ))}

@@ -62,6 +62,8 @@ export interface Boardroom {
   bindWalls: () => void;
   /** Posisi dunia pusat dudukan pada nilai tarik `pull` (0 = tucked, 1 = pulled). */
   seatWorld: (i: number, pull?: number) => THREE.Vector3;
+  /** F2: posisi tarik & putar kursi dari dunia bersama (sutradara server / simulasi lokal). */
+  applyRigs: (states: ReadonlyArray<{ pull: number; swivel: number }>) => void;
   approachWorld: (i: number) => Pt;
   /** Yaw dunia saat duduk menghadap meja. */
   seatYaw: (i: number) => number;
@@ -315,6 +317,20 @@ export function buildBoardroom(
     rigs,
     bindWalls: () => { wallsBound = true; registerWalls(); },
     seatWorld,
+    applyRigs: (states) => {
+      rigs.forEach((rig, i) => {
+        const st = states[i];
+        if (!st) return;
+        if (st.pull !== rig.pull) {
+          rig.pull = st.pull;
+          rig.root.position.z = rig.seat.zTucked + (rig.seat.zPulled - rig.seat.zTucked) * st.pull;
+        }
+        if (st.swivel !== rig.swivelAngle) {
+          rig.swivelAngle = st.swivel;
+          rig.swivel.rotation.y = st.swivel;
+        }
+      });
+    },
     approachWorld,
     seatYaw: (i) => rigs[i]!.seat.rotY + yaw0(),
     tvSwivel,

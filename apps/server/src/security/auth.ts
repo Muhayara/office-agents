@@ -17,9 +17,36 @@ import type http from 'node:http';
  *   dan DNS rebinding.
  */
 
-export type SessionRole = 'ceo' | 'viewer';
+/**
+ * - `ceo` / `viewer`: token (cookie v1 atau Bearer).
+ * - `employee` / `guest`: akun Google (cookie v2, peran dibaca dari tabel `users` setiap request).
+ */
+export type SessionRole = 'ceo' | 'viewer' | 'employee' | 'guest';
+
+/** Peminta yang terautentikasi. `userId`/`name` hanya untuk akun Google. */
+export interface Principal {
+  role: SessionRole;
+  userId?: string;
+  name?: string;
+}
+
+/** Pencarian akun untuk cookie v2 (null = tidak ada). */
+export type UserLookup = (userId: string) => { id: string; name: string; role: 'guest' | 'employee'; blocked: boolean } | null;
+
+/** Boleh membaca state kantor penuh (tugas, pesan asli, /ws). Tamu Google hanya dunia terfilter. */
+export function canReadOffice(role: SessionRole | null | undefined): boolean {
+  return role === 'ceo' || role === 'viewer' || role === 'employee';
+}
+
+/** Boleh melihat ucapan `agent.say` asli & topik rapat (K9). */
+export function seesRealSpeech(role: SessionRole | null | undefined): boolean {
+  return canReadOffice(role);
+}
 
 export const SESSION_COOKIE_NAME = 'office_agents_session';
+export const OAUTH_COOKIE_NAME = 'office_oauth';
+const COOKIE_V2 = 'v2';
+const USER_ID_PATTERN = /^u_[A-Za-z0-9_-]{16,40}$/;
 export const MIN_TOKEN_LENGTH = 24;
 const DEFAULT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const COOKIE_VERSION = 'v1';
@@ -158,7 +185,7 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /** Memetakan token mentah ke peran (perbandingan waktu-konstan). */
-export function roleForToken(cfg: AuthConfig, candidate: string | undefined | null): SessionRole | null {
+export function roleForToken(cfg: AuthConfig, candidate: string | undefined | null): 'ceo' | 'viewer' | null {
   if (!candidate) return null;
   const token = candidate.trim();
   if (!token) return null;
@@ -178,7 +205,7 @@ function sign(cfg: AuthConfig, payload: string): string {
   return crypto.createHmac('sha256', sessionKey(cfg)).update(payload).digest('base64url');
 }
 
-export function createSessionValue(cfg: AuthConfig, role: SessionRole, now = Date.now()): string {
+export function createSessionValue(cfg: AuthConfig, role: 'ceo' | 'viewer', now = Date.now()): string {
   const payload = `${COOKIE_VERSION}.${role}.${now + cfg.sessionTtlMs}`;
   return `${payload}.${sign(cfg, payload)}`;
 }
@@ -187,7 +214,7 @@ export function verifySessionValue(
   cfg: AuthConfig,
   value: string | undefined,
   now = Date.now(),
-): SessionRole | null {
+): 'ceo' | 'viewer' | null {
   if (!value) return null;
   const parts = value.split('.');
   if (parts.length !== 4) return null;
@@ -202,7 +229,76 @@ export function verifySessionValue(
   return role;
 }
 
-export function buildSessionCookie(cfg: AuthConfig, role: SessionRole): string {
+/** Cookie sesi akun Google: `v2.<userId>.<exp>.<sig>`. Peran TIDAK disimpan (selalu dari DB). */
+export function createUserSessionValue(cfg: AuthConfig, userId: string, now = Date.now()): string {
+  if (!USER_ID_PATTERN.test(userId)) throw new Error('userId tidak valid');
+  const payload = `${COOKIE_V2}.${userId}.${now + cfg.sessionTtlMs}`;
+  return `${payload}.${sign(cfg, `user:${payload}`)}`;
+}
+
+/** userId dari cookie v2 yang sah, atau null. */
+export function verifyUserSessionValue(cfg: AuthConfig, value: string | undefined, now = Date.now()): string | null {
+  if (!value) return null;
+  const parts = value.split('.');
+  if (parts.length !== 4) return null;
+  const [version, userId, expRaw, sig] = parts as [string, string, string, string];
+  if (version !== COOKIE_V2 || !USER_ID_PATTERN.test(userId)) return null;
+  const exp = Number(expRaw);
+  if (!Number.isFinite(exp) || exp <= now) return null;
+  if (!safeEqual(sig, sign(cfg, `user:${version}.${userId}.${expRaw}`))) return null;
+  return userId;
+}
+
+export function buildUserSessionCookie(cfg: AuthConfig, userId: string): string {
+  const maxAge = Math.floor(cfg.sessionTtlMs / 1000);
+  const parts = [`${SESSION_COOKIE_NAME}=${createUserSessionValue(cfg, userId)}`, 'Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${maxAge}`];
+  if (cfg.secureCookie) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/* ---- Cookie state OAuth (SameSite=Lax: callback dari Google adalah navigasi lintas situs) ---- */
+
+export interface OAuthPending {
+  state: string;
+  nonce: string;
+  verifier: string;
+}
+const OAUTH_TTL_MS = 10 * 60 * 1000;
+
+export function buildOAuthCookie(cfg: AuthConfig, pending: OAuthPending, now = Date.now()): string {
+  const payload = Buffer.from(JSON.stringify({ s: pending.state, n: pending.nonce, v: pending.verifier, e: now + OAUTH_TTL_MS })).toString('base64url');
+  const value = `${payload}.${sign(cfg, `oauth:${payload}`)}`;
+  const parts = [`${OAUTH_COOKIE_NAME}=${value}`, 'Path=/api/auth/google', 'HttpOnly', 'SameSite=Lax', `Max-Age=${OAUTH_TTL_MS / 1000}`];
+  if (cfg.secureCookie) parts.push('Secure');
+  return parts.join('; ');
+}
+
+export function buildClearOAuthCookie(cfg: AuthConfig): string {
+  const parts = [`${OAUTH_COOKIE_NAME}=`, 'Path=/api/auth/google', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+  if (cfg.secureCookie) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/** Isi cookie state OAuth yang sah & belum kedaluwarsa, atau null. */
+export function readOAuthCookie(cfg: AuthConfig, req: http.IncomingMessage, now = Date.now()): OAuthPending | null {
+  const raw = readCookie(req, OAUTH_COOKIE_NAME);
+  if (!raw) return null;
+  const dot = raw.indexOf('.');
+  if (dot <= 0) return null;
+  const payload = raw.slice(0, dot);
+  const sig = raw.slice(dot + 1);
+  if (!safeEqual(sig, sign(cfg, `oauth:${payload}`))) return null;
+  try {
+    const d = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { s?: unknown; n?: unknown; v?: unknown; e?: unknown };
+    if (typeof d.s !== 'string' || typeof d.n !== 'string' || typeof d.v !== 'string' || typeof d.e !== 'number') return null;
+    if (d.e <= now) return null;
+    return { state: d.s, nonce: d.n, verifier: d.v };
+  } catch {
+    return null;
+  }
+}
+
+export function buildSessionCookie(cfg: AuthConfig, role: 'ceo' | 'viewer'): string {
   const maxAge = Math.floor(cfg.sessionTtlMs / 1000);
   const parts = [
     `${SESSION_COOKIE_NAME}=${createSessionValue(cfg, role)}`,
@@ -248,18 +344,33 @@ export interface AuthResolveOptions {
   allowCookie?: boolean;
 }
 
-/** Peran peminta, atau null bila tidak terautentikasi. */
+/** Peran token peminta (Bearer / cookie v1), atau null. Akun Google lewat `resolvePrincipal`. */
 export function resolveRequestRole(
   cfg: AuthConfig,
   req: http.IncomingMessage,
   options: AuthResolveOptions = {},
-): SessionRole | null {
+): 'ceo' | 'viewer' | null {
   const bearer = bearerFrom(req);
   if (bearer) return roleForToken(cfg, bearer);
   if (options.allowCookie ?? true) {
     return verifySessionValue(cfg, readCookie(req, SESSION_COOKIE_NAME));
   }
   return null;
+}
+
+/**
+ * Peminta lengkap: token (Bearer / cookie v1) atau akun Google (cookie v2 -> tabel users).
+ * Akun yang diblokir atau dihapus = tidak terautentikasi (pencabutan langsung berlaku).
+ */
+export function resolvePrincipal(cfg: AuthConfig, req: http.IncomingMessage, users?: UserLookup): Principal | null {
+  const tokenRole = resolveRequestRole(cfg, req);
+  if (tokenRole) return { role: tokenRole };
+  if (bearerFrom(req)) return null;
+  const userId = verifyUserSessionValue(cfg, readCookie(req, SESSION_COOKIE_NAME));
+  if (!userId || !users) return null;
+  const u = users(userId);
+  if (!u || u.blocked) return null;
+  return { role: u.role, userId: u.id, name: u.name };
 }
 
 /* ------------------------------------------------------------------ */

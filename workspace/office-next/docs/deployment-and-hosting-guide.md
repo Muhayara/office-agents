@@ -93,6 +93,57 @@ Server tetap di PC dan tetap bind ke `127.0.0.1`. Yang dibuka hanyalah jalur pri
 - Isi `OFFICE_ALLOWED_HOSTS=office.domainkamu.com`, `OFFICE_ALLOWED_ORIGINS=https://office.domainkamu.com`, `OFFICE_COOKIE_SECURE=1`.
 - **Jangan** memakai Quick Tunnel `trycloudflare.com` untuk kantor live: URL acak tanpa lapisan Access.
 
+### Opsi 3B (dipilih CEO 18 Nov, K14): Kantor 3D PUBLIK lewat Tailscale Funnel — gratis, tanpa domain
+
+Funnel membuka **satu** alamat HTTPS publik `https://<nama-pc>.<tailnet>.ts.net/` ke server di PC ini. Server
+melayani UI hasil build + API + kanal dunia bersama dari port 7420, jadi cookie login tetap satu situs.
+Publik bisa menonton tanpa login (dunia bersama, teks asli disamarkan); tamu masuk dengan Google; CEO tetap
+memakai token.
+
+**Mengapa Funnel (bukan Cloudflare / VPS):**
+
+| Opsi | Biaya | Kemudahan | Catatan |
+| :--- | :--- | :--- | :--- |
+| **Tailscale Funnel** ✅ | Gratis (semua paket) | Tanpa kode baru di luar repo ini, tanpa domain, HTTPS otomatis, URL tetap | PC harus menyala (agen AI memang butuh PC menyala); bandwidth Funnel dibatasi Tailscale tanpa angka resmi — cukup untuk penonton sedikit, unduhan awal ±10 MB per pengunjung baru (lalu di-cache peramban) |
+| Cloudflare Tunnel (bernama) | Butuh domain (±$10/tahun) | Mudah | URL stabil hanya dengan domain sendiri |
+| Cloudflare Quick Tunnel | Gratis | Mudah | URL acak berubah tiap restart → login Google rusak; jangan dipakai |
+| Cloudflare Durable Object (opsi B §3.6 rencana FPV) | Gratis dengan kuota harian | Sulit: codebase Worker baru + relay | Sutradara 20 Hz membuat objek tidak pernah tidur → ±10.800 dari 13.000 GB-s/hari gratis; berisiko kena batas |
+| VPS | Berbayar | Sedang | Workspace git ikut pindah |
+
+**Sekali saja (± 10 menit):**
+1. Pasang Tailscale di PC ini: <https://tailscale.com/download> → login.
+2. Admin console Tailscale (<https://login.tailscale.com/admin>):
+   - **DNS** → aktifkan **MagicDNS** dan **HTTPS Certificates**.
+   - **Access controls** → tambahkan atribut Funnel ke policy (console biasanya menawarkan tombol "Enable Funnel" saat pertama kali menjalankan `tailscale funnel`).
+3. Catat nama mesin: `tailscale status --json` → `Self.DNSName` (mis. `pc-kantor.tail1234.ts.net`).
+4. Google Cloud Console → Credentials → OAuth client Anda → **Authorized redirect URIs**, pastikan ketiganya ada:
+   - `http://localhost:5174/api/auth/google/callback` (dev, Vite)
+   - `http://localhost:7420/api/auth/google/callback` (produksi lokal)
+   - `https://pc-kantor.tail1234.ts.net/api/auth/google/callback` (publik)
+5. OAuth consent screen: tambahkan `pc-kantor.tail1234.ts.net` di *Authorized domains*. Selama status **Testing**, hanya
+   akun yang didaftarkan sebagai *test user* yang bisa masuk; klik **Publish app** bila ingin semua akun Google bisa
+   masuk (scope `openid email profile` tidak butuh verifikasi Google).
+
+**Setiap kali online:** jalankan `start-public.bat`. Skrip itu: build UI (`npm run build:next`), menyalakan 9router +
+server dengan `OFFICE_SERVE_UI=1`, `OFFICE_TRUST_PROXY=1`, `OFFICE_COOKIE_SECURE=1`, host/origin `.ts.net`, dan tiga
+redirect Google, lalu `tailscale funnel --bg 7420`. `stop.bat` juga menutup Funnel (`tailscale funnel reset`).
+
+**Yang sudah diamankan di kode (18 Nov):**
+- Server tetap bind `127.0.0.1`; hanya port 7420 yang di-Funnel. MCP (7421) tidak pernah publik.
+- `X-Forwarded-For` / `X-Forwarded-Host` hanya dipercaya dari loopback dan hanya bila `OFFICE_TRUST_PROXY=1`
+  (batas `/ws/world` 6 koneksi per IP & pembatas login memakai IP asli pengunjung).
+- UI statis: anti path traversal, `/api` & `/ws` tidak pernah tertimpa, CSP ketat
+  (`script-src 'self' 'wasm-unsafe-eval'`, tanpa skrip inline / sumber luar, `frame-ancestors 'none'`),
+  `X-Frame-Options: DENY`, gzip untuk JS/CSS/HTML, cache aset 1 tahun (nama ber-hash) dan model 7 hari.
+- Redirect Google dipilih sesuai host yang dibuka peramban (cookie state OAuth terikat host).
+- Diuji: `hosting.test.ts` (traversal, CSP, SPA, gzip, proxy palsu dari LAN ditolak, pilihan redirect) dan Playwright
+  terhadap `http://localhost:7420/` (54 GLB termuat, 0 error CSP, kanal dunia LIVE).
+
+**Belum diuji (butuh akun Tailscale Anda):** apakah Funnel meneruskan header `Host` asli atau `X-Forwarded-*`.
+Keduanya sudah ditangani: host `.ts.net` diizinkan lewat `OFFICE_ALLOWED_HOSTS`, dan bila hanya `127.0.0.1` yang
+terlihat, server tetap jalan (pembatas per IP lalu berlaku untuk semua pengunjung Funnel sekaligus). Setelah online,
+cek log server / `tailscale funnel status`, lalu laporkan bila ada yang aneh.
+
 ---
 
 ## 4. Fase 3 — Cloud Penuh 24/7 (Ditunda, Berbayar)

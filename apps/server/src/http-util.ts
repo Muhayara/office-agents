@@ -62,6 +62,34 @@ export async function readJsonBody(req: http.IncomingMessage, maxBytes: number):
   }
 }
 
+let trustProxy = false;
+
+/**
+ * Hosting publik (Tailscale Funnel / reverse proxy lokal): percayai `X-Forwarded-For` / `-Host`
+ * HANYA bila koneksinya datang dari loopback (daemon proxy di PC yang sama). Bawaan: mati.
+ */
+export function setTrustProxy(on: boolean): void {
+  trustProxy = on;
+}
+
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const viaTrustedProxy = (req: http.IncomingMessage) => trustProxy && LOOPBACK.has(req.socket.remoteAddress ?? '');
+const firstHeader = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)?.split(',')[0]?.trim();
+
+/** Kunci pembatas per klien (IP asli bila lewat proxy tepercaya). */
 export function clientKey(req: http.IncomingMessage): string {
+  if (viaTrustedProxy(req)) {
+    const ip = firstHeader(req.headers['x-forwarded-for']);
+    if (ip && ip.length <= 64) return ip;
+  }
   return req.socket.remoteAddress ?? 'unknown';
+}
+
+/** Host yang dilihat peramban (untuk memilih redirect URI Google). */
+export function requestHost(req: http.IncomingMessage): string {
+  if (viaTrustedProxy(req)) {
+    const h = firstHeader(req.headers['x-forwarded-host']);
+    if (h && h.length <= 255) return h.toLowerCase();
+  }
+  return String(req.headers.host ?? '').toLowerCase();
 }

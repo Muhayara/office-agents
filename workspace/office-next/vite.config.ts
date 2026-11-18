@@ -21,9 +21,12 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     resolve: {
-      alias: {
-        '@office/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
-      },
+      alias: [
+        { find: '@office/shared', replacement: path.resolve(__dirname, '../../packages/shared/src/index.ts') },
+        // Paket dunia bersama (F2): `@office/world` dan subpath `@office/world/<modul>`.
+        { find: /^@office\/world\/(.+)$/, replacement: path.resolve(__dirname, '../../packages/world/src') + '/$1.ts' },
+        { find: /^@office\/world$/, replacement: path.resolve(__dirname, '../../packages/world/src/index.ts') },
+      ],
     },
     define: mode === 'demo' ? { 'import.meta.env.VITE_DEMO': JSON.stringify('1') } : {},
     server: {

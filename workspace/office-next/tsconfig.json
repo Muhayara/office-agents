@@ -16,7 +16,9 @@
     "noUncheckedIndexedAccess": true,
     "baseUrl": ".",
     "paths": {
-      "@office/shared": ["../../packages/shared/src/index.ts"]
+      "@office/shared": ["../../packages/shared/src/index.ts"],
+      "@office/world": ["../../packages/world/src/index.ts"],
+      "@office/world/*": ["../../packages/world/src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]
