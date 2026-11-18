@@ -9,6 +9,10 @@ import type { StageEvent } from '../state/liveOffice';
 import {
   ARRIVAL_LINES,
   COFFEE_ROUTINE_DIALOGUES,
+  COMMONS_CHAT,
+  COMMONS_GOING,
+  GARDEN_CHAT,
+  GARDEN_GOING,
   LEAVING_LINES,
   LOUNGE_CHAT,
   LOUNGE_GOING,
@@ -27,7 +31,9 @@ import {
   AGENT_3D_POSITIONS,
   BOARDROOM,
   BOARDROOM_SEATS,
+  COMMONS,
   CORRIDOR_BUS,
+  GARDEN,
   DOOR_MUTEX_GAP_S,
   MEETING_DEPART_GAP_S,
   MEETING_GATHER_TIMEOUT_S,
@@ -37,7 +43,9 @@ import {
   MANAGER,
   PANTRY,
   ROOM_BOARDROOM,
+  ROOM_COMMONS,
   ROOM_FOYER,
+  ROOM_GARDEN,
   ROOM_MAIN,
   LOUNGE,
   ROOM_LOBBY,
@@ -57,8 +65,10 @@ import {
   FLOOR1_PORTALS,
   boardroomPath,
   busPath,
+  commonsPath,
   createBuildingNav,
   foyerPath,
+  gardenPath,
   mainRoomPath,
   lobbyPath,
   loungePath,
@@ -82,6 +92,8 @@ import { buildPantryCafe } from './rooms/pantryCafe';
 import { buildLobbyReception } from './rooms/lobbyReception';
 import { buildLoungeRelax } from './rooms/loungeRelax';
 import { buildServerRoom } from './rooms/serverRoom';
+import { buildCollabCommons } from './rooms/collabCommons';
+import { buildDigitalGarden } from './rooms/digitalGarden';
 
 // ============================================================================
 // Tipe & konstanta panggung
@@ -90,7 +102,9 @@ import { buildServerRoom } from './rooms/serverRoom';
 export type { CameraMode };
 
 /** Ruangan Lantai 1 yang bisa difokus kamera. */
-export type StageRoom = 'workspace' | 'boardroom' | 'foyer' | 'bus' | 'manager' | 'pantry' | 'lobby' | 'lounge' | 'server';
+export type StageRoom =
+  | 'workspace' | 'boardroom' | 'foyer' | 'bus' | 'manager' | 'pantry' | 'lobby' | 'lounge' | 'server'
+  | 'commons' | 'garden';
 
 export interface StageApi {
   focusRoom: (room: StageRoom) => void;
@@ -124,6 +138,14 @@ const VISIT_STAY_S   = 3.5;
 /** Jeda antar-inspeksi Server / IT oleh Satria / Bima. */
 const SERVER_MIN_S   = 70;
 const SERVER_MAX_S   = 120;
+/** Tahap 4: jeda antar-diskusi kelompok di Collaboration Commons (3–4 agen, 25–35 dtk). */
+const COMMONS_MIN_S  = 90;
+const COMMONS_MAX_S  = 150;
+/** Tahap 4: jeda rehat di Digital Garden (mode demo; mode live dipicu status working → idle). */
+const GARDEN_MIN_S   = 60;
+const GARDEN_MAX_S   = 100;
+/** Status live yang dihitung "sedang bekerja" (selesai tugas = berubah dari salah satunya ke idle). */
+const BUSY_STATUSES: ReadonlySet<AgentStatus> = new Set<AgentStatus>(['working', 'thinking', 'messaging']);
 /** Arah datang matahari (dari tenggara atas). Target & frustum bayangan dipaskan ke tapak gedung. */
 const SUN_OFFSET = new THREE.Vector3(12, 24, 16);
 const SEATED_LEG = Math.PI / 2.2;
@@ -197,14 +219,17 @@ interface ErrandStop {
   /** Tinggi avatar saat duduk (0 = berdiri). */
   sitY: number;
   duration: number;
-  pose: 'lounge' | 'inspect' | 'type';
+  pose: 'lounge' | 'inspect' | 'type' | 'discuss';
   lines: readonly string[];
+  /** Obrolan acak selama duduk (bawaan Lounge: LOUNGE_CHAT) dan peluangnya per detik. */
+  chat?: readonly string[];
+  chatRate?: number;
 }
 interface Errand {
-  kind: 'lounge' | 'server';
+  kind: 'lounge' | 'server' | 'commons' | 'garden';
   stops: ErrandStop[];
   i: number;
-  /** Indeks kursi sofa yang dipesan (Lounge). */
+  /** Indeks kursi yang dipesan (sofa Lounge, meja Commons, bangku Garden). */
   seat?: number;
 }
 
@@ -541,6 +566,9 @@ export function IsometricOfficeStage({
     const lobby = buildLobbyReception(load, fader);
     const lounge = buildLoungeRelax(load, fader);
     const server = buildServerRoom(load, fader);
+    // Tahap 4: Collaboration Commons (utara bus) & Digital Garden (selatan, timur Server).
+    const commons = buildCollabCommons(load, fader);
+    const garden = buildDigitalGarden(load, fader);
     // Karpet seluruh lantai disamakan dengan karpet ruang rapat begitu GLB-nya dimuat
     // (Pantry memakai keramik mozaik sendiri).
     const board = buildBoardroom(load, fader, (mat) => {
@@ -549,7 +577,7 @@ export function IsometricOfficeStage({
       bus.setCarpetMaterial(mat);
       manager.setCarpetMaterial(mat);
     });
-    floor1.add(main.group, bus.group, foyer.group, board.group, manager.group, pantry.group, lobby.group, lounge.group, server.group);
+    floor1.add(main.group, bus.group, foyer.group, board.group, manager.group, pantry.group, lobby.group, lounge.group, server.group, commons.group, garden.group);
 
     // Avatar berada di level lantai karena berpindah antar-ruangan.
     const avatarsGroup = new THREE.Group();
@@ -565,6 +593,8 @@ export function IsometricOfficeStage({
     lobby.bindWalls();
     lounge.bindWalls();
     server.bindWalls();
+    commons.bindWalls();
+    garden.bindWalls();
 
     // ---- Tapak dunia tiap ruangan (ruangan tidak diputar, jadi cukup dua sudutnya) ----
     const worldZone = (g: THREE.Object3D, minX: number, maxX: number, minZ: number, maxZ: number): WalkZone => {
@@ -583,6 +613,8 @@ export function IsometricOfficeStage({
       lobby: worldZone(lobby.group, -ROOM_LOBBY.halfX, ROOM_LOBBY.halfX, -ROOM_LOBBY.halfZ, ROOM_LOBBY.halfZ),
       lounge: worldZone(lounge.group, -ROOM_LOUNGE.halfX, ROOM_LOUNGE.halfX, -ROOM_LOUNGE.halfZ, ROOM_LOUNGE.halfZ),
       server: worldZone(server.group, -ROOM_SERVER.halfX, ROOM_SERVER.halfX, -ROOM_SERVER.halfZ, ROOM_SERVER.halfZ),
+      commons: worldZone(commons.group, -ROOM_COMMONS.halfX, ROOM_COMMONS.halfX, -ROOM_COMMONS.halfZ, ROOM_COMMONS.halfZ),
+      garden: worldZone(garden.group, -ROOM_GARDEN.halfX, ROOM_GARDEN.halfX, -ROOM_GARDEN.halfZ, ROOM_GARDEN.halfZ),
     };
     // Free Cam di dalam tapak ini & di bawah tinggi dinding = mode jalan kaki (dinding utuh).
     fader.setWalkZones(Object.values(zones), WALL_HEIGHT);
@@ -627,7 +659,8 @@ export function IsometricOfficeStage({
     // depannya) dan ruangan Tahap 2 di seberang Jalan Utama (Ruang Manajer & Pantry) ----
     {
       // Server / IT (X 18..22) sengaja di luar bingkai home: memasukkannya menurunkan zoom ±16% (0,63 → 0,53).
-      // Ruangan itu dijangkau lewat pilihan "Fokus: ruangan".
+      // Tahap 4 (keputusan CEO): Commons & Garden (X 15..27) juga di luar bingkai; memasukkan semuanya
+      // menurunkan zoom ±24%. Ketiga ruangan itu dijangkau lewat pilihan "Fokus: ruangan".
       const core = zoneBox([zones.main, zones.board, zones.foyer, zones.manager, zones.pantry, zones.lobby, zones.lounge]);
       core.max.z = Math.max(core.max.z, zones.bus.maxZ);
       cam.setHomeBox(core);
@@ -705,6 +738,18 @@ export function IsometricOfficeStage({
           pathLocal: serverPath,
           ...roomTransform(server.group),
         },
+        {
+          id: 'commons',
+          bounds: { minX: -ROOM_COMMONS.halfX, maxX: ROOM_COMMONS.halfX, minZ: -ROOM_COMMONS.halfZ, maxZ: ROOM_COMMONS.halfZ },
+          pathLocal: commonsPath,
+          ...roomTransform(commons.group),
+        },
+        {
+          id: 'garden',
+          bounds: { minX: -ROOM_GARDEN.halfX, maxX: ROOM_GARDEN.halfX, minZ: -ROOM_GARDEN.halfZ, maxZ: ROOM_GARDEN.halfZ },
+          pathLocal: gardenPath,
+          ...roomTransform(garden.group),
+        },
       ],
       [
         // Ruang kerja punya 2 pintu ke Jalan Utama: router memilih rute total terpendek.
@@ -722,6 +767,8 @@ export function IsometricOfficeStage({
         { id: 'bus-lobby', a: { room: 'bus', portal: FLOOR1_PORTALS.busLobbyDoor }, b: { room: 'lobby', portal: FLOOR1_PORTALS.lobbyNorth } },
         { id: 'bus-lounge', a: { room: 'bus', portal: FLOOR1_PORTALS.busLoungeDoor }, b: { room: 'lounge', portal: FLOOR1_PORTALS.loungeNorth } },
         { id: 'bus-server', a: { room: 'bus', portal: FLOOR1_PORTALS.busServerDoor }, b: { room: 'server', portal: FLOOR1_PORTALS.serverNorth } },
+        { id: 'bus-commons', a: { room: 'bus', portal: FLOOR1_PORTALS.busCommonsDoor }, b: { room: 'commons', portal: FLOOR1_PORTALS.commonsSouth } },
+        { id: 'bus-garden', a: { room: 'bus', portal: FLOOR1_PORTALS.busGardenDoor }, b: { room: 'garden', portal: FLOOR1_PORTALS.gardenNorth } },
       ],
     );
     const walkPath = (from: Pt, to: Pt): NavPt[] => nav.path(from, to);
@@ -1196,6 +1243,8 @@ export function IsometricOfficeStage({
     let nextConvoT  = rand(8, 14);
     let nextThoughtT = rand(6, 12);
     let nextServerT = rand(35, 50);
+    let nextCommonsT = rand(45, 65);
+    let nextGardenT = rand(20, 35);
     let lastCodeUpdate = 0;
     let lastKpiT = -Infinity;
     const dlgQueue: ScheduledLine[] = [];
@@ -1283,12 +1332,18 @@ export function IsometricOfficeStage({
     const sofaSeats = lounge.seatsWorld();
     const sofaOccupant: Array<string | null> = sofaSeats.map(() => null);
     let serverBusy: string | null = null;
-    /** Lepaskan kursi sofa / titik server yang dipesan agen dan akhiri tugasnya. */
+    // ---- Tahap 4: kursi meja kolaborasi Commons & bangku teak Digital Garden ----
+    const commonsSeats = commons.seatsWorld();
+    const commonsOccupant: Array<string | null> = commonsSeats.map(() => null);
+    const gardenSeats = garden.seatsWorld();
+    const gardenOccupant: Array<string | null> = gardenSeats.map(() => null);
+    /** Lepaskan kursi sofa / titik server / kursi Commons / bangku Garden yang dipesan agen. */
     const releaseErrand = (agentId: string) => {
       const a = animMap.get(agentId);
       const er = a?.errand;
       if (!a || !er) return;
-      if (er.kind === 'lounge' && er.seat !== undefined && sofaOccupant[er.seat] === agentId) sofaOccupant[er.seat] = null;
+      const seats = er.kind === 'lounge' ? sofaOccupant : er.kind === 'commons' ? commonsOccupant : er.kind === 'garden' ? gardenOccupant : null;
+      if (seats && er.seat !== undefined && seats[er.seat] === agentId) seats[er.seat] = null;
       if (er.kind === 'server' && serverBusy === agentId) serverBusy = null;
       a.errand = undefined;
     };
@@ -1406,6 +1461,73 @@ export function IsometricOfficeStage({
       anim.stateTime = 0;
       setWalk(agentId, anim, walkPath(deskPos(refs), ins));
       anim.bubbleText = pick(SERVER_GOING);
+      anim.bubbleTimer = 3.0;
+      return true;
+    };
+    /**
+     * Tahap 4: diskusi kelompok di meja kolaborasi Commons. Setiap anggota memesan satu kursi
+     * (utara dulu: menghadap kamera), berjalan dari mejanya, lalu duduk 25–35 dtk sambil berdiskusi.
+     */
+    const COMMONS_SEAT_ORDER = [1, 4, 0, 3, 2, 5];
+    const startCommonsDiscussion = (ids: readonly string[]): string[] => {
+      const started: string[] = [];
+      for (const id of ids) {
+        const anim = animMap.get(id), refs = meshMap.get(id);
+        const i = COMMONS_SEAT_ORDER.find((k) => commonsOccupant[k] === null);
+        if (!anim || !refs || i === undefined) continue;
+        commonsOccupant[i] = id;
+        const seat = commonsSeats[i]!;
+        anim.errand = {
+          kind: 'commons', i: 0, seat: i,
+          stops: [{ approach: seat.approach, spot: seat.spot, sitY: COMMONS.sitY, duration: rand(25, 35), pose: 'discuss', lines: COMMONS_CHAT, chat: COMMONS_CHAT, chatRate: 0.22 }],
+        };
+        anim.state = 'walk_to_errand';
+        anim.stateTime = 0;
+        setWalk(id, anim, walkPath(deskPos(refs), seat.approach));
+        anim.bubbleText = pick(COMMONS_GOING);
+        anim.bubbleTimer = 3.0;
+        started.push(id);
+      }
+      return started;
+    };
+    /** Kelompok asal agen (pod barat / pod timur / meja eksekutif / manajer) untuk diskusi lintas tim. */
+    const podOf = (id: string) => {
+      const p = AGENT_3D_POSITIONS[id];
+      if (!p) return 'other';
+      if (p.room === 'manager') return 'manager';
+      if (p.z < -3.0) return 'exec';
+      return p.x < 0 ? 'pod_west' : 'pod_east';
+    };
+    /** Pilih 3–4 agen dari minimal 2 kelompok berbeda (kosong bila tidak memenuhi). */
+    const pickCommonsGroup = (cands: readonly string[]): string[] => {
+      const groups = new Map<string, string[]>();
+      for (const id of [...cands].sort(() => Math.random() - 0.5)) {
+        const g = podOf(id);
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g)!.push(id);
+      }
+      if (groups.size < 2 || cands.length < 3) return [];
+      const keys = [...groups.keys()].sort(() => Math.random() - 0.5);
+      const picked = [groups.get(keys[0]!)![0]!, groups.get(keys[1]!)![0]!];
+      const rest = cands.filter((id) => !picked.includes(id)).sort(() => Math.random() - 0.5);
+      const n = Math.min(Math.random() < 0.5 ? 3 : 4, picked.length + rest.length);
+      return [...picked, ...rest].slice(0, n);
+    };
+    /** Tahap 4: rehat di bangku teak Digital Garden. false bila bangku penuh. */
+    const startGardenErrand = (agentId: string, anim: AgentAnim, refs: AgentMeshRefs): boolean => {
+      // Kursi ujung dulu supaya agen tidak berdempetan.
+      const i = [0, 2, 1].find((k) => gardenOccupant[k] === null);
+      if (i === undefined) return false;
+      gardenOccupant[i] = agentId;
+      const seat = gardenSeats[i]!;
+      anim.errand = {
+        kind: 'garden', i: 0, seat: i,
+        stops: [{ approach: seat.approach, spot: seat.spot, sitY: GARDEN.sitY, duration: rand(15, 25), pose: 'lounge', lines: GARDEN_CHAT, chat: GARDEN_CHAT, chatRate: 0.06 }],
+      };
+      anim.state = 'walk_to_errand';
+      anim.stateTime = 0;
+      setWalk(agentId, anim, walkPath(currentPos(refs), seat.approach));
+      anim.bubbleText = pick(GARDEN_GOING);
       anim.bubbleTimer = 3.0;
       return true;
     };
@@ -1862,6 +1984,10 @@ export function IsometricOfficeStage({
               startArrival(ag.id, anim, refs);
             }
           }
+          // Tahap 4: tugas selesai (working/thinking/messaging → idle) → rehat di Digital Garden.
+          if (refs && prev !== undefined && BUSY_STATUSES.has(prev) && ag.status === 'idle' && anim.state === 'working' && !coffeeQueue.includes(ag.id) && !meeting) {
+            startGardenErrand(ag.id, anim, refs);
+          }
           // Pekerjaan nyata masuk saat sedang rehat kopi -> kembali ke meja
           if (ag.status !== 'idle' && ag.status !== 'meeting' && COFFEE_STATES.has(anim.state)) {
             recallToDesk(ag.id, ag.status === 'waiting_approval' ? 'Eh, ada yang butuh izin CEO!' : 'Ada tugas masuk, balik ke meja!');
@@ -1892,6 +2018,29 @@ export function IsometricOfficeStage({
         const r = id ? meshMap.get(id) : undefined;
         if (id && a && r) startServerErrand(id, a, r);
         nextServerT = globalTime + rand(SERVER_MIN_S, SERVER_MAX_S);
+      }
+
+      // ---------- Scheduler Tahap 4: diskusi kelompok lintas tim di Collaboration Commons ----------
+      if (globalTime >= nextCommonsT) {
+        const cands: string[] = [];
+        for (const [id, a] of animMap) {
+          if (a.state === 'working' && ambientOk(id) && !coffeeQueue.includes(id)) cands.push(id);
+        }
+        if (!meeting && commonsOccupant.every((o) => o === null)) startCommonsDiscussion(pickCommonsGroup(cands));
+        nextCommonsT = globalTime + rand(COMMONS_MIN_S, COMMONS_MAX_S);
+      }
+
+      // ---------- Scheduler Tahap 4: rehat di Digital Garden (demo; live dipicu selesai tugas) ----------
+      if (!isLive && globalTime >= nextGardenT) {
+        const cands: string[] = [];
+        for (const [id, a] of animMap) {
+          if (a.state === 'working' && !coffeeQueue.includes(id)) cands.push(id);
+        }
+        const id = cands.length ? pick(cands) : null;
+        const a = id ? animMap.get(id) : undefined;
+        const r = id ? meshMap.get(id) : undefined;
+        if (id && a && r && !meeting) startGardenErrand(id, a, r);
+        nextGardenT = globalTime + rand(GARDEN_MIN_S, GARDEN_MAX_S);
       }
 
       // ---------- Scheduler: Jadwalkan Karyawan Rehat Kopi (Antrean Teratur) ----------
@@ -2298,6 +2447,11 @@ export function IsometricOfficeStage({
             } else if (stop.pose === 'type' && k >= 1) {
               refs.leftArmPivot.rotation.set(-0.95 + Math.sin(ph * 16) * 0.12, 0, 0.18);
               refs.rightArmPivot.rotation.set(-0.95 + Math.cos(ph * 19) * 0.12, 0, -0.18);
+            } else if (stop.pose === 'discuss' && k >= 1) {
+              // Lengan di atas meja; saat bicara satu tangan bergestur menjelaskan.
+              const talking = anim.bubbleTimer > 0;
+              refs.leftArmPivot.rotation.set(-0.85 + (talking ? Math.sin(ph * 2.6) * 0.08 : 0), 0, 0.2);
+              refs.rightArmPivot.rotation.set(talking ? -1.35 + Math.sin(ph * 4.2) * 0.35 : -0.85, 0, talking ? -0.35 : -0.2);
             } else {
               // Santai di sofa; bergestur saat bicara
               const talking = anim.bubbleTimer > 0 && k >= 1;
@@ -2305,9 +2459,10 @@ export function IsometricOfficeStage({
               refs.rightArmPivot.rotation.set(talking ? -0.6 + Math.cos(ph * 3.5) * 0.25 : -0.4, 0, -0.14);
             }
             if (k >= 1) refs.avatar.position.y += Math.sin(ph * 2.5) * 0.004;
-            // Obrolan santai di sofa
-            if (stop.pose === 'lounge' && k >= 1 && anim.bubbleTimer <= 0 && Math.random() < dt * 0.18) {
-              anim.bubbleText = pick(LOUNGE_CHAT);
+            // Obrolan santai di sofa / diskusi di Commons / gumaman di Garden
+            const chat = stop.chat ?? (stop.pose === 'lounge' ? LOUNGE_CHAT : null);
+            if (chat && k >= 1 && anim.bubbleTimer <= 0 && Math.random() < dt * (stop.chatRate ?? 0.18)) {
+              anim.bubbleText = pick(chat);
               anim.bubbleTimer = 3.2;
             }
             const end = seated ? SIT_S * 2 + stop.duration : stop.duration;
@@ -2521,6 +2676,7 @@ export function IsometricOfficeStage({
       for (const r of meshMap.values()) if (r.avatar.visible) agentPts.push({ x: r.avatar.position.x, z: r.avatar.position.z });
       lobby.update(dt, agentPts);
       server.update(globalTime, dt, agentPts);
+      garden.update(globalTime, dt, agentPts);
 
       // ---------- TV KPI Ruang Manajer (dihitung ulang tiap 1 detik) ----------
       if (globalTime - lastKpiT >= 1) {
@@ -2621,6 +2777,8 @@ export function IsometricOfficeStage({
       lobby: lobby.focusPoint,
       lounge: lounge.focusPoint,
       server: server.focusPoint,
+      commons: commons.focusPoint,
+      garden: garden.focusPoint,
     };
     apiRef.current = {
       focusRoom: (room) => cam.focus(roomFocus[room]()),
@@ -2692,7 +2850,18 @@ export function IsometricOfficeStage({
         /** Antrean kopi & penghuni kursi bar Pantry. */
         pantryState: () => ({ queue: [...coffeeQueue], stools: [...stoolOccupant] }),
         /** Tahap 3: penghuni sofa Lounge & agen yang sedang di Server / IT. */
-        errandState: () => ({ sofa: [...sofaOccupant], server: serverBusy }),
+        errandState: () => ({ sofa: [...sofaOccupant], server: serverBusy, commons: [...commonsOccupant], garden: [...gardenOccupant] }),
+        /** Tahap 4: mulai diskusi Commons sekarang (bawaan: pilih 3–4 agen yang sedang bekerja). */
+        commons: (ids?: string[]) => {
+          const working = [...animMap].filter(([, a]) => a.state === 'working').map(([id]) => id);
+          return startCommonsDiscussion(ids ? ids.filter((id) => working.includes(id)) : pickCommonsGroup(working));
+        },
+        /** Tahap 4: kirim agen (yang sedang bekerja) rehat ke bangku Digital Garden. */
+        garden: (id: string) => {
+          const a = animMap.get(id), r = meshMap.get(id);
+          if (!a || !r || a.state !== 'working') return false;
+          return startGardenErrand(id, a, r);
+        },
         /** Kirim agen (yang sedang bekerja) duduk di sofa Lounge sekarang. */
         lounge: (id: string) => {
           const a = animMap.get(id), r = meshMap.get(id);

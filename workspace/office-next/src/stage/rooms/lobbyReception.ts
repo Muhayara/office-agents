@@ -276,7 +276,7 @@ function logoTexture() {
 // ============================================================================
 const ROOM_LABELS: Array<[string, string]> = [
   ['main', 'Ruang Kerja'], ['boardroom', 'Ruang Rapat'], ['manager', 'Manajer'], ['pantry', 'Pantry'],
-  ['lounge', 'Lounge'], ['server', 'Server / IT'], ['lobby', 'Lobi'],
+  ['lounge', 'Lounge'], ['server', 'Server / IT'], ['lobby', 'Lobi'], ['commons', 'Commons'], ['garden', 'Garden'],
 ];
 
 class DirectoryScreen {
@@ -327,6 +327,8 @@ class DirectoryScreen {
     rect(4, 7.4, 9, 13.4, '#123544', 'Pantry');
     rect(9, 7.4, 14, 13.4, '#123544', 'Lounge');
     rect(18, 7.4, 22, 13.4, '#123544', 'IT');
+    rect(15, -1, 25, 5, '#123544', 'Commons');
+    rect(22, 7.4, 27, 13.4, '#1d4a3a', 'Garden');
     c.fillStyle = '#fbbf24'; c.font = '700 14px "Inter", system-ui, sans-serif';
     c.fillText('▲ Anda di sini', ox + (1.5 + 7) * sx - 40, oy + 18.4 * sz + 16);
 
@@ -342,13 +344,13 @@ class DirectoryScreen {
     c.fillStyle = '#94a3b8'; c.font = '500 24px "Inter", system-ui, sans-serif';
     c.fillText(`/ ${info.total} hadir`, 22 + c.measureText(`${info.present}`).width * 2.4 + 8, y + 6);
     y += 48;
-    c.font = '500 19px "Inter", system-ui, sans-serif';
+    c.font = '500 18px "Inter", system-ui, sans-serif';
     ROOM_LABELS.forEach(([id, label]) => {
       const n = info.rooms[id] ?? 0;
       c.fillStyle = '#cbd5e1'; c.fillText(label, 22, y);
       c.fillStyle = n > 0 ? '#e2e8f0' : '#475569'; c.textAlign = 'right'; c.fillText(String(n), W - 24, y); c.textAlign = 'left';
-      c.fillStyle = '#12303f'; c.fillRect(22, y + 14, W - 44, 2);
-      y += 34;
+      c.fillStyle = '#12303f'; c.fillRect(22, y + 12, W - 44, 2);
+      y += 26;
     });
     c.fillStyle = '#38bdf8'; c.fillRect(0, H - 6, W, 6);
     this.tex.needsUpdate = true;
@@ -460,21 +462,26 @@ function accentChairPlaceholder() {
   return g;
 }
 
-/** Meja samping bundar Ø 0,6 m, tinggi 0,55 m, dengan vas kecil. */
+/**
+ * Meja samping, kontrak GLB `Office_Lobby_Side_Table`: top marmer Ø0,60 × 25 mm (permukaan 0,54 m),
+ * tiang kuningan Ø50 mm × 0,50, pelat dasar Ø0,38 × 15 mm; vas amber Ø7 × 18 cm di (0.06, 0.54, -0.04).
+ */
 function sideTablePlaceholder() {
   const g = new THREE.Group();
   g.name = 'Side_Table_Placeholder';
+  const brass = std(0xc9a24a, 0.28, 0.88);
   const top = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.025, 36), std(0xf1f5f9, 0.2, 0.05));
-  top.position.y = 0.54;
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.52, 14), std(0xc9a24a, 0.3, 0.9));
-  stem.position.y = 0.27;
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.025, 28), std(0xc9a24a, 0.3, 0.9));
-  base.position.y = 0.0125;
-  const vase = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.2, 18), std(0x1f4d55, 0.3, 0.1));
-  vase.position.set(0.06, 0.65, -0.04);
-  const stems = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8), std(0x7aa36a, 0.8, 0));
-  stems.position.set(0.06, 0.82, -0.04);
-  g.add(top, stem, base, vase, stems);
+  top.position.y = 0.5275;
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.5, 14), brass);
+  stem.position.y = 0.265;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.185, 0.19, 0.015, 28), brass);
+  base.position.y = 0.0075;
+  const vase = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.035, 0.18, 18), std(0xc8822a, 0.1, 0, { transparent: true, opacity: 0.6 }));
+  vase.position.set(0.06, 0.63, -0.04);
+  const lily = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.08, 12, 1, true), std(0xf6f4ee, 0.5, 0, { side: THREE.DoubleSide }));
+  lily.position.set(0.09, 0.95, -0.01);
+  lily.rotation.set(Math.PI + 0.5, 0, -0.5);
+  g.add(top, stem, base, vase, lily);
   enableShadow(g);
   return g;
 }

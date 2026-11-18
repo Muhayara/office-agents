@@ -143,7 +143,7 @@ FLOOR1_PORTALS.busServerDoor = { x: 20.0, z: 7.4 };
 | Area tamu Lobi | Meja `(3.2, 12.05)`; kursi aksen `(2.48, 12.05)` menghadap Timur dan `(3.2, 11.32)` menghadap Selatan |
 | Sofa L Lounge | Bagian utama `X 9.015..9.915, Z 10.545..13.145` (punggung di dinding barat); chaise `X 9.015..10.815, Z 12.232..13.145` (menyusuri dinding selatan). Kursi `(9.565, 11.072)` & `(9.565, 11.845)` menghadap Timur (berdiri dulu di `X 10.2`), tepi chaise `(10.4, 12.43)` menghadap Utara. Avatar duduk di `y 0.34`. Lorong Lounge: `(11.5, 8.05) → (11.5, 9.2) → (10.2, 9.2) → (10.2, 12.0)` |
 | Meja kopi / lampu busur | `(10.825, 11.2)` 1,10 × 0,65 × 0,42 diputar 90° (`X 10.5..11.15, Z 10.65..11.75`) / kaki `(11.25, 12.75)`, di-yaw ke meja; rim kap `(10.93, y 1.65, 11.59)`, PointLight 10 cm di bawahnya |
-| Lukisan / palm / rak majalah | Muka barat `X 9.0, y 1.85, Z 11.25` / `(9.35, 8.05)` / `(9.3, 9.2)` |
+| Lukisan / palm / rak majalah | Muka barat `X 9.0, y 1.85, Z 11.25` / `(9.57, 8.21)` (digeser dari `(9.35, 8.05)` agar kanopi Ø1,10 tidak menembus dinding barat & kaca utara) / `(9.3, 9.2)` |
 | Rak server | `(19.615, 9.9)` & `(20.385, 9.9)`, muka ke Selatan; LED berdenyut 0,65 m di depannya |
 | Lorong Server (U) | `(20.0, 8.75) → (21.25, 8.75) → (21.25, 11.05) → (19.4, 11.05)`; titik inspeksi `(20.0, 11.0)` menghadap rak |
 | Konsol IT / kursi | Meja `X 20.15..21.55, Z 12.43..13.13` (menempel panel akustik); duduk di `(20.85, 12.22)` menghadap Selatan, berdiri dulu di `(20.85, 11.67)` |
@@ -174,10 +174,10 @@ Sudah disamakan dengan `tahap-3-3d-prompts.md` (kontrak lengkap di §5 dokumen i
 |---|---|
 | `Office_Lobby_Reception_Desk.glb` | 2,40 × 1,05 × 1,10; origin = puncak busur depan di lantai, muka cembung ke −Z, pusat busur `(0, 0, 1.60)`, R 0,756..1,60, ±48,59° |
 | `Office_Lobby_Directory_Kiosk.glb` | 0,55 × 1,75 × 0,45, origin bawah-tengah pelat; satu-satunya mesh `*Screen*` = `Kiosk_Screen` 43" (overlay kanvas dipaskan otomatis) |
-| `Office_Lobby_Accent_Armchair.glb` / `Office_Lobby_Side_Table.glb` | 0,72 × 0,80 × 0,70 (dudukan 0,43) / Ø 0,6 × 0,55 (tanpa prompt, tetap placeholder) |
+| `Office_Lobby_Accent_Armchair.glb` / `Office_Lobby_Side_Table.glb` | 0,72 × 0,80 × 0,70 (dudukan 0,43) / Ø0,60 × 0,54 (permukaan marmer), origin lantai tengah; generator ada (lihat `tahap-3-prompts-tambahan.md`) |
 | `Office_Lounge_Sectional_Sofa.glb` | 2,60 (X) × 0,78 × 1,80 (Z), origin = sudut belakang-kiri; hadap +Z, chaise di sisi −X; dudukan 0,44 |
 | `Office_Lounge_Coffee_Table.glb` / `Office_Lounge_Arc_Floor_Lamp.glb` | 1,10 × 0,42 × 0,65, origin lantai tengah / kaki di origin, rim kap di `(0, 1.65, 1.20)`, tinggi 2,15 |
-| `Office_Plant_Areca_Palm.glb` / `Office_Lounge_Magazine_Rack.glb` | ±1,7 m / 0,36 × 0,9 × 0,3 |
+| `Office_Plant_Areca_Palm.glb` / `Office_Lounge_Magazine_Rack.glb` | Tinggi 1,70, kanopi maks. Ø1,10, pot Ø0,44 × 0,42 / 0,34 × 0,90 × 0,30 (majalah sampai 0,91), depan +Z; generator ada |
 | `Office_Server_CRAC_Unit.glb` / `Office_Server_Admin_Console.glb` | 1,20 × 2,05 × 0,75 / 1,40 × 1,25 × 0,70; keduanya origin = belakang-bawah-tengah, depan +Z; konsol tanpa kursi |
 
 Dipakai ulang: `Server_Rack_42U` (2×), `Office_Presentation_Display_85` (NOC, skala 0,65), `Office_Ergonomic_Chair` (resepsionis & konsol IT), `Office_Indoor_Plant`.

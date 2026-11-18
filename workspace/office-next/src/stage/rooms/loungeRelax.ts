@@ -288,7 +288,10 @@ function arcLampPlaceholder(dx: number, shadeY: number, dz: number) {
   return g;
 }
 
-/** Areca palm dalam pot terakota (± 1,7 m). */
+/**
+ * Areca palm, kontrak GLB `Office_Plant_Areca_Palm`: pot terakota Ø0,44 (bawah Ø0,34) × 0,42,
+ * tinggi total 1,70, seluruh kanopi di dalam silinder Ø1,10. Origin = lantai di tengah pot.
+ */
 function arecaPalmPlaceholder() {
   const g = new THREE.Group();
   g.name = 'Areca_Palm_Placeholder';
@@ -298,13 +301,16 @@ function arecaPalmPlaceholder() {
   const frond = std(0x4f8a3c, 0.75, 0);
   const stemMat = std(0x6b7a3a, 0.7, 0);
   for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2, tilt = 0.35 + (i % 3) * 0.12, len = 1.1 + (i % 4) * 0.12;
+    // Pelepah: batang miring dari tanah, daun kerucut pipih di ujungnya; jangkauan maks. ±0,55 m.
+    const a = i * 2.4, tilt = 0.1 + (i % 3) * 0.07, len = 0.95 + (i % 4) * 0.1;
+    const dir = new THREE.Vector3(Math.sin(a) * Math.sin(tilt), Math.cos(tilt), Math.cos(a) * Math.sin(tilt));
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.012, len, 6), stemMat);
-    stem.position.set(Math.sin(a) * Math.sin(tilt) * len / 2, 0.42 + Math.cos(tilt) * len / 2, Math.cos(a) * Math.sin(tilt) * len / 2);
-    stem.rotation.set(Math.cos(a) * tilt, 0, -Math.sin(a) * tilt);
-    const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.12, len * 0.75, 4, 1, true), frond);
-    leaf.position.set(Math.sin(a) * Math.sin(tilt) * len * 0.8, 0.42 + Math.cos(tilt) * len * 0.8, Math.cos(a) * Math.sin(tilt) * len * 0.8);
-    leaf.rotation.copy(stem.rotation);
+    stem.position.set(dir.x * len / 2, 0.38 + dir.y * len / 2, dir.z * len / 2);
+    stem.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    const out = new THREE.Vector3(Math.sin(a), -0.35, Math.cos(a)).normalize();
+    const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 4, 1, true), frond);
+    leaf.position.set(dir.x * len + out.x * 0.12, 0.38 + dir.y * len + out.y * 0.12, dir.z * len + out.z * 0.12);
+    leaf.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), out);
     leaf.scale.set(1, 1, 0.25);
     g.add(stem, leaf);
   }
@@ -312,19 +318,28 @@ function arecaPalmPlaceholder() {
   return g;
 }
 
-/** Rak majalah berdiri stainless (0,36 × 0,9 × 0,3 m), depan = +Z. */
+/**
+ * Rak majalah stainless, kontrak GLB `Office_Lounge_Magazine_Rack`: 0,34 × 0,90 × 0,30, depan +Z.
+ * Rangka samping 15 mm, 3 baki selebar 0,31 miring 20° (depan rendah + bibir 25 mm) di Y 0,25/0,55/0,85.
+ */
 function magazineRackPlaceholder() {
   const g = new THREE.Group();
   g.name = 'Magazine_Rack_Placeholder';
   const steel = std(0xc9d0d6, 0.25, 0.9);
-  for (const x of [-0.17, 0.17]) g.add(box(0.015, 0.9, 0.3, steel, [x, 0.45, 0], 'Side'));
+  for (const x of [-0.1625, 0.1625]) {
+    g.add(box(0.015, 0.015, 0.3, steel, [x, 0.0075, 0], 'Runner'));
+    g.add(box(0.015, 0.885, 0.015, steel, [x, 0.4575, 0.1], 'Upright_F'));
+    g.add(box(0.015, 0.885, 0.015, steel, [x, 0.4575, -0.1], 'Upright_B'));
+    g.add(box(0.015, 0.015, 0.215, steel, [x, 0.8925, 0], 'Top_Rail'));
+  }
   [0.25, 0.55, 0.85].forEach((y, i) => {
-    const shelf = box(0.34, 0.012, 0.22, steel, [0, y, 0.02], `Shelf_${i}`);
-    shelf.rotation.x = -0.35;
-    g.add(shelf);
-    const mag = box(0.21, 0.28, 0.01, std([0xb5523b, 0x1f4d55, 0xc9973a][i]!, 0.6, 0), [0, y + 0.1, 0.06], `Magazine_${i}`);
-    mag.rotation.x = -0.35;
-    g.add(mag);
+    const tray = new THREE.Group();
+    tray.position.set(0, y - 0.0376, 0.1034);
+    tray.rotation.x = 0.349;
+    tray.add(box(0.31, 0.004, 0.22, steel, [0, 0, -0.11], `Tray_${i}`));
+    tray.add(box(0.31, 0.025, 0.003, steel, [0, 0.0125, 0], `Tray_Lip_${i}`));
+    tray.add(box(0.2, 0.005, 0.25, std([0xc9973a, 0x1f4d55, 0xb5523b][i]!, 0.6, 0), [0, 0.005, -0.129], `Magazine_${i}`));
+    g.add(tray);
   });
   enableShadow(g);
   return g;

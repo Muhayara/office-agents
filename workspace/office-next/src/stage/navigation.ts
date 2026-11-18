@@ -11,12 +11,17 @@
 import {
   AGENT_3D_POSITIONS,
   BOARDROOM,
+  COMMONS,
   CORRIDOR_BUS,
+  GARDEN,
   LOBBY,
   LOUNGE,
   MANAGER,
+  NORTH_ROOM_DOOR_INSIDE_Z,
   PANTRY,
+  ROOM_COMMONS,
   ROOM_FOYER,
+  ROOM_GARDEN,
   ROOM_LOBBY,
   ROOM_LOUNGE,
   ROOM_MAIN,
@@ -186,6 +191,49 @@ export const loungePath = polylineLane(LOUNGE.lane);
 /** Room_ServerIT — lorong U mengitari 2 rak di tengah: hot aisle → sisi timur → cold aisle. */
 export const serverPath = polylineLane(SERVER.lane);
 
+/**
+ * Lorong cincin persegi (Tahap 4). Titik asal & tujuan disambung ke titik terdekat pada cincin,
+ * lalu rute mengitari cincin ke arah yang lebih pendek (searah atau berlawanan jarum jam).
+ */
+export function ringLane(r: { minX: number; maxX: number; minZ: number; maxZ: number }) {
+  const corners: Pt[] = [
+    { x: r.minX, z: r.minZ }, { x: r.maxX, z: r.minZ }, { x: r.maxX, z: r.maxZ }, { x: r.minX, z: r.maxZ },
+  ];
+  const segs = corners.map((a, i) => ({ a, b: corners[(i + 1) % 4]! }));
+  const cum: number[] = [0];
+  segs.forEach((sg, i) => cum.push(cum[i]! + segLen(sg.a, sg.b)));
+  const P = cum[4]!;
+  const project = (p: Pt) => {
+    let best = { d: Infinity, t: 0, pt: corners[0]! as Pt };
+    segs.forEach((sg, i) => {
+      const dx = sg.b.x - sg.a.x, dz = sg.b.z - sg.a.z, L2 = dx * dx + dz * dz || 1;
+      const u = Math.max(0, Math.min(1, ((p.x - sg.a.x) * dx + (p.z - sg.a.z) * dz) / L2));
+      const q = { x: sg.a.x + dx * u, z: sg.a.z + dz * u };
+      const d = segLen(p, q);
+      if (d < best.d - 1e-9) best = { d, t: cum[i]! + u * Math.sqrt(L2), pt: q };
+    });
+    return best;
+  };
+  return (from: Pt, to: Pt): NavPt[] => {
+    const a = project(from), b = project(to);
+    const fwd = ((b.t - a.t) % P + P) % P;
+    const goFwd = fwd <= P - fwd;
+    const span = goFwd ? fwd : P - fwd;
+    const mid = corners
+      .map((c, i) => ({ c, off: goFwd ? ((cum[i]! - a.t) % P + P) % P : ((a.t - cum[i]!) % P + P) % P }))
+      .filter((k) => k.off > 1e-6 && k.off < span - 1e-6)
+      .sort((p, q) => p.off - q.off)
+      .map((k) => k.c);
+    return dedupe([{ ...from }, a.pt, ...mid, b.pt, { ...to }]);
+  };
+}
+
+/** Room_CollabCommons — lorong cincin mengitari meja kolaborasi; pintu selatan di dunia X 20.0. */
+export const commonsPath = ringLane(COMMONS.ring);
+
+/** Room_DigitalGarden — lorong batu pijakan: pintu → selatan (X -0.55) → depan bangku teak. */
+export const gardenPath = polylineLane(GARDEN.lane);
+
 // ============================================================================
 // Room_Boardroom_10p — promenade selatan, lorong utara, lorong barat & timur
 // ============================================================================
@@ -351,7 +399,8 @@ const FOYER_DOOR_X = mid(ROOM_FOYER.southDoor);
 /**
  * Konstanta portal (lokal masing-masing ruangan) untuk konektor gedung Lantai 1:
  * Ruang Kerja (2 pintu selatan) ↔ Jalan Utama ↔ Meeting Foyer ↔ Ruang Rapat (Tahap 1),
- * Jalan Utama ↔ Ruang Manajer & Pantry / Café (Tahap 2).
+ * Jalan Utama ↔ Ruang Manajer & Pantry / Café (Tahap 2), Lobi / Lounge / Server (Tahap 3),
+ * Collaboration Commons (utara) & Digital Garden (selatan) (Tahap 4).
  *
  * Portal di sisi Jalan Utama selalu di sumbu tengah koridor (z = 0); portal di sisi ruangan
  * berada DI DALAM ruangan, tepat di depan pintunya (bukan di garis dinding).
@@ -381,6 +430,12 @@ export const FLOOR1_PORTALS = {
   /** Dunia (20.0, 6.2) ↔ (20.0, 8.05). */
   busServerDoor: { x: busX(ROOM_SERVER.origin.x + mid(ROOM_SERVER.northDoor)), z: 0 },
   serverNorth: { x: mid(ROOM_SERVER.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
+  /** Tahap 4 (sisi utara bus). Dunia (20.0, 6.2) ↔ (20.0, 4.35). */
+  busCommonsDoor: { x: busX(ROOM_COMMONS.origin.x + mid(ROOM_COMMONS.southDoor)), z: 0 },
+  commonsSouth: { x: mid(ROOM_COMMONS.southDoor), z: NORTH_ROOM_DOOR_INSIDE_Z },
+  /** Dunia (24.5, 6.2) ↔ (24.5, 8.05). */
+  busGardenDoor: { x: busX(ROOM_GARDEN.origin.x + mid(ROOM_GARDEN.northDoor)), z: 0 },
+  gardenNorth: { x: mid(ROOM_GARDEN.northDoor), z: SOUTH_ROOM_DOOR_INSIDE_Z },
 } as const;
 
 export const BOARDROOM_DOOR_GATE = 'boardroom_door';

@@ -371,7 +371,7 @@ Create a complete, single-file HTML application using Three.js r128 (via CDN) an
 | `Office_Server_CRAC_Unit` | 1,20 × 2,05 × 0,75 | Belakang-bawah-tengah; depan +Z | Server, rotY 90°, origin `(18.27, 11.4)` → `X 18.27..19.02, Z 10.8..12.0` |
 | `Office_Server_Admin_Console` | 1,40 × 1,25 × 0,70, meja 0,75 | Belakang-bawah-tengah; pengguna di +Z; tanpa kursi | Server, rotY 180°, origin `(20.85, 13.13)` → `X 20.15..21.55, Z 12.43..13.13` |
 
-Slot tanpa prompt (tetap placeholder prosedural): `Office_Lobby_Side_Table`, `Office_Plant_Areca_Palm`, `Office_Lounge_Magazine_Rack`.
+Tiga slot sisanya (`Office_Lobby_Side_Table`, `Office_Plant_Areca_Palm`, `Office_Lounge_Magazine_Rack`) kini punya prompt dan generator. Versi yang dipakai ada di `tahap-3-prompts-tambahan.md` (PROMPT 9–11 di bawah adalah versi lama). Koreksi dan kontraknya tercatat di bagian akhir dokumen itu. Lokasi di tabel ringkasan atas (baris 9–11) tidak dipakai; posisi sebenarnya ada di `layout.ts` (`LOBBY.sideTable`, `LOUNGE.palm`, `LOUNGE.magazineRack`).
 
 ### C. Hasil verifikasi
 

@@ -148,13 +148,13 @@ export const BUS_FRONTAGE_SOUTH: readonly BusFrontage[] = [
   { id: 'lounge',  xMin: 9,  xMax: 14, tahap: 3, built: true },
   { id: 'focus',   xMin: 14, xMax: 18, tahap: 6, built: false },
   { id: 'server',  xMin: 18, xMax: 22, tahap: 3, built: true },
-  { id: 'garden',  xMin: 22, xMax: 27, tahap: 4, built: false },
+  { id: 'garden',  xMin: 22, xMax: 27, tahap: 4, built: true },
   { id: 'access',  xMin: 27, xMax: 31, tahap: 6, built: false },
 ];
 
 /** Sisi utara ruas timur (dinding di Z dunia 4.76..5.00). Ruas barat milik ruang kerja & foyer. */
 export const BUS_FRONTAGE_NORTH: readonly BusFrontage[] = [
-  { id: 'commons',  xMin: 15, xMax: 25, tahap: 4, built: false },
+  { id: 'commons',  xMin: 15, xMax: 25, tahap: 4, built: true },
   { id: 'workshop', xMin: 25, xMax: 31, tahap: 5, built: false },
 ];
 
@@ -339,6 +339,7 @@ export const LOBBY = {
   receptionistChair: { x: -2.0, z: 0.7, rotY: Math.PI / 2 } as Spot,
   /** Kios direktori digital di dekat pintu, layar menghadap Selatan (ke dalam lobi & kamera). */
   kiosk: { x: 1.9, z: -1.75, rotY: 0 } as Spot,
+  /** Meja samping marmer (GLB `Office_Lobby_Side_Table`: Ø0,60, permukaan marmer 0,54 m) di antara 2 kursi aksen. */
   sideTable: { x: 1.7, z: 1.65 },
   accentChairs: [
     { x: 0.98, z: 1.65, rotY: Math.PI / 2 },
@@ -373,7 +374,12 @@ export const LOUNGE = {
   coffeeTable: { x: -0.675, z: 0.8, rotY: Math.PI / 2, w: 1.1, d: 0.65, h: 0.42 },
   /** Lampu busur (kap di +Z lokal sejauh `reach`, rim 1,65 m), di-yaw agar kap menggantung di atas meja kopi. */
   arcLamp: { baseX: -0.25, baseZ: 2.35, aimX: -0.675, aimZ: 0.8, reach: 1.2, rimY: 1.65 },
-  palm: { x: -2.15, z: -2.35 },
+  /**
+   * Areca palm (GLB `Office_Plant_Areca_Palm`: kanopi maks. Ø1,10, tinggi 1,70) di sudut barat laut.
+   * Pusat 0,57 m dari muka dinding barat & kaca utara supaya kanopi r 0,55 tidak menembus dinding.
+   */
+  palm: { x: -1.93, z: -2.19 },
+  /** Rak majalah (GLB 0,34 × 0,90 × 0,30, depan +Z) diputar 90°: menghadap Timur, X -2.35..-2.05. */
   magazineRack: { x: -2.2, z: -1.2 },
   /** Lukisan kanvas & rak tipis di muka dinding barat (dinding timur Pantry), menghadap Timur. */
   art: { x: -2.48, y: 1.85, z: 0.85, w: 1.5, h: 0.95 },
@@ -406,6 +412,116 @@ export const SERVER = {
   firstAid: { x: -1.35, y: 1.45, z: -2.74 },
   light: { x: 0.2, y: 2.75, z: 0.4 },
   doorSense: 1.5,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Tahap 4: Collaboration Commons (sisi UTARA Jalan Utama) & Digital Garden (selatan)
+//
+// Commons adalah ruangan pertama di sisi utara bus setelah foyer, dibangun cermin dari
+// ruangan selatan (rooms/northWing.ts): dinding kaca berpintu di dunia Z 4.76..5.00 (garis kaca
+// sementara bus), dinding utara solid di Z -1.0..-0.76. Ruang rapat & foyer tidak punya dinding
+// timur (hanya curb cutaway), jadi Commons membangun dinding baratnya sendiri (X 15.0..15.24)
+// dan dinding itu selalu memudar: dari kamera Tenggara ia menutupi ±4,4 m sisi timur ruang rapat.
+// Dari kamera Tenggara dinding utara Commons tetap solid: benda tinggi ditaruh di sana.
+// ---------------------------------------------------------------------------
+export interface NorthRoomSpec {
+  name: string;
+  origin: Pt;
+  halfX: number;
+  halfZ: number;
+  /** Bukaan pintu dinding selatan ke Jalan Utama (lokal). */
+  southDoor: DoorSpan;
+  /** Kusen pintu di dinding utara ke ruangan tahap berikutnya (lokal). */
+  northDoors?: readonly DoorSpan[];
+}
+
+/** Z lokal titik berdiri di dalam ruangan utara tepat di depan pintu selatan (Commons: dunia Z 4.35). */
+export const NORTH_ROOM_DOOR_INSIDE_Z = 2.35;
+
+export const ROOM_COMMONS = {
+  name: 'Room_CollabCommons',
+  /** Bentang dunia X 15..25, Z -1..5 (10 × 6 m). */
+  origin: { x: 20.0, z: 2.0 },
+  halfX: 5.0,
+  halfZ: 3.0,
+  /** Bukaan terbuka 1,6 m di tengah, dunia X 19.2..20.8 (27 m tapak), segaris pintu Server. */
+  southDoor: { xMin: -0.8, xMax: 0.8 },
+  /**
+   * Kusen pintu dinding utara ke calon Studio (dunia X 18, Tahap 6) & Information Wall
+   * (dunia X 23, Tahap 5). Daun pintu tertutup dan BUKAN jalur navigasi sampai ruangannya dibangun.
+   */
+  northDoors: [{ xMin: -2.5, xMax: -1.5 }, { xMin: 2.5, xMax: 3.5 }] as readonly DoorSpan[],
+} as const satisfies NorthRoomSpec;
+
+/** Commons (LOKAL terhadap pusat Room_CollabCommons). Lantai bersih X -4.76..4.76, Z -2.76..2.76. */
+export const COMMONS = {
+  /** Lorong cincin mengitari meja kolaborasi; pintu selatan tersambung tegak lurus ke sisi selatan. */
+  ring: { minX: -2.45, maxX: 3.35, minZ: -1.55, maxZ: 1.8 },
+  /** Meja kolaborasi modular 3,2 × 1,2 m (2 modul + spine daya/data), sisi panjang = X. */
+  table: { x: 0.55, z: 0.12, length: 3.2, width: 1.2, top: 0.74 },
+  /**
+   * 6 kursi kerja (Office_Ergonomic_Chair.glb): 3 di utara (menghadap Selatan / kamera) dan 3 di
+   * selatan (menghadap Utara). Agen duduk di titik kursi; berdiri dulu di lorong cincin.
+   */
+  seats: [
+    ...[-0.5, 0.55, 1.6].map((x) => ({ spot: { x, z: -0.8, rotY: 0 }, approach: { x, z: -1.55 } })),
+    ...[-0.5, 0.55, 1.6].map((x) => ({ spot: { x, z: 1.04, rotY: Math.PI }, approach: { x, z: 1.8 } })),
+  ] as Array<{ spot: Spot; approach: Pt }>,
+  sitY: 0.45,
+  /** Whiteboard kaca beroda (Office_Whiteboard_Scrum.glb 1,62 × 1,80) di depan dinding utara, menghadap Selatan. */
+  whiteboard: { x: 0.55, z: -2.42 },
+  /**
+   * Booth akustik setengah lingkaran (slot GLB `Office_Commons_Acoustic_Booth`: origin = pusat
+   * lingkaran duduk di lantai, sisi terbuka +Z, R luar 0,95). Diputar 45° agar terbuka ke Tenggara.
+   */
+  booth: { x: -3.75, z: -1.75, rotY: Math.PI / 4, outerR: 0.95, backH: 1.25, seatH: 0.45 },
+  plantNE: { x: 4.35, z: -2.35 },
+  snakePlant: { x: -4.4, z: 0.6 },
+  /** Lampu gantung linear (Office_Linear_Pendant_Light.glb 2,6 m) di atas meja. */
+  pendant: { x: 0.55, z: 0.12 },
+  /** Tulisan dinding di atas whiteboard & papan "Segera" di atas pintu utara. */
+  sign: { x: 0.55, y: 2.55 },
+} as const;
+
+/** Digital Garden: sisi selatan bus, timur Server / IT. */
+export const ROOM_GARDEN = {
+  name: 'Room_DigitalGarden',
+  /** Bentang dunia X 22..27, Z 7.4..13.4 (5 × 6 m). */
+  origin: { x: 24.5, z: 10.4 },
+  halfX: 2.5,
+  halfZ: 3.0,
+  /** Pintu kaca geser frameless 1,6 m, dunia X 23.7..25.3 (31,5 m tapak). */
+  northDoor: { xMin: -0.8, xMax: 0.8 },
+} as const satisfies SouthRoomSpec;
+
+/**
+ * Garden (LOKAL terhadap pusat Room_DigitalGarden). Lantai bersih X -2.5..2.26, Z -2.76..2.76.
+ * Dinding barat = dinding timur Server (selalu memudar); green wall berdiri sendiri di depannya,
+ * hanya separuh utara (dunia Z 7.9..10.9) supaya rak server tetap terlihat dari kamera Tenggara.
+ */
+export const GARDEN = {
+  /** Lorong batu pijakan: pintu → selatan di X -0.55 → timur di depan bangku. */
+  lane: [{ x: 0, z: -2.35 }, { x: 0, z: -1.55 }, { x: -0.55, z: -1.55 }, { x: -0.55, z: 1.5 }, { x: 1.75, z: 1.5 }] as Pt[],
+  /**
+   * Green wall (slot GLB `Office_Garden_Living_Wall` 3,0 × 2,4 × 0,15, origin belakang-bawah-tengah,
+   * depan +Z), diputar 90°: menempel muka dinding barat, menghadap Timur.
+   */
+  livingWall: { x: -2.5, z: -1.0, rotY: Math.PI / 2, w: 3.0, h: 2.4, d: 0.15 },
+  /** Fountain zen (slot GLB `Office_Garden_Zen_Fountain` 0,90 × 0,85 × 0,55, permukaan air 0,40). */
+  fountain: { x: -2.15, z: 1.6, rotY: Math.PI / 2, w: 0.9, h: 0.85, d: 0.55, waterY: 0.4 },
+  /** Bangku teak tanpa sandaran (slot GLB `Office_Garden_Teak_Bench` 1,80 × 0,45 × 0,42), menghadap Selatan. */
+  bench: { x: 0.95, z: 0.92, rotY: 0, w: 1.8, d: 0.42, h: 0.45 },
+  /** 3 titik duduk di bangku (menghadap Selatan, ke jendela panorama & kamera); berdiri dulu di depan bangku. */
+  seats: [0.35, 0.95, 1.55].map((x) => ({ spot: { x, z: 0.92, rotY: 0 }, approach: { x, z: 1.5 } })) as Array<{ spot: Spot; approach: Pt }>,
+  sitY: 0.35,
+  /** Fiddle leaf fig (slot GLB `Office_Plant_Fiddle_Leaf_Fig`, tinggi 2,0, kanopi Ø0,8) di sudut timur laut. */
+  fig: { x: 1.8, z: -2.2 },
+  monstera: { x: 1.85, z: 2.3 },
+  snakePlant: { x: 1.95, z: -0.5 },
+  /** Jendela panorama palsu di muka dalam dinding selatan (ikut memudar). */
+  window: { xMin: -2.1, xMax: 1.9, yMin: 0.45, yMax: 2.75 },
+  light: { x: 0, y: 2.8, z: 0.4 },
+  doorSense: 1.6,
 } as const;
 
 // ---------------------------------------------------------------------------

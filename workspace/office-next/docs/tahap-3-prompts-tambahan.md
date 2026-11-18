@@ -137,3 +137,32 @@ Create a complete, single-file HTML application using Three.js r128 (via CDN) an
      └── Office_Lounge_Magazine_Rack.glb
    ```
 4. Saat aplikasi `office-next` dijalankan, `lobbyReception.ts` dan `loungeRelax.ts` akan secara otomatis mendeteksi file `.glb` tersebut dan menggantikan mesh placeholder bawaan tanpa perlu perubahan kode apa pun.
+
+---
+
+## Koreksi & Status (dicek terhadap kode, 18 November 2026)
+
+**Status:** ketiga generator sudah dibuat di `tools/3d-generator/<Nama>.html` (gitignored, lokal saja). Buka file, klik **Export GLB**, lalu salin ke `public/models/`. GLB otomatis menggantikan placeholder prosedural.
+
+### A. Koreksi terhadap dokumen ini
+
+| # | Bagian | Masalah | Keputusan |
+|---|---|---|---|
+| 1 | Tabel ringkasan: palm di "Sudut barat daya Lounge" | Slot `LOUNGE.palm` ada di sudut **barat laut** (dekat kaca utara), bukan barat daya (sofa L ada di sana). | Tetap di barat laut. |
+| 2 | Prompt 2: kanopi Ø1,10 | Di slot lama `(-2.15, -2.35)` lokal, kanopi r 0,55 menembus dinding barat 0,20 m dan kaca utara 0,14 m. | Slot digeser ke `(-1.93, -2.19)` lokal = dunia `(9.57, 8.21)`. Generator menjamin seluruh kanopi di dalam silinder Ø1,10 (hasil 1,09). |
+| 3 | Prompt 3: baki "width 0.34 m" | Lebar luar rak juga 0,34 m, jadi baki selebar itu tidak muat di antara rangka 15 mm. | Baki 0,31 m di antara rangka. |
+| 4 | Prompt 3: "horizontal ... tilted backward at 20° with a front retention lip" | Arah miring ambigu. | Gaya lectern: depan rendah + bibir 25 mm, belakang tinggi. Majalah bersandar di bibir, sampul menghadap atas-depan (terlihat dari kamera Tenggara). Tinggi total dengan majalah 0,91 m. |
+| 5 | Prompt 1: ring karet "at bottom" + tebal pelat 15 mm | Kalau ring ditambahkan di bawah pelat, tinggi total melebihi 0,54. | Ring dibenamkan, tebal pelat + ring tetap 15 mm. Total tepat 0,54. Warna vas "amber/teal" diambil amber. |
+| 6 | Panduan langkah 4: "tanpa perubahan kode" | Palm butuh slot baru (koreksi 2); placeholder ketiganya disamakan dengan kontrak. | `layout.ts`, `loungeRelax.ts`, `lobbyReception.ts` diperbarui. |
+
+### B. Kontrak per GLB
+
+| GLB | Ukuran (m) | Origin & arah | Penempatan di scene (dunia) | Segitiga |
+|---|---|---|---|---|
+| `Office_Lobby_Side_Table` | Ø0,60 × 0,54 (vas + calla lily sampai 1,06) | Lantai di tengah pelat dasar | Lobi `(3.2, 12.05)`, rotasi 0 → `X 2.9..3.5, Z 11.75..12.35` | 7,3k |
+| `Office_Plant_Areca_Palm` | Pot Ø0,44 (bawah Ø0,34) × 0,42; tinggi 1,70; kanopi ≤ Ø1,10 | Lantai di tengah pot | Lounge `(9.57, 8.21)` → `X 9.15..10.06, Z 7.78..8.64` (bebas 0,15 dari dinding barat, 0,14 dari kaca utara) | 22,6k |
+| `Office_Lounge_Magazine_Rack` | 0,34 × 0,90 × 0,30 (majalah sampai 0,91) | Lantai di tengah tapak; depan (bibir baki) +Z | Lounge `(9.3, 9.2)`, rotY 90° (menghadap Timur) → `X 9.15..9.45, Z 9.03..9.37` | 0,7k |
+
+### C. Verifikasi
+- Panel cek dimensi di tiap generator lolos semua (±3 mm, origin, ketinggian kunci, batas segitiga).
+- Ketiga GLB dibangun dari generator lalu disajikan ke halaman kantor lewat `page.route`. Semuanya termuat menggantikan placeholder, dengan bounding box dunia sesuai tabel B.

@@ -323,3 +323,36 @@ export const SERVER_CONSOLE: readonly string[] = [
   'Uptime 99,98%. Catat di laporan mingguan.',
   'Patch kecil terpasang, restart nanti malam.',
 ];
+
+// Tahap 4: diskusi kelompok lintas tim di Collaboration Commons
+export const COMMONS_GOING: readonly string[] = [
+  'Ke Commons yuk, bahas bareng biar cepat beres.',
+  'Diskusi lintas tim di meja kolaborasi, sebentar saja.',
+  'Bawa laptop, kita sinkron dulu di Commons.',
+];
+
+export const COMMONS_CHAT: readonly string[] = [
+  'Coba gambar alurnya di whiteboard dulu.',
+  'Dari sisi desain, tombol ini terlalu kecil di layar HP.',
+  'Kalau API-nya siap, aku bisa sambungkan hari ini.',
+  'QA perlu skenario uji untuk data kosong.',
+  'Setuju, kita pecah jadi tiga tugas kecil.',
+  'Riset pengguna bilang mereka butuh mode gelap.',
+  'Aku catat keputusan ini di dokumen sprint.',
+  'Render 2.5D-nya masih patah di sudut timur.',
+  'Review keamanan dulu sebelum fitur ini rilis.',
+];
+
+// Tahap 4: rehat setelah tugas selesai di Digital Garden
+export const GARDEN_GOING: readonly string[] = [
+  'Tugas beres, napas dulu di Digital Garden.',
+  'Mata butuh lihat yang hijau sebentar.',
+  'Ke taman dulu, dengar air mancur lima menit.',
+];
+
+export const GARDEN_CHAT: readonly string[] = [
+  'Suara air mancurnya bikin tenang.',
+  'Green wall ini seperti hutan mini.',
+  'Duduk sebentar di sini, ide baru biasanya muncul.',
+  'Rumputnya sintetis, tapi segarnya terasa asli.',
+];
