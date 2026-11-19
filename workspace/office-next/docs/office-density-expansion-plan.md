@@ -1,5 +1,5 @@
 # Office 3D Interior Density & Asset Expansion Plan
-> Authored by: **Gita — Game Dev 2.5D** & **Tari — UI/UX Designer**  
+> Authored by: **Gita — Game Dev 3D** & **Tari — UI/UX Designer**  
 > Engine: **Three.js r128 (WebGL PBR) + GLTFExporter**  
 > Targeted Generator: **Claude Sonnet 3.5 / 5.5 (High Effort)**
 
@@ -17,7 +17,7 @@ To transform our virtual office into a bustling, authentic high-tech agency head
 │                                                                             │
 │   ┌─────────────────────┐    CENTRAL CORRIDOR ┌─────────────────────┐       │
 │   │ Sari (Researcher)   │       (X: 0.0)      │ Bima (Programmer)   │       │
-│   │ Dimas (Writer)      │                     │ Gita (Game Dev 2.5D)│       │
+│   │ Dimas (Writer)      │                     │ Gita (Game Dev 3D)│       │
 │   ├─────────────────────┤    WIDTH: > 2.5m    ├─────────────────────┤       │
 │   │ Tari (UI/UX)        │                     │ Satria (Security)   │       │
 │   │ Wulan (Artist)      │                     │ Laras (Reviewer)    │       │

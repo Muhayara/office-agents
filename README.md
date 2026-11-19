@@ -1,6 +1,6 @@
-# Office Agents — Meja Dispatch & 2.5D Virtual AI Office
+# Office Agents 3D — Meja Dispatch & Kantor Virtual AI 3D
 
-**Office Agents** adalah kantor perangkat lunak virtual berbasis AI tempat pengguna berperan sebagai **CEO** yang memimpin **10 karyawan AI spesialis** dalam Bahasa Indonesia melalui antarmuka **Meja Dispatch Command Center & 2.5D Isometric Office** (`http://localhost:5173`), server orkestrasi real-time (`http://127.0.0.1:7420`), dan protokol **MCP (Model Context Protocol)** (`http://127.0.0.1:7421/mcp`).
+**Office Agents** adalah kantor perangkat lunak virtual berbasis AI tempat pengguna berperan sebagai **CEO** yang memimpin **10 karyawan AI spesialis** dalam Bahasa Indonesia melalui antarmuka **Meja Dispatch Command Center & 3D Isometric Office** (`http://localhost:5173`), server orkestrasi real-time (`http://127.0.0.1:7420`), dan protokol **MCP (Model Context Protocol)** (`http://127.0.0.1:7421/mcp`).
 
 ---
 
@@ -11,7 +11,7 @@ Beban kerja dibagi secara terstruktur ke dalam **3 Tier berdasarkan tingkat komp
 | Kursi | Nama | Jabatan | Tier Beban Kerja | Model Utama (`primary`) | Rantai Fallback (`fallbacks`) | Kuota/Hari |
 |---|---|---|---|---|---|---:|
 | `bima` | **Bima** | Programmer (`coder`) | **Berat** (Ngoding Core) | `claude-opus-5-5-high` | `claude-sonnet-5-5-high` → `gemini-4-argon-high` → `gemini-3.8-flash-high` | 250 req |
-| `gita` | **Gita** | Game Dev 2.5D (`gamedev`) | **Berat** (Engine 2.5D) | `claude-opus-5-5-high` | `claude-sonnet-5-5-high` → `gemini-4-argon-high` → `gemini-3.8-flash-high` | 250 req |
+| `gita` | **Gita** | Game Dev 3D (`gamedev`) | **Berat** (Engine 3D) | `claude-opus-5-5-high` | `claude-sonnet-5-5-high` → `gemini-4-argon-high` → `gemini-3.8-flash-high` | 250 req |
 | `tari` | **Tari** | Desainer UI/UX (`designer`) | **Berat** (UI/UX & Ruang) | `claude-sonnet-5-5-high` | `gemini-4-argon-high` → `claude-opus-5-5-high` → `gemini-3.8-flash-high` | 250 req |
 | `wulan` | **Wulan** | Artis Visual (`artist`) | **Berat** (Sprite & SVG) | `gemini-4-argon-high` | `claude-sonnet-5-5-high` → `gemini-3.8-flash-high` | 250 req |
 | `laras` | **Laras** | Reviewer & QA (`reviewer`) | **Kritis** (Review & QA) | `gemini-4-argon-high` | `claude-sonnet-5-5-high` → `gemini-3.8-flash-high` | 300 req |
@@ -52,7 +52,7 @@ P:\gemini-lab\office\
 │       └── src/
 │           ├── styles/tokens.css       # Palet industrial gelap (#0B0E13), tipografi Overpass & Overpass Mono
 │           └── components/             # StatusRail, RosterRow, Tick, WorkOrderBoard, DispatchLog, CommandComposer, DetailRail, ApprovalModal
-├── workspace/                  # Folder kerja terisolasi tempat agen membangun proyek 2.5D (workspace/office-next)
+├── workspace/                  # Folder kerja terisolasi tempat agen membangun proyek 3D (workspace/office-next)
 ├── docs/                       # Dokumentasi arsitektur, desain, prompt, dan rencana pengembangan
 ├── office.config.json          # Konfigurasi kursi agen, model, fallback, dan batas kuota harian
 └── .mcp.json                   # Konfigurasi MCP workspace

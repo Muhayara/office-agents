@@ -1,11 +1,11 @@
-# Office Next — Ruang Kantor Virtual Isometrik 2.5D (`workspace/office-next/`)
+# Office Next — Ruang Kantor Virtual 3D Isometrik (`workspace/office-next/`)
 
-Folder ini adalah ruang kerja proyek **Virtual Office 2.5D** yang dibangun secara kolaboratif oleh 10 agen AI:
+Folder ini adalah ruang kerja proyek **Virtual Office 3D** yang dibangun secara kolaboratif oleh 10 agen AI:
 - **Raka** (`manager`) — Orkestrasi & pemecahan tugas
 - **Sari** (`researcher`) — Riset referensi tata ruang & ergonomi UI
 - **Tari** (`designer`) — Arsitektur tata letak, sistem token desain (`hallmark`), & spesifikasi zona ruangan
 - **Wulan** (`artist`) — Sprite karakter pixel/isometrik, tile lantai/dinding, & furnitur SVG/Canvas (`hallmark`)
-- **Gita** (`gamedev`) — Engine grid isometrik 2.5D, depth sorting (`row + col`), pathfinding A*, kamera pan/zoom, & loop animasi (`hallmark`)
+- **Gita** (`gamedev`) — Panggung 3D isometrik Three.js: ruangan, navigasi koridor, rig avatar, kamera (isometrik, Free Cam, Mata Agen), & loop animasi (`hallmark`)
 - **Bima** (`coder`) — Integrasi state WebSocket real-time (`@office/shared`), panel telemetri, & mode Spectator vs CEO
 - **Dimas** (`writer`) — Dokumentasi fitur & panduan pengguna
 - **Laras** (`reviewer`) — Code review kualitas & kepatuhan standar `anti-slop`
@@ -16,10 +16,10 @@ Folder ini adalah ruang kerja proyek **Virtual Office 2.5D** yang dibangun secar
 
 - `src/isometric/` — Konversi koordinat grid <-> layar isometrik, depth sorting, peta zona ruangan, dan pathfinding.
 - `src/sprites/` — Komponen visual karakter 10 agen, furnitur meja kerja, tanaman, rak server, dan papan tulis.
-- `src/stage/` — Kanvas/panggung utama ruang kantor 2.5D dengan kontrol kamera (pan/zoom/focus kursi) dan balon percakapan.
+- `src/stage/` — Kanvas/panggung utama ruang kantor 3D dengan kontrol kamera (pan/zoom/focus kursi) dan balon percakapan.
 - `src/panels/` — Panel HUD samping (Roster 10 kursi, Papan Tugas, Aliran Aktivitas, Audit Keamanan Satria, dan Komando CEO).
 - `src/styles/` — Sistem CSS token terpusat sesuai standar `hallmark` & `anti-slop`.
-- `docs/` — Spesifikasi desain ruangan, palet warna, dan catatan arsitektur 2.5D.
+- `docs/` — Spesifikasi desain ruangan, palet warna, dan catatan arsitektur 3D.
 
 ## Aturan Penting untuk Agen
 

@@ -14,7 +14,7 @@ ROLE[role][lang]  +  RULES[lang]  +  TOOLS[lang]  +  SKILLS_DIGEST[role][lang]  
 
 Format `{roster}` untuk 10 kursi:
 ```
-raka—Manajer; sari—Peneliti; dimas—Penulis; bima—Programmer; gita—Game Dev 2.5D; tari—Desainer UI/UX; wulan—Pixel Artist; laras—Reviewer; fajar—Visual QA; satria—Auditor Keamanan
+raka—Manajer; sari—Peneliti; dimas—Penulis; bima—Programmer; gita—Game Dev 3D; tari—Desainer UI/UX; wulan—Pixel Artist; laras—Reviewer; fajar—Visual QA; satria—Auditor Keamanan
 ```
 
 ---
@@ -44,8 +44,8 @@ raka—Manajer; sari—Peneliti; dimas—Penulis; bima—Programmer; gita—Game
 2. **Sari (`researcher`):** Mengumpulkan fakta dan konteks, menandai klaim yang belum pasti dengan *"perlu verifikasi"*, dan menyerahkan hasil ke `Dimas` atau `Tari`.
 3. **Dimas (`writer`):** Menulis dokumentasi dan copy yang lugas di `workspace/` tanpa klise AI (`anti-slop`), lalu meminta review ke `Laras`.
 4. **Bima (`coder`):** Mengembangkan arsitektur aplikasi, state WebSocket, dan komponen UI di `workspace/office-next/`, memeriksa `git_diff`, lalu meminta review ke `Laras`.
-5. **Gita (`gamedev`):** Membangun engine grid isometrik 2.5D, konversi koordinat `(col, row) <-> (screenX, screenY)`, depth sorting (`row + col`), pathfinding A*, kamera pan/zoom, dan loop animasi 60fps.
-6. **Tari (`designer`):** Merancang arsitektur tata letak ruangan 2.5D, sistem token CSS (`hallmark`), hierarki permukaan mode gelap, dan ergonomi kontrol.
+5. **Gita (`gamedev`):** Membangun panggung 3D isometrik Three.js: ruangan per lantai, navigasi koridor, rig avatar, kamera (isometrik, Free Cam, Mata Agen), dan loop animasi.
+6. **Tari (`designer`):** Merancang arsitektur tata letak ruangan 3D, sistem token CSS (`hallmark`), hierarki permukaan mode gelap, dan ergonomi kontrol.
 7. **Wulan (`artist`):** Membuat sprite karakter 10 agen, tile lantai/dinding isometrik, dan furnitur kantor (SVG/Canvas) dengan palet warna terpadu.
 8. **Laras (`reviewer`):** Memeriksa diff dan kepatuhan standar `anti-slop`, lalu memutuskan **ACC** (`done` -> memicu auto-commit & auto-push `GitService`) atau **REJECT** (`in_progress`/`blocked`).
 9. **Fajar (`visual_qa`):** Menguji tampilan dan interaksi aplikasi di browser (`npx playwright test`) serta memverifikasi kontras dan tidak adanya elemen yang tumpang tindih.

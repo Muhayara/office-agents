@@ -1,5 +1,5 @@
 # Prompt Detail Pembuatan Model 3D — Tahap 3 (Lobi & Resepsionis, Lounge, & Server IT)
-> **Proyek:** Office Agents 2.5D (`workspace/office-next`)  
+> **Proyek:** Office Agents 3D (`workspace/office-next`)  
 > **Engine:** Three.js r128 (WebGL PBR) + `GLTFExporter`  
 > **Target Generator:** Claude Sonnet 3.5 / 5.5, Gemini 1.5/2.0 Pro, atau standalone Three.js HTML Generator  
 > **Folder Output Model:** `workspace/office-next/public/models/`  

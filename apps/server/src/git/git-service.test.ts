@@ -69,7 +69,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     id: 't_test_25d',
     projectId: 'default',
     title: 'implementasi komponen grid isometrik',
-    details: 'Grid 2.5D',
+    details: 'Grid 3D',
     assignee: 'gita',
     status: 'done',
     priority: 'normal',
@@ -90,7 +90,7 @@ describe('GitService (Bagian C2 — Auto-Commit & Auto-Push)', () => {
       isRevision: false,
     });
     expect(featMsg).toBe(
-      'feat(2.5d): implementasi komponen grid isometrik [by Gita — Game Dev 2.5D]',
+      'feat(3d): implementasi komponen grid isometrik [by Gita — Game Dev 3D]',
     );
 
     const fixMsg = buildConventionalCommitMessage({
@@ -99,7 +99,7 @@ describe('GitService (Bagian C2 — Auto-Commit & Auto-Push)', () => {
       isRevision: true,
     });
     expect(fixMsg).toBe(
-      'fix(2.5d): implementasi komponen grid isometrik [by Gita — Game Dev 2.5D]',
+      'fix(3d): implementasi komponen grid isometrik [by Gita — Game Dev 3D]',
     );
   });
 
@@ -118,7 +118,7 @@ describe('GitService (Bagian C2 — Auto-Commit & Auto-Push)', () => {
     expect(res.pushed).toBe(true);
     expect(res.blocked).toBe(false);
     expect(res.commitTitle).toBe(
-      'feat(2.5d): implementasi komponen grid isometrik [by Gita — Game Dev 2.5D]',
+      'feat(3d): implementasi komponen grid isometrik [by Gita — Game Dev 3D]',
     );
 
     const remoteLog = execFileSync(
@@ -127,7 +127,7 @@ describe('GitService (Bagian C2 — Auto-Commit & Auto-Push)', () => {
       { cwd: remoteDir, encoding: 'utf8' },
     ).trim();
     expect(remoteLog).toBe(
-      'Muhayara <hafizhajah777@gmail.com>|feat(2.5d): implementasi komponen grid isometrik [by Gita — Game Dev 2.5D]|',
+      'Muhayara <hafizhajah777@gmail.com>|feat(3d): implementasi komponen grid isometrik [by Gita — Game Dev 3D]|',
     );
     expect(remoteLog).not.toContain('Co-authored-by');
   });

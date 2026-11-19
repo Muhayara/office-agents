@@ -1,6 +1,6 @@
 # Toolbox & Referensi — Office Agents
 
-*Aset, referensi desain, skill, dan agent yang layak dipakai untuk proyek kantor AI 2.5D. Diverifikasi 10 November 2026.*
+*Aset, referensi desain, skill, dan agent yang layak dipakai untuk proyek kantor AI 3D. Diverifikasi 10 November 2026.*
 
 **Kesimpulan singkat**
 
@@ -141,7 +141,7 @@ Contoh `00_manifest.json`:
 | LangGraph (MIT) | Supervisor graph, `interrupt` untuk approval manusia, checkpointer durable | ApprovalGate + run yang bisa dilanjutkan setelah restart |
 | OpenAI Agents SDK (MIT) | Handoff antar-agent + tracing per span | Pencatatan token/latensi per karyawan |
 | a16z ai-town | Tick engine deterministik terpisah dari langkah agent | Scheduler kantor yang tidak memblokir LLM |
-| pixel-agents (MIT) | Satu event bus → state sprite | Sinkronisasi kantor 2.5D |
+| pixel-agents (MIT) | Satu event bus → state sprite | Sinkronisasi kantor 3D |
 
 **Wajib:** batas token/tool-call per karyawan. Tanpa itu, 5 loop bisa menghabiskan kuota gratis dalam satu jam.
 

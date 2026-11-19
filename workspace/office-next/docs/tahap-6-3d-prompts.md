@@ -1,5 +1,5 @@
 # Prompt Detail Pembuatan Model 3D — Tahap 6 (Studio / Content, Focus Pods, & Digital Access Hub)
-> **Proyek:** Office Agents 2.5D (`workspace/office-next`) — **Tahap Penutup Lantai 1 (16/16 Zona)**  
+> **Proyek:** Office Agents 3D (`workspace/office-next`) — **Tahap Penutup Lantai 1 (16/16 Zona)**  
 > **Engine Generator:** Three.js r128 (via CDN) + `GLTFExporter`  
 > **Folder Generator Lokal:** `workspace/office-next/tools/3d-generator/` *(gitignored)*  
 > **Folder Output Model:** `workspace/office-next/public/models/`  

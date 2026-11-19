@@ -1,4 +1,4 @@
-# Panduan & Rencana Hosting (Office Agents 2.5D)
+# Panduan & Rencana Hosting (Office Agents 3D)
 > Revisi: 16 November 2026 — menggantikan rencana Railway/Docker sebelumnya.
 > Prinsip: **gratis dulu**, dan **tidak membuka backend ke internet** sampai benar-benar perlu.
 

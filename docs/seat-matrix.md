@@ -2,7 +2,7 @@
 
 Matriks kursi ini membagi 10 karyawan AI ke dalam **3 Tier berdasarkan tingkat kompleksitas pekerjaan** agar pemanfaatan model penalaran tingkat tinggi dan model berkecepatan tinggi berjalan teratur:
 
-1. **Tier 1 — Pekerjaan Berat (Ngoding Core, Engine 2.5D, Desain UI/UX, Aset Visual):** Menggunakan model penalaran & generasi kode tertinggi (`claude-opus-5-5-high`, `claude-sonnet-5-5-high`, `gemini-4-argon-high`).
+1. **Tier 1 — Pekerjaan Berat (Ngoding Core, Engine 3D, Desain UI/UX, Aset Visual):** Menggunakan model penalaran & generasi kode tertinggi (`claude-opus-5-5-high`, `claude-sonnet-5-5-high`, `gemini-4-argon-high`).
 2. **Tier 2 — Pemeriksaan Kualitas & Keamanan (Gatekeepers):** Menggunakan model peninjau kritis (`gemini-4-argon-high`, `claude-sonnet-5-5-high`).
 3. **Tier 3 — Pekerjaan Ringan / Frekuensi Tinggi (Orkestrasi, Riset, Dokumen, Cek Visual):** Menggunakan model respons cepat (`gemini-3.8-flash-high`) agar pengiriman tugas dan koordinasi tidak memakan kuota pekerjaan berat.
 
@@ -13,7 +13,7 @@ Matriks kursi ini membagi 10 karyawan AI ke dalam **3 Tier berdasarkan tingkat k
 | ID Kursi | Nama & Peran | Tier Beban Kerja | Model Utama (`primary`) | Rantai Fallback (`fallbacks`) | Mode Tool | Kuota / Hari |
 |---|---|---|---|---|---|---:|
 | **`bima`** | **Bima** — Programmer (`coder`) | **Berat** (Ngoding Core) | `claude-opus-5-5-high` | `["claude-sonnet-5-5-high", "gemini-4-argon-high", "gemini-3.8-flash-high"]` | `tools` | 250 req |
-| **`gita`** | **Gita** — Game Dev 2.5D (`gamedev`) | **Berat** (Engine 2.5D) | `claude-opus-5-5-high` | `["claude-sonnet-5-5-high", "gemini-4-argon-high", "gemini-3.8-flash-high"]` | `tools` | 250 req |
+| **`gita`** | **Gita** — Game Dev 3D (`gamedev`) | **Berat** (Engine 3D) | `claude-opus-5-5-high` | `["claude-sonnet-5-5-high", "gemini-4-argon-high", "gemini-3.8-flash-high"]` | `tools` | 250 req |
 | **`tari`** | **Tari** — Desainer UI/UX (`designer`) | **Berat** (UI/UX & Ruang) | `claude-sonnet-5-5-high` | `["gemini-4-argon-high", "claude-opus-5-5-high", "gemini-3.8-flash-high"]` | `tools` | 250 req |
 | **`wulan`** | **Wulan** — Artis Visual (`artist`) | **Berat** (Sprite & SVG) | `gemini-4-argon-high` | `["claude-sonnet-5-5-high", "gemini-3.8-flash-high"]` | `tools` | 250 req |
 | **`laras`** | **Laras** — Reviewer & QA (`reviewer`) | **Kritis** (Review & QA) | `gemini-4-argon-high` | `["claude-sonnet-5-5-high", "gemini-3.8-flash-high"]` | `tools` | 300 req |

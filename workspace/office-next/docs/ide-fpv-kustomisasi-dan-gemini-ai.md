@@ -2,7 +2,7 @@
 
 > **Status:** Draft Diskusi Ide & Saran Arsitektur  
 > **Tanggal:** 18 November 2026  
-> **Fokus:** Transformasi Office Agents 2.5D menjadi *Immersive Virtual Living Office* dengan FPV Spectator, Avatar Tamu Interaktif, dan Otak AI Mandiri via Google Gemini API.
+> **Fokus:** Transformasi Office Agents 3D menjadi *Immersive Virtual Living Office* dengan FPV Spectator, Avatar Tamu Interaktif, dan Otak AI Mandiri via Google Gemini API.
 
 ---
 
@@ -144,7 +144,7 @@ Untuk menghindari limit kuota (RPM/TPM atau 429 *Resource Exhausted*) pada akun 
 ### C. Persona & Otak 10 Agen
 Setiap agen memiliki memori dan kepribadian mandiri:
 - **Raka (Backend):** Pragmatis, memikirkan arsitektur, database, dan konkurensi.
-- **Gita (Game Dev 2.5D):** Kreatif, fokus pada optimasi Three.js, visual, dan pengalaman pemain.
+- **Gita (Game Dev 3D):** Kreatif, fokus pada optimasi Three.js, visual, dan pengalaman pemain.
 - **Maya (Frontend & UI/UX):** Perfeksionis pada estetika, warna, animasi, dan aksesibilitas.
 - **Fajar (Tech Lead):** Menjaga standar kode, alur Git, dan koordinasi tim.
 - **Agen Lainnya:** Sesuai matriks peran yang sudah ada di `src/roles.ts`.

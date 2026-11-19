@@ -1,5 +1,5 @@
 # CLAUDE.md — Project Briefing & Instructions for Claude Code
-> **Project:** Office Agents 2.5D (Virtual AI Office & Meja Dispatch)  
+> **Project:** Office Agents 3D (Virtual AI Office & Meja Dispatch)  
 > **Workspace Root:** `P:\gemini-lab\office`  
 > **Author:** `Muhayara <hafizhajah777@gmail.com>`  
 > **Primary Language:** Indonesian (Bahasa Indonesia) for UI text, agent dialogs, and commit messages.
@@ -7,7 +7,8 @@
 ---
 
 ## 1. What Is This Project?
-**Office Agents 2.5D** is an interactive, browser-based virtual office simulation and AI workforce dispatch command center.
+**Office Agents 3D** is an interactive, browser-based virtual office simulation and AI workforce dispatch command center.
+- **Name:** renamed from *Office Agents 2.5D* to **Office Agents 3D** on 19 Nov 2026 (the engine is full Three.js 3D; the default camera is still isometric). Commit scope is now `(3d)` (history before 19 Nov uses `(2.5d)`), Gita's title is `Game Dev 3D`, and `docs/plans/` keeps the old 2.5D wording on purpose as an archive.
 - The user acts as the **CEO** managing **10 specialized AI agents** (Raka, Sari, Dimas, Tari, Wulan, Bima, Gita, Satria, Laras, Fajar).
 - **Core Visual Feature:** A **3D WebGL Isometric Diorama** built with **Three.js 0.187** (the standalone GLB generators in `tools/3d-generator/` use r128 via CDN), featuring real-time PBR studio lighting, animated monitors with scrolling syntax code, interactive typing avatars, a complete coffee break & queue routine, and floating glassmorphism speech bubbles in Indonesian.
 
@@ -43,7 +44,7 @@ P:\gemini-lab\office\
 │       │   │   ├── rooms/                  # Layer builders: mainWorkspace, mainCorridor (Jalan Utama/bus), meetingFoyer, boardroom, managerOffice, pantryCafe, lobbyReception, loungeRelax, serverRoom, collabCommons, digitalGarden, workshopTraining, infoWall, collabPods, studioContent, focusPods, accessHub, southWing / northWing (shells for rooms south / north of the bus + the second north tier), doors (motion-sensor sliding / swing doors), walls (procedural walls/doors), assets (GLB/placeholder)
 │       │   │   ├── camera/                 # cameraRig (Isometric ↔ Free Cam 3D ↔ eye), eyeCam (F3 Mata Agen + tests), wallFade (Sims-style auto-fade, occluders())
 │       │   │   └── officeDialogues.ts      # Template-based Indonesian dialogue lines (Zero API keys needed)
-│       │   ├── isometric/      # 2.5D coordinates and zone definitions
+│       │   ├── isometric/      # isometric screen coordinates and zone definitions
 │       │   ├── panels/         # Inspector panel: live status, approvals, work history (/api/runs), "Lihat dari mata"; EyePanel (F3 HUD)
 │       │   ├── state/liveOffice.ts # Session (roles ceo/viewer/employee/guest), users API, server-event reducer
 │       │   ├── state/worldFeed.ts  # F2: NetWorldFeed (/ws/world, 200 ms interpolation, ping clock sync) / LocalWorldFeed
@@ -174,8 +175,8 @@ npm run dev:server
 
 1. **Git Commits & Authorship:**
    - **Author:** Strictly `Muhayara <hafizhajah777@gmail.com>`
-   - **Message Format:** `<type>(2.5d): <ringkasan> [by <Nama> — <Jabatan>]`
-     - Example: `feat(2.5d): navigasi koridor bebas tabrakan prompt 3d sonnet dan panduan hosting [by Gita — Game Dev 2.5D]`
+   - **Message Format:** `<type>(3d): <ringkasan> [by <Nama> — <Jabatan>]`
+     - Example: `feat(3d): navigasi koridor bebas tabrakan prompt 3d sonnet dan panduan hosting [by Gita — Game Dev 3D]`
    - **No `Co-authored-by` trailers.**
 2. **Language:**
    - User communication, documentation, and agent speech bubbles are in **Bahasa Indonesia**.

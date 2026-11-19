@@ -171,7 +171,7 @@ export function buildWorkshopTraining(load: ModelLoader, fader: WallFader): Work
 // ============================================================================
 // Layar presentasi (kanvas, tanpa API key). Ukuran dasar 1,86 × 1,04 (layar aktif 85").
 // ============================================================================
-const AGENDA: readonly string[] = ['Arsitektur multi-agen & router gedung', 'Rendering 2.5D dengan Three.js', 'Keamanan run_command & izin CEO', 'Riset pengguna & desain dasbor'];
+const AGENDA: readonly string[] = ['Arsitektur multi-agen & router gedung', 'Rendering 3D dengan Three.js', 'Keamanan run_command & izin CEO', 'Riset pengguna & desain dasbor'];
 
 class WorkshopScreen {
   readonly mesh: THREE.Mesh;

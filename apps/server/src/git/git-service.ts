@@ -59,7 +59,7 @@ export function buildConventionalCommitMessage(params: {
     .trim()
     .slice(0, 100);
 
-  return `${prefix}(2.5d): ${cleanTitle} [by ${agentName} — ${roleLabel}]`;
+  return `${prefix}(3d): ${cleanTitle} [by ${agentName} — ${roleLabel}]`;
 }
 
 export class GitService {

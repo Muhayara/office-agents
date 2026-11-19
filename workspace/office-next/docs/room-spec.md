@@ -45,7 +45,7 @@ Tiap meja kerja berukuran standar modular: **Panjang 1.4m × Lebar 0.7m × Tingg
 | **Tari** | Desainer UI/UX | `X: 1.5, Z: 6.5` | Menghadap ke Timur (+X) | Layar display lebar color-accurate, tablet gambar stylus. |
 | **Wulan** | Pixel Artist | `X: 4.5, Z: 6.5` | Menghadap ke Barat (-X) | Monitor preview aset game, figurin maskot meja, tanaman kaktus mini. |
 | **Bima** | Programmer | `X: 8.5, Z: 2.0` | Menghadap ke Selatan (+Z) | Setup dual monitor horizontal + vertikal, stiker dev di casing mini. |
-| **Gita** | Game Dev 2.5D | `X: 11.5, Z: 2.0` | Menghadap ke Selatan (+Z) | Layar preview kanvas 60fps, controller gamepad di samping keyboard. |
+| **Gita** | Game Dev 3D | `X: 11.5, Z: 2.0` | Menghadap ke Selatan (+Z) | Layar preview kanvas 60fps, controller gamepad di samping keyboard. |
 | **Satria** | Auditor Keamanan | `X: 8.5, Z: 7.5` | Menghadap ke Utara (-Z) | Bersebelahan langsung dengan Server Rack 42U, monitor terminal status hijau. |
 | **Laras** | Reviewer Kode | `X: 11.5, Z: 7.5` | Menghadap ke Utara (-Z) | Layar perbandingan diff file side-by-side, checklist review rapi. |
 | **Fajar** | Visual QA | `X: 10.0, Z: 6.0` | Menghadap ke Selatan (+Z) | Monitor pengujian browser responsive dengan grid garis bantu UI. |

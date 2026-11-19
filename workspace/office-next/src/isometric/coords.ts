@@ -16,7 +16,7 @@ export const ISO_GRID_COLS = 10;
 export const ISO_GRID_ROWS = 8;
 
 /**
- * Mengubah koordinat petak grid (col, row) menjadi koordinat piksel layar isometrik 2.5D.
+ * Mengubah koordinat petak grid (col, row) menjadi koordinat piksel layar isometrik.
  * Rumus standar proyeksi berlian 2:1:
  *   screenX = originX + (col - row) * (tileW / 2)
  *   screenY = originY + (col + row) * (tileH / 2)
@@ -100,8 +100,8 @@ export const OFFICE_ZONES: ReadonlyArray<OfficeZoneSpec> = [
   },
   {
     id: 'engineering-bay',
-    labelId: 'Sayap Engineering & Game 2.5D',
-    labelEn: 'Engineering & 2.5D Game Bay',
+    labelId: 'Sayap Engineering & Game 3D',
+    labelEn: 'Engineering & 3D Game Bay',
     minCol: 5,
     maxCol: 8,
     minRow: 1,

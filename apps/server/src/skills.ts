@@ -49,7 +49,7 @@ const BUILTIN_DIGESTS: Record<SkillId, string> = {
     '- Verifikasi hasil visual berdasarkan keterbacaan teks, tidak adanya elemen yang saling menimpa (overlap), ketepatan koordinat meja, dan konsistensi warna status.',
   ].join('\n'),
   'canvas-design': [
-    '- Pada kanvas 2.5D isometrik: jaga rasio proyeksi ubin konsisten (2:1 isometric), pisahkan layer lantai, furnitur, karakter, dan label nama secara terstruktur.',
+    '- Pada panggung 3D isometrik: jaga skala dunia dalam meter dan sudut kamera isometrik tetap konsisten, pisahkan layer lantai, furnitur, karakter, dan label nama secara terstruktur.',
   ].join('\n'),
   'algorithmic-art': [
     '- Gunakan geometri prosedural dan palet terukur untuk menghasilkan tekstur lantai, pencahayaan meja kerja, serta animasi mikro yang halus dan deterministik.',

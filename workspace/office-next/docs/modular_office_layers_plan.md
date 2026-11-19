@@ -142,7 +142,7 @@ Agar panggung nyaman dipantau sekaligus bebas dijelajahi saat ruangan makin bany
 | Seat ID | Baris | Local X | Local Z (Tucked) | Local Z (Pulled) | World X | World Z (Tucked) | `rotation.y` Default | Agen (Penugasan Kursi) |
 |---|:---:|---:|---:|---:|---:|---:|:---:|---|
 | **N1** | Utara | -0.80 | -1.60 | -1.90 | 12.70 | -1.60 | `0` | **Laras (Reviewer — dekat Presenter/TV)** |
-| **N2** | Utara | -0.10 | -1.60 | -1.90 | 13.40 | -1.60 | `0` | Gita (Game Dev 2.5D) |
+| **N2** | Utara | -0.10 | -1.60 | -1.90 | 13.40 | -1.60 | `0` | Gita (Game Dev 3D) |
 | **N3** | Utara | +0.60 | -1.60 | -1.90 | 14.10 | -1.60 | `0` | **Raka (Manajer / Pimpinan Tengah)** |
 | **N4** | Utara | +1.30 | -1.60 | -1.90 | 14.80 | -1.60 | `0` | Bima (Programmer) |
 | **N5** | Utara | +2.00 | -1.60 | -1.90 | 15.50 | -1.60 | `0` | Fajar (Visual QA) |

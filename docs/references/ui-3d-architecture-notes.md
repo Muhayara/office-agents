@@ -10,7 +10,7 @@
 - **Tujuan Akhir:** Membangun platform **Virtual Office AI** yang rapi, hidup, dan memukau seperti kantor asli untuk di-hosting secara publik.
 - **Dua Persona Pengguna:**
   1. **CEO (Pemilik/Pengguna):** Memiliki kendali penuh untuk mengirim instruksi, mengelola perizinan terminal/approval, memilih model, serta memantau kesehatan sistem.
-  2. **Pengunjung / Publik (*Spectator Mode*):** Hanya dapat menonton aktivitas ke-10 agen secara real-time (*view-only*), melihat panggung kantor 2.5D/3D, membaca ringkasan tugas, dan terkesan dengan operasional kantor tanpa bisa mengirim perintah berbahaya.
+  2. **Pengunjung / Publik (*Spectator Mode*):** Hanya dapat menonton aktivitas ke-10 agen secara real-time (*view-only*), melihat panggung kantor 3D, membaca ringkasan tugas, dan terkesan dengan operasional kantor tanpa bisa mengirim perintah berbahaya.
 - **Standar Estetika:** *Dark industrial command center* berkelas tinggi, modern dev-tools (mirip Bloomberg terminal / developer OS), padat informasi namun sangat terstruktur dan bersih (*anti-slop*).
 
 ---
@@ -26,7 +26,7 @@
 │ DAFTAR TUGAS  │ PANGGUNG EKSEKUSI TENGAH                 │ KANAN: TELEMETRI & KANTOR   │
 │ & THREADS     │                                          │                             │
 │ • Filter Agen │ • Tab Tugas Aktif                        │ ┌─────────────────────────┐ │
-│ • Pinned      │ • Status Eksekusi (1m 13s, 7 steps)      │ │ 🏢 VIRTUAL OFFICE 2.5D  │ │
+│ • Pinned      │ • Status Eksekusi (1m 13s, 7 steps)      │ │ 🏢 VIRTUAL OFFICE 3D  │ │
 │ • Pohon Sub-  │ • Progress Bar Sub-agen Paralel (4 bar)  │ │   (Live in Town View)   │ │
 │   tugas       │ • Kartu Aksi Tool (Bash, Read, Tests)    │ └─────────────────────────┘ │
 │ • Status dot  │ • Aliran Log & Obrolan Agen              │ • Profil Agen Aktif         │
@@ -63,7 +63,7 @@
 
 ### 2.4 Panel Kanan: *The Magic Combo* (Telemetri + Embedded Mini-Office)
 - **Top-Right Mini-Stage ("Live in Town"):**
-  - **Inovasi Kunci:** Panggung kantor virtual 2.5D/3D disematkan langsung di pojok kanan atas!
+  - **Inovasi Kunci:** Panggung kantor virtual 3D disematkan langsung di pojok kanan atas!
   - Menampilkan miniatur ruangan kantor dengan meja, komputer, furnitur, dan avatar agen yang duduk/berpindah secara real-time.
   - Disertai badge link *"Live in Town"* yang bisa diklik untuk memperbesar kantor ke tab penuh (`Town`).
 - **Bottom-Right Telemetri & Status Teknis:**

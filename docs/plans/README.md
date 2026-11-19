@@ -2,6 +2,8 @@
 
 Folder ini berisi seluruh dokumen analisa awal, riset kebutuhan, dan cetak biru arsitektur dari berbagai perspektif model AI sebelum implementasi **Office Agents** disatukan ke dalam arsitektur monorepo saat ini.
 
+> **Catatan arsip (19 Nov 2026):** proyek kini bernama **Office Agents 3D** (sebelumnya *Office Agents 2.5D*). Istilah "2.5D", Phaser, dan sprite di dokumen-dokumen ini sengaja dibiarkan sebagai catatan sejarah rencana awal; implementasi sekarang adalah panggung Three.js 3D penuh (tampilan bawaan isometrik, plus Free Cam dan Mata Agen).
+
 ---
 
 ## Daftar File Analisa & Rencana Kerja

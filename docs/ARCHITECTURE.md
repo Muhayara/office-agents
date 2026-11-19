@@ -1,6 +1,6 @@
 # Arsitektur Teknis Office Agents (`docs/ARCHITECTURE.md`)
 
-Dokumen ini menjelaskan arsitektur teknis end-to-end dari sistem **Office Agents v1.1.0** yang mengoordinasikan **10 karyawan AI spesialis** melalui server orkestrasi Node.js + SQLite (`@office/server`), server MCP (`:7421/mcp`), antarmuka **Meja Dispatch** (`@office/web`), serta panggung **Kantor Virtual Isometrik 2.5D** (`workspace/office-next/`).
+Dokumen ini menjelaskan arsitektur teknis end-to-end dari sistem **Office Agents v1.1.0** yang mengoordinasikan **10 karyawan AI spesialis** melalui server orkestrasi Node.js + SQLite (`@office/server`), server MCP (`:7421/mcp`), antarmuka **Meja Dispatch** (`@office/web`), serta panggung **Kantor Virtual 3D Isometrik** (`workspace/office-next/`).
 
 ---
 
@@ -10,7 +10,7 @@ Dokumen ini menjelaskan arsitektur teknis end-to-end dari sistem **Office Agents
 flowchart TD
     CEO["CEO (Browser :5173 / :5174 / MCP)"]
     Web["@office/web (Meja Dispatch UI :5173)"]
-    Iso["workspace/office-next (Panggung Kantor 2.5D :5174)"]
+    Iso["workspace/office-next (Panggung Kantor 3D :5174)"]
     Server["@office/server (HTTP + WS :7420)"]
     MCP["Office MCP Server (:7421/mcp & mcp-stdio)"]
     Core["OfficeCore + OfficeScheduler (maxParallelSeats = 3)"]
@@ -22,7 +22,7 @@ flowchart TD
     Gateway["OpenAI-Compatible Model Gateway"]
 
     CEO -->|"Instruksi / Approval"| Web
-    CEO -->|"Visual 2.5D / Spectator Mode"| Iso
+    CEO -->|"Visual 3D / Spectator Mode"| Iso
     CEO -->|"MCP Tools"| MCP
     Web <-->|"WebSocket /ws & REST /api/*"| Server
     Iso <-->|"WebSocket /ws & REST /api/*"| Server
@@ -70,7 +70,7 @@ Kontrak tunggal yang dipakai bersama oleh backend, frontend (`@office/web` & `wo
    - Mengembalikan temuan yang sudah disamarkan (`rule`, `path`, `line`, `severity` — tanpa pernah menampilkan nilai rahasia mentah).
 4. **`git/git-service.ts` (`GitService`):**
    - Menjalankan `runSecurityScan` sebelum staging/commit dan sebelum `git push`.
-   - Membuat commit murni atas nama author pemilik repositori (`Muhayara <hafizhajah777@gmail.com>`) tanpa trailer `Co-authored-by`, dengan atribusi agen di judul commit: `<type>(2.5d): <ringkasan tugas> [by <Nama> — <Jabatan>]`.
+   - Membuat commit murni atas nama author pemilik repositori (`Muhayara <hafizhajah777@gmail.com>`) tanpa trailer `Co-authored-by`, dengan atribusi agen di judul commit: `<type>(3d): <ringkasan tugas> [by <Nama> — <Jabatan>]`.
 5. **`skills.ts` (`buildSkillsPromptBlock`):**
    - Menyuntikkan intisari `DIGEST.md` (`<= 120` baris, `<= 4000` karakter) dari `skills/vendor/anti-slop@41b85ed/` (semua 10 kursi) dan `skills/vendor/hallmark@7e213cb/` (`Tari`, `Wulan`, `Gita`).
 6. **`core/scheduler.ts` (`OfficeScheduler`):**
@@ -78,7 +78,7 @@ Kontrak tunggal yang dipakai bersama oleh backend, frontend (`@office/web` & `wo
 
 ### 2.3 `@office/web` (`apps/web/src/`) & `workspace/office-next/`
 - **`@office/web` (`:5173`):** Meja Dispatch utama dengan 10 kursi dinamis, indikator status Git real-time di bar atas (`StatusRail.tsx`), papan Kanban 5 kolom, aliran pesan kantor, dan panel Audit Keamanan `Satria` di `DetailRail.tsx`.
-- **`workspace/office-next/` (`:5174`):** Ruang Kantor Virtual Isometrik 2.5D yang mengimpor `@office/shared` langsung dari root monorepo dan mendukung **Mode Pengunjung (*Spectator View-Only Mode*)** maupun **Mode CEO**.
+- **`workspace/office-next/` (`:5174`):** Ruang Kantor Virtual 3D Isometrik yang mengimpor `@office/shared` langsung dari root monorepo dan mendukung **Mode Pengunjung (*Spectator View-Only Mode*)** maupun **Mode CEO**.
 
 ---
 

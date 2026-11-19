@@ -320,7 +320,7 @@ export function rosterLine(config: OfficeConfig, lang: 'id' | 'en' = 'id'): stri
     writer: lang === 'id' ? 'Penulis' : 'Writer',
     coder: lang === 'id' ? 'Programmer' : 'Programmer',
     reviewer: lang === 'id' ? 'Reviewer' : 'Reviewer',
-    gamedev: lang === 'id' ? 'Game Dev 2.5D' : '2.5D Game Dev',
+    gamedev: lang === 'id' ? 'Game Dev 3D' : '3D Game Dev',
     artist: lang === 'id' ? 'Artis Visual' : 'Technical Artist',
     visual_qa: lang === 'id' ? 'Penguji Visual' : 'Visual QA',
     security: lang === 'id' ? 'Keamanan' : 'Security',

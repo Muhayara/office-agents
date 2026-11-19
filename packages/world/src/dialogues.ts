@@ -1,7 +1,7 @@
 import type { AgentStatus } from '@office/shared';
 
 /**
- * Dialog Templates Bahasa Indonesia untuk Agen Virtual Office 2.5D
+ * Dialog Templates Bahasa Indonesia untuk Agen Virtual Office 3D
  * 100% template-based tanpa memerlukan external API key.
  */
 
@@ -339,7 +339,7 @@ export const COMMONS_CHAT: readonly string[] = [
   'Setuju, kita pecah jadi tiga tugas kecil.',
   'Riset pengguna bilang mereka butuh mode gelap.',
   'Aku catat keputusan ini di dokumen sprint.',
-  'Render 2.5D-nya masih patah di sudut timur.',
+  'Render 3D-nya masih patah di sudut timur.',
   'Review keamanan dulu sebelum fitur ini rilis.',
 ];
 
@@ -360,7 +360,7 @@ export const GARDEN_CHAT: readonly string[] = [
 // Tahap 5: sesi Workshop / Tech Demo
 export const WORKSHOP_TOPICS: readonly string[] = [
   'Arsitektur multi-agen & router gedung',
-  'Rendering 2.5D dengan Three.js',
+  'Rendering 3D dengan Three.js',
   'Keamanan run_command & izin CEO',
   'Riset pengguna untuk dasbor baru',
   'Desain UI: komponen kartu tugas',

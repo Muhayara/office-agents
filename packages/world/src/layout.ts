@@ -47,7 +47,7 @@ export const AGENT_3D_POSITIONS: Record<string, DeskSpot> = {
 
   // Pod 2 (Timur: Engineering & Keamanan — 4 meja berhadapan)
   bima:   { x:  2.0, z: -2.3, rotY: Math.PI }, // Programmer
-  gita:   { x:  4.0, z: -2.3, rotY: Math.PI }, // Game Dev 2.5D
+  gita:   { x:  4.0, z: -2.3, rotY: Math.PI }, // Game Dev 3D
   satria: { x:  2.0, z: -0.9, rotY: 0 },       // Keamanan
   laras:  { x:  4.0, z: -0.9, rotY: 0 },       // Reviewer
 };

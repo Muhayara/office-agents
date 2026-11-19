@@ -1,6 +1,6 @@
 # Hallmark Design Craft Digest (`hallmark@7e213cb`) — App & Workbench Standard
 
-> Terapkan langsung saat merancang arsitektur UI, palet token, tata letak ruangan 2.5D, serta komponen kontrol (JANGAN berhenti untuk bertanya pre-flight dan JANGAN menjalankan script eksternal `theme.mjs`/`sloplint.mjs`).
+> Terapkan langsung saat merancang arsitektur UI, palet token, tata letak ruangan 3D, serta komponen kontrol (JANGAN berhenti untuk bertanya pre-flight dan JANGAN menjalankan script eksternal `theme.mjs`/`sloplint.mjs`).
 
 ## 1. The Floor (Aturan Dasar Wajib)
 1. **Token-Driven Styling:** Semua warna, permukaan, font, dan spasi wajib dideklarasikan melalui CSS custom properties (`:root`) atau sistem token terpusat.
@@ -9,8 +9,8 @@
 4. **Fokus & Reduced Motion:** Setiap elemen interaktif wajib memiliki `:focus-visible` instan (`>= 3:1`) dan menghormati `prefers-reduced-motion: reduce`.
 5. **Kejujuran Visual:** Dilarang membuat metrik/angka palsu, gradien ungu-biru generik, emoji sebagai pengganti ikon struktural, atau kartu di dalam kartu (*card-in-a-card*).
 
-## 2. Disiplin App Screen & Split Workbench (Kantor Virtual 2.5D)
-- **Kanvas Sebagai Bintang Utama:** Untuk layar aplikasi/simulasi (*App Screen / Workbench*), kanvas ruang kantor 2.5D adalah objek utama (*the signature*), bukan hiasan di bawah teks panjang.
+## 2. Disiplin App Screen & Split Workbench (Kantor Virtual 3D)
+- **Kanvas Sebagai Bintang Utama:** Untuk layar aplikasi/simulasi (*App Screen / Workbench*), kanvas ruang kantor 3D adalah objek utama (*the signature*), bukan hiasan di bawah teks panjang.
 - **Kepadatan Terukur (Density is the Design):** Tinggi kontrol aplikasi `32px–40px` (dengan area klik ramah aksesibilitas), tata letak proporsional antara panggung utama (kanvas isometrik) dan panel inspeksi/telemetri di samping (*Split Studio / Workbench*).
 - **Empat State Data Wajib:** Setiap panel/region data wajib menangani state `loading`, `empty`, `error`, dan `full` secara eksplisit.
 - **Angka Tabular:** Semua angka metrik, koordinat `(col, row)`, FPS, kuota request, dan timer wajib menggunakan `font-variant-numeric: tabular-nums` agar tidak bergoyang saat berubah real-time.
