@@ -11,6 +11,7 @@ export * from './events';
 export * from './config';
 export * from './tools';
 export * from './envelope';
+export * from './avatar';
 
 import type { AgentRole, Lang, TaskStatus } from './events';
 import { TASK_STATUSES } from './events';

@@ -375,7 +375,7 @@ Aturan:
 - Baseline FPV: `freeAt()` di ketinggian 1,58 m dan 1,24 m di 5 titik (ruang kerja, Jalan Utama, Boardroom, Pantry, Commons), mode Hemat dan Tinggi. Catat `fps`, `frameMs`, `calls`, `triangles` dari `perf()`.
 - **Hasil:** varian seragam dipilih CEO, proporsi dikunci, angka anggaran di §5 terisi.
 
-### F1 — Avatar Rig v2 1,70 m & seragam agen
+### F1 — Avatar Rig v2 1,70 m & seragam agen ✅ (§10.5)
 - Modul `src/stage/avatar/` (§3.2), skema `AvatarConfig` di `@office/shared`, seragam `AGENT_UNIFORM`, rambut dan kulit per agen (usulan saya, direvisi CEO).
 - Migrasi switch pose ke `poses.*`, `AgentMeshRefs.rig`, offset beacon/bubble/cincin/bayangan.
 - Tolehan kepala (`lookAt.ts`) dan pembatas laju putar badan.
@@ -497,10 +497,11 @@ Langkah yang sudah pasti:
 | **K12** | Dunia real-time boleh **ditonton publik tanpa login** (`/ws/world` baca-saja, terfilter K9, dibatasi per IP). |
 | **K13** | Token viewer tetap **membaca state penuh** (setara karyawan untuk data, tidak bisa memerintah). |
 | **K7 (final)** | (18 Nov, dari screenshot F0) Seragam agen = **varian 2 Navy Tech** (`AGENT_UNIFORM` di `avatar/looks.ts`). Sementara dipasang di avatar v1; Rig v2 memakainya di F1. |
+| **K15** | (19 Nov, F1) Tampilan per agen = **usulan F0** (`avatar/agentLooks.ts`). Stool bar tanpa cincin pijakan: **kaki kiri menapak lantai, kaki kanan menapak kaki stool** (bukan menambah cincin ke aset). |
 | **K14** | ⏸ **Ditunda CEO 18 Nov** sampai HP cadangan (di-root) dijadikan server; login Google juga ditunda bersama hosting. Kode Funnel sudah siap dan diuji lokal. Rencana awal: Hosting publik = **Tailscale Funnel** (gratis, tanpa domain, URL `.ts.net` tetap, tanpa codebase baru). PC harus menyala. Langkah di `deployment-and-hosting-guide.md` Opsi 3B, skrip `start-public.bat`. |
 
 ### 8.2 Masih terbuka
-- Rambut / kulit / bentuk tubuh per agen di `avatar/looks.ts` masih usulan (direvisi CEO di F1).
+- Tidak ada untuk F1. Rambut / kulit / bentuk tubuh per agen diputuskan 19 Nov (K15); bisa direvisi kapan saja di `avatar/agentLooks.ts`.
 - Seragam (K7) dan hosting publik (K14) sudah diputuskan 18 Nov.
 
 ---
@@ -613,3 +614,60 @@ CEO memutuskan dunia real-time dikerjakan sekarang (K10–K13, §8.1). Struktur 
 - **Google OAuth Anda:** kredensial valid; `http://localhost:5174/api/auth/google/callback` sudah terdaftar (Google menampilkan halaman masuk). `http://localhost:7420/...` belum terdaftar (`redirect_uri_mismatch`) — tambahkan bersama URL `.ts.net`.
 - **Belum diuji:** perilaku header Funnel (Host asli vs `X-Forwarded-*`) karena Tailscale belum terpasang di PC ini.
 
+### 10.5 F1 — Avatar Rig v2 1,70 m & seragam agen (19 November 2026)
+
+**Kode (`src/stage/avatar/`):**
+
+| Modul | Isi |
+| :--- | :--- |
+| `config.ts` | Palet terkurasi (kulit 8, rambut 8, kain 12, sepatu 8), proporsi `BODY` (§2.2), `AGENT_UNIFORM` Navy Tech + piping `#3B82F6`, `DEFAULT_AVATAR` |
+| `agentLooks.ts` | Tampilan 10 agen (usulan F0, **disetujui CEO 19 Nov**) → `AvatarConfig` lengkap |
+| `parts.ts` | 19 tulang (`root` → `hips` → `spine` → `chest` → `neck` → `head` → `headMesh`, bahu → siku → tangan, pinggul → lutut → pergelangan kaki); geometri prosedural per tulang dengan vertex color, `skinIndex`/`skinWeight`; semua opsi §3.3 (7 rambut termasuk hijab yang membuka wajah, 4 atasan, 4 bawahan dengan rok 2 tulang, 3 sepatu, 4 aksesori) |
+| `rig.ts` | `AvatarRig`: **satu `SkinnedMesh` + satu material bersama** untuk semua avatar, soket `eye` (1,58 m) dan soket tangan, `setFirstPerson()` (tulang `headMesh` diskala 0, soket mata tetap), `setConfig()` (gabung ulang untuk F5), bola batas tetap untuk culling & klik |
+| `poses.ts` | IK kaki (abduksi + 2 tulang, telapak sejajar lantai), IK lengan (bahu → siku → pergelangan dengan vektor kutub), `poseWalk` (pinggul diturunkan sampai kaki penopang tepat di lantai), `poseSit(k)`, `poseHead`, `approachAngle` |
+| `lookAt.ts` | `chooseLook()` (prioritas §3.2) + `LookController` (yaw ±70°, pitch ±30°, τ 0,25 dtk) |
+| `seats.ts` | Kalibrasi 12 jenis dudukan / 50 kursi, `seatKindFor()` (jenis dudukan dari keadaan dunia + ruangan) |
+| `agentAvatar.ts` | `V2Avatar`: pose per state dunia (pengganti switch 91 baris `…Pivot.rotation.set`), belok badan ≤ 7 rad/dtk, beacon & bubble dari tulang kepala, cangkir/dokumen tetap tegak, `measureSeat()` |
+| `rigV1.ts` | Avatar chibi lama tanpa perubahan, hanya lewat `?rig=v1` |
+| `avatar.test.ts` | 9 tes Vitest tanpa WebGL (`npm run test:avatar`, ikut `npm test`) |
+
+Skema `AvatarConfigSchema` + `parseAvatarConfig` ada di `@office/shared` (`packages/shared/src/avatar.ts`). Prototipe F0 (`protoRig.ts`, `looks.ts`) dan hook `rigCompare()` / `uniform()` dihapus.
+
+**Koreksi terhadap §3.2 (dari analisis kode & ukur GLB sebelum dikerjakan):**
+1. **Kalibrasi tanpa mengubah dunia/kabel.** Jenis dudukan diturunkan di renderer dari state + ruangan (`seatKindFor`); dunia tetap mengirim `k` (bobot duduk). `sitY` v1 di `@office/world` tidak dipakai Rig v2, jadi server, protokol `/ws/world`, dan tes dunia tidak berubah. (`?rig=v1` tetap memakai `y` dari dunia.)
+2. **Tinggi dudukan nyata (raycast ke GLB):** 41 dari 50 = 0,450 m; Raka 0,473; rapat 0,455; stool 0,734; sofa 0,440. `sitY` v1 meleset sampai 10 cm (focus/pods/garden 0,35, sofa 0,34, stool 0,65).
+3. **Titik sofa Lounge tidak di tengah bantalan:** kursi 0 jatuh di lereng sandaran (permukaan 0,55 m di titiknya) → pinggul +0,10 m; kursi 2 di dekat tepi depan bantalan dalam → −0,10 m.
+4. **Stool tanpa cincin pijakan** (hanya 4 kaki miring; permukaan atas 0,28 m pada jari-jari 0,28 m di diagonal 45°). **Keputusan CEO K15:** kaki kiri menapak lantai, kaki kanan menapak kaki stool.
+5. **Kerikil/batu pijakan Garden 2,4 cm** di atas lantai → target pergelangan kaki 0,094 m.
+6. **Duduk di meja instan di dunia** (`k` 0 → 1 dalam satu tick) → renderer menghaluskan `k` (naik 2,8/dtk, turun 4/dtk) tanpa mengubah simulasi.
+7. **"Titik 1,5 m di depan lajur" diganti**: kepala langsung menatap arah hadap dunia, sedangkan badan berbelok maksimum 7 rad/dtk. Hasilnya kepala selalu mendahului badan di tikungan tanpa perlu mengirim jalur lewat kabel.
+8. **Lirikan ke meja tetangga** (±43°, ±1,4 dtk tiap ±11 dtk) deterministik dari waktu-dalam-state dunia, jadi sama di semua penonton.
+9. **Rapat:** tangan di pangkuan, bukan di meja (kursi berputar ke TV selama 13 dtk sehingga tangan di meja akan melayang); gestur tangan kanan saat bicara.
+10. **Rok & ujung blazer:** ujung blazer diikat ke tulang `spine` (ikut badan saat duduk); rok memakai bobot 2 tulang (panggul + paha) — baru dipakai tamu di F5.
+11. **Sisi L/R** = kiri/kanan pemakai (+X / −X saat menghadap +Z): cangkir di tangan kanan, dokumen di tangan kiri, kartu ID bergaris warna agen di dada kiri.
+12. **Temuan alat ukur:** `Raycaster` three.js tidak memeriksa `visible`; mesh tersembunyi `Timber_Work_Zone` (5,8 cm, dari GLB lama) membuat kursi Sari & Tari seolah gagal. Hook pengukur kini membuang hit tak terlihat.
+
+**Matriks 50 dudukan (`seatCheck()`, semua GLB termuat): 50/50 lolos.** Kriteria: |celah telapak ke lantai/pijakan| ≤ 3 cm, bawah panggul 0–5 cm di atas permukaan nyata, ruang di atas lutut sampai bawah meja ≥ 0,5 cm, galat jangkauan pergelangan ≤ 2 cm. Tes Vitest juga memastikan IK kaki & tangan tepat untuk ke-12 jenis.
+
+| Jenis | Jumlah | Permukaan | Mata duduk | Ruang lutut | Kaki |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| Kursi kerja | 9 | 0,450 | 1,24 | 0,18 | lantai, 0,42 m ke depan |
+| Kursi eksekutif Raka | 1 | 0,473 | 1,26 | 0,17 | lantai |
+| Kursi rapat | 10 | 0,455 | 1,25 | 0,17 | lantai |
+| Stool bar | 4 | 0,734 | 1,53 | 0,13 | kiri lantai, kanan kaki stool (celah 1,8 cm) |
+| Sofa Lounge | 3 | 0,440 | 1,25 | — | lantai, bersandar −0,2 rad |
+| Commons | 6 | 0,450 | 1,24 | 0,17 | lantai |
+| Bangku Garden | 3 | 0,450 | 1,24 | — | kerikil (0,024) |
+| Workshop | 6 | 0,450 | 1,24 | 0,18 | lantai |
+| Diner pod | 4 | 0,450 | 1,24 | 0,16 | lantai |
+| Focus pod | 2 | 0,450 | 1,24 | 0,17 | lantai |
+| Editor Studio | 1 | 0,450 | 1,23 | 0,18 | lantai |
+| Konsol Server | 1 | 0,450 | 1,24 | 0,18 | lantai |
+
+**Performa:** satu avatar = 1 `SkinnedMesh` (2.243 verteks, 1.876 segitiga, 19 tulang) + beacon, satu program shader bersama. Draw call avatar di kamera ruang kerja (Hemat): **v1 81 → v2 17** (target §5 ≤ 25 terpenuhi).
+
+**Verifikasi:** `npm run typecheck` bersih; `npm test` **99 lulus** (dunia 8, server 82, avatar 9 baru: skema, 20 varian bagian, proporsi §2.2 & sisi L/R, IK kaki 12 jenis, IK tangan, FPV). Playwright headless: 0 error konsol; `fastForward(640)` tanpa error; rapat 10/10 duduk dengan peserta menoleh 36–70° ke pembicara/TV; klik avatar (duduk & berjalan) memilih agen yang benar (raycast `SkinnedMesh`); `?rig=v1` tetap jalan. Screenshot di `docs/img/f1/` (`f1-workspace-agents`, `f1-seats-*` untuk 50 dudukan, `f1-close-desk` / `-stool` / `-sofa`).
+
+**Hook dev baru:** `rig()`, `seatCheck(show?, kinds?)`, `probe(x, z)`, `screenOf(id)`, `eyeOf(id)`, `firstPerson(id, on)`, `hideAgents(on)`; `seatTop()` tetap.
+
+**Untuk F3 (Mata Agen):** kamera memakai `V2Avatar.rig.eye` (sudah termasuk tolehan kepala) dan `rig.setFirstPerson(true)`; fase langkah ada di `V2Avatar` (`walkPhase`) untuk head-bob.

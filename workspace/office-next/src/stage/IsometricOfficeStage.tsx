@@ -23,7 +23,6 @@ import {
   COLLABPODS,
   COMMONS,
   CORRIDOR_BUS,
-  FOCUSPODS,
   GARDEN,
   ROOM_ACCESS,
   ROOM_COLLABPODS,
@@ -81,8 +80,11 @@ import { buildCollabPods } from './rooms/collabPods';
 import { buildStudioContent } from './rooms/studioContent';
 import { buildFocusPods } from './rooms/focusPods';
 import { buildAccessHub } from './rooms/accessHub';
-import { buildProtoAvatar, disposeProto, eyeWorld, poseArmsForward, poseSit, poseStand, type ProtoJoints } from './avatar/protoRig';
-import { AGENT_UNIFORM, UNIFORMS, type UniformVariant } from './avatar/looks';
+import { V2Avatar, type AgentAvatar } from './avatar/agentAvatar';
+import { createAvatarShared } from './avatar/rig';
+import { createV1Shared, V1Avatar } from './avatar/rigV1';
+import { allSeats, seatCalibAt, seatKindFor, type SeatKind } from './avatar/seats';
+import { chooseLook, type LookTarget, type LookWorld } from './avatar/lookAt';
 
 // ============================================================================
 // Tipe & konstanta panggung
@@ -139,23 +141,19 @@ const ROOM_SHORT: Record<string, string> = {
 };
 /** Arah datang matahari (dari tenggara atas). Target & frustum bayangan dipaskan ke tapak gedung. */
 const SUN_OFFSET = new THREE.Vector3(12, 24, 16);
-const SEATED_LEG = Math.PI / 2.2;
+/** F1: Rig v2 1,70 m bawaan; `?rig=v1` = avatar chibi lama untuk perbandingan selama migrasi. */
+const RIG_VERSION: 1 | 2 = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('rig') === 'v1' ? 1 : 2;
+const NO_LOOK: LookTarget = { kind: 'dir', yaw: 0, pitch: 0 };
 
 interface AgentMeshRefs {
   deskGroup: THREE.Group;
-  avatar: THREE.Group;
-  leftArmPivot: THREE.Group;
-  rightArmPivot: THREE.Group;
-  leftLegPivot: THREE.Group;
-  rightLegPivot: THREE.Group;
-  cup: THREE.Mesh;
-  doc: THREE.Mesh;
+  /** Avatar agen (Rig v2, atau v1 lewat `?rig=v1`); dipasang oleh buildAvatars. */
+  av?: AgentAvatar;
   monitor: THREE.Mesh;
   screenMat: THREE.MeshStandardMaterial | null;
   /** Indeks pendar layar di DeskGlows & warna agennya. */
   glowIndex: number;
   glowColor: THREE.Color;
-  beacon: THREE.Mesh;
   selRing: THREE.Mesh;
   sitPos: { x: number; y: number; z: number };
   sitRotY: number;
@@ -838,12 +836,9 @@ export function IsometricOfficeStage({
         const visitPos = { x: vw.x, z: vw.z };
 
         meshMap.set(ag.id, {
-          deskGroup: g, avatar: new THREE.Group(),
-          leftArmPivot: new THREE.Group(), rightArmPivot: new THREE.Group(),
-          leftLegPivot: new THREE.Group(), rightLegPivot: new THREE.Group(),
-          cup: new THREE.Mesh(), doc: new THREE.Mesh(), monitor: mon, screenMat,
+          deskGroup: g, monitor: mon, screenMat,
           glowIndex: agentIndex, glowColor: color,
-          beacon: new THREE.Mesh(), selRing: ring,
+          selRing: ring,
           sitPos, sitRotY: sRotY, visitPos,
         });
       });
@@ -866,135 +861,24 @@ export function IsometricOfficeStage({
     };
 
     // ================================================================
-    // AVATAR AGEN DENGAN ARTIKULASI LENGAN & KAKI (MENGHADAP MEJA!)
+    // AVATAR AGEN (F1, rencana FPV §3.2): Rig v2 1,70 m — satu SkinnedMesh per agen, siku & lutut (IK),
+    // kepala menoleh, seragam Navy Tech. `?rig=v1` = avatar chibi lama (perbandingan selama migrasi).
     // ================================================================
-    /** Geometri & material avatar dipakai bersama ke-10 agen (hanya kemeja & beacon per agen). */
-    const avatarShared = {
-      bodyGeo: new THREE.CylinderGeometry(0.13, 0.15, 0.35, 12),
-      headGeo: new THREE.SphereGeometry(0.12, 16, 16),
-      hairGeo: new THREE.SphereGeometry(0.124, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2),
-      armGeo: new THREE.CylinderGeometry(0.028, 0.022, 0.18, 8),
-      handGeo: new THREE.SphereGeometry(0.03, 8, 8),
-      docGeo: new THREE.BoxGeometry(0.17, 0.006, 0.22),
-      cupGeo: new THREE.CylinderGeometry(0.04, 0.032, 0.08, 8),
-      legGeo: new THREE.CylinderGeometry(0.035, 0.028, 0.22, 8),
-      beaconGeo: new THREE.OctahedronGeometry(0.14, 0),
-      skinMat: new THREE.MeshStandardMaterial({ color: 0xffd9b3, roughness: 0.6 }),
-      hairMat: new THREE.MeshStandardMaterial({ color: 0x172227, roughness: 0.9 }),
-      docMat: new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.55 }),
-      cupMat: new THREE.MeshStandardMaterial({ color: 0xfaf8f5, roughness: 0.25, metalness: 0.1 }),
-      legMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 }),
-    };
+    const v2Shared = createAvatarShared();
+    const v1Shared = RIG_VERSION === 1 ? createV1Shared() : null;
+    const agentIdx = new Map(initAgents.map((a, i) => [a.id, i] as const));
 
     const buildAvatars = () => {
-      while (avatarsGroup.children.length > 0) avatarsGroup.remove(avatarsGroup.children[0]!);
-      const S = avatarShared;
-
       initAgents.forEach((ag, idx) => {
         const refs = meshMap.get(ag.id);
         if (!refs) return;
         const color = new THREE.Color(ag.color);
-        const sp = refs.sitPos;
-        // K7: seragam agen Navy Tech (identitas warna agen tetap di beacon, cincin, pendar monitor, bubble).
-        const shirtMat = new THREE.MeshStandardMaterial({ color: UNIFORMS[AGENT_UNIFORM].outer, roughness: 0.62, metalness: 0.05 });
-
-        const g = new THREE.Group();
-        g.name = `Avatar_${ag.id}`;
-        g.userData = { agentId: ag.id };
-        g.position.set(sp.x, sp.y, sp.z);
-        g.rotation.y = refs.sitRotY;
-
-        // Badan / Kemeja
-        const body = new THREE.Mesh(S.bodyGeo, shirtMat);
-        body.position.y = 0.28;
-        body.castShadow = true;
-        g.add(body);
-
-        // Kepala
-        const head = new THREE.Mesh(S.headGeo, S.skinMat);
-        head.position.y = 0.57;
-        head.castShadow = true;
-        g.add(head);
-
-        // Rambut Stylized
-        const hair = new THREE.Mesh(S.hairGeo, S.hairMat);
-        hair.position.y = 0.58;
-        g.add(hair);
-
-        // Lengan Kiri (Pivot Sendi Bahu)
-        const lap = new THREE.Group();
-        lap.position.set(-0.17, 0.40, 0);
-        const lf = new THREE.Mesh(S.armGeo, shirtMat);
-        lf.position.y = -0.09;
-        lap.add(lf);
-        const lh = new THREE.Mesh(S.handGeo, S.skinMat);
-        lh.position.y = -0.18;
-        lap.add(lh);
-
-        // Map dokumen di tangan kiri (dibawa saat serah-terima / minta review)
-        const doc = new THREE.Mesh(S.docGeo, S.docMat);
-        doc.position.set(0, -0.2, 0.06);
-        doc.rotation.x = -0.35;
-        doc.visible = false;
-        lap.add(doc);
-        g.add(lap);
-
-        // Lengan Kanan (Pivot Sendi Bahu)
-        const rap = new THREE.Group();
-        rap.position.set(0.17, 0.40, 0);
-        const rf = new THREE.Mesh(S.armGeo, shirtMat);
-        rf.position.y = -0.09;
-        rap.add(rf);
-        const rh = new THREE.Mesh(S.handGeo, S.skinMat);
-        rh.position.y = -0.18;
-        rap.add(rh);
-
-        // Cangkir Kopi di Tangan Kanan
-        const cup = new THREE.Mesh(S.cupGeo, S.cupMat);
-        cup.position.set(0, -0.20, 0.04);
-        cup.visible = false;
-        rap.add(cup);
-        g.add(rap);
-
-        // Kaki Kiri (Pivot Pinggul)
-        const llp = new THREE.Group();
-        llp.position.set(-0.07, 0.12, 0);
-        const llMesh = new THREE.Mesh(S.legGeo, S.legMat);
-        llMesh.position.y = -0.11;
-        llMesh.castShadow = true;
-        llp.add(llMesh);
-        g.add(llp);
-
-        // Kaki Kanan (Pivot Pinggul)
-        const rlp = new THREE.Group();
-        rlp.position.set(0.07, 0.12, 0);
-        const rlMesh = new THREE.Mesh(S.legGeo, S.legMat);
-        rlMesh.position.y = -0.11;
-        rlMesh.castShadow = true;
-        rlp.add(rlMesh);
-        g.add(rlp);
-
-        // Beacon Status Melayang di Atas Kepala
-        const beaconMat = new THREE.MeshStandardMaterial({
-          color, emissive: color, emissiveIntensity: 0.9, roughness: 0.15, metalness: 0.85,
-        });
-        beaconMat.userData.baseColor = color.clone();
-        const beacon = new THREE.Mesh(S.beaconGeo, beaconMat);
-        beacon.position.y = 0.92;
-        beacon.userData = { isBeacon: true, offset: idx * 0.7, baseY: 0.92 };
-        g.add(beacon);
-
-        avatarsGroup.add(g);
-        contactShadows.addAvatar(g);
-
-        refs.avatar = g;
-        refs.leftArmPivot = lap;
-        refs.rightArmPivot = rap;
-        refs.leftLegPivot = llp;
-        refs.rightLegPivot = rlp;
-        refs.cup = cup;
-        refs.doc = doc;
-        refs.beacon = beacon;
+        const av: AgentAvatar = v1Shared ? new V1Avatar(ag.id, color, idx, v1Shared) : new V2Avatar(ag.id, ag.name, color, idx, v2Shared);
+        av.group.position.set(refs.sitPos.x, 0, refs.sitPos.z);
+        av.group.rotation.y = refs.sitRotY;
+        avatarsGroup.add(av.group);
+        contactShadows.addAvatar(av.group);
+        refs.av = av;
       });
     };
 
@@ -1186,157 +1070,31 @@ export function IsometricOfficeStage({
     const agentName = (id: string) => initAgents.find((a) => a.id === id)?.name ?? id;
     const tempVec = new THREE.Vector3();
 
-    const setLegs = (refs: AgentMeshRefs, a: number) => {
-      refs.leftLegPivot.rotation.set(a, 0, 0);
-      refs.rightLegPivot.rotation.set(a, 0, 0);
+    // F1: kalibrasi dudukan & tolehan kepala (logika keadaan tetap di @office/world, pose di avatar/).
+    const roomOfAgent = new Map<string, string>();
+    const lookTmp = new THREE.Vector3();
+    const tvWorld = board.group.localToWorld(new THREE.Vector3(BOARDROOM.tv.x, BOARDROOM.tv.y, BOARDROOM.tv.z));
+    const workshopDisplay = workshop.group.localToWorld(new THREE.Vector3(WORKSHOP.display.x, WORKSHOP.display.y, WORKSHOP.display.z));
+    const lookWorld: LookWorld = {
+      frames: [],
+      headOf: (id, out) => meshMap.get(id)?.av?.headWorld(out) ?? null,
+      roomOf: (f) => roomOfAgent.get(f.id) ?? '',
+      meetingSession: false,
+      tv: tvWorld,
+      workshopDisplay,
     };
+    let hideAgents = false;
 
-    /** Pose lengan & kaki dari keadaan dunia (logika keadaan ada di @office/world). */
-    const applyAgent = (f: AgentFrame, refs: AgentMeshRefs, t: number) => {
-      const off = (refs.beacon.userData.offset as number | undefined) ?? 0;
-      refs.avatar.visible = f.vis && !f0HideV1;
-      refs.avatar.position.set(f.x, f.y, f.z);
-      refs.avatar.rotation.y = f.rotY;
-      refs.cup.visible = f.cup;
-      refs.doc.visible = f.doc;
-      const status = f.status;
-      const talking = f.bubbleT > 0;
-      const L = refs.leftArmPivot.rotation, R = refs.rightArmPivot.rotation;
-      switch (f.state) {
-        case 'working': {
-          setLegs(refs, SEATED_LEG);
-          const phase = t * 16 + off;
-          if (status === 'waiting_approval') {
-            // Angkat tangan memanggil CEO, tangan kiri tetap di keyboard
-            R.set(-2.85, 0, -0.15 + Math.sin(t * 6) * 0.18);
-            L.set(-0.95, 0, 0.18);
-          } else if (status === 'error') {
-            // Bingung: garuk kepala
-            R.set(-2.45 + Math.sin(t * 7) * 0.08, 0, 0.55);
-            L.set(-0.6, 0, 0.12);
-          } else if (status === 'idle' || status === 'meeting' || status === 'offline') {
-            L.set(-0.5 + Math.sin(t * 1.2 + off) * 0.04, 0, 0.12);
-            R.set(-0.5 + Math.cos(t * 1.2 + off) * 0.04, 0, -0.12);
-          } else {
-            // Mengetik (thinking/working/messaging, juga demo)
-            const speed = status === 'thinking' ? 0.55 : 1;
-            L.set(-0.95 + Math.sin(phase * speed) * 0.12, 0, 0.18);
-            R.set(-0.95 + Math.cos(phase * 1.2 * speed) * 0.12, 0, -0.18);
-          }
-          refs.avatar.position.y = f.y + Math.sin(t * 2.5 + off) * 0.005;
-          break;
-        }
-        case 'meeting_called':
-          setLegs(refs, SEATED_LEG);
-          L.set(-0.5, 0, 0.12);
-          R.set(-0.5, 0, -0.12);
-          break;
-        case 'meeting_sitting':
-        case 'meeting_standing':
-          setLegs(refs, SEATED_LEG * f.k);
-          L.set(-0.2, 0, 0.1);
-          R.set(-0.2, 0, -0.1);
-          break;
-        case 'in_meeting':
-          setLegs(refs, SEATED_LEG);
-          refs.avatar.position.y += Math.sin(t * 2.5 + off) * 0.005;
-          L.set(talking ? -0.6 + Math.sin(t * 4) * 0.2 : -0.45, 0, 0.1);
-          R.set(talking ? -0.7 + Math.cos(t * 3.5) * 0.2 : -0.45, 0, -0.1);
-          break;
-        case 'visiting':
-          setLegs(refs, 0);
-          L.set(f.hasDoc ? -1.1 : -0.3, 0, 0.1);
-          R.set(-0.5 + Math.sin(t * 5) * 0.25, 0, -0.15);
-          break;
-        case 'waiting_in_queue':
-          setLegs(refs, 0);
-          L.set(-0.2 + Math.sin(t * 1.5) * 0.05, 0, 0.08);
-          R.set(-0.2 + Math.cos(t * 1.5) * 0.05, 0, -0.08);
-          break;
-        case 'brewing':
-          setLegs(refs, 0);
-          L.set(-0.8 + Math.sin(t * 3) * 0.18, 0, 0.25);
-          R.set(-0.6 + Math.cos(t * 2.5) * 0.15, 0, -0.25);
-          break;
-        case 'away':
-          break;
-        case 'errand_stay': {
-          const k = f.k;
-          setLegs(refs, SEATED_LEG * k);
-          const ph = t + off;
-          if (f.pose === 'inspect') {
-            R.set(-2.1 + Math.sin(ph * 2.2) * 0.25, 0, -0.15);
-            L.set(-0.7 + Math.cos(ph * 1.6) * 0.15, 0, 0.12);
-          } else if (f.pose === 'type' && k >= 1) {
-            L.set(-0.95 + Math.sin(ph * 16) * 0.12, 0, 0.18);
-            R.set(-0.95 + Math.cos(ph * 19) * 0.12, 0, -0.18);
-          } else if (f.pose === 'present') {
-            R.set(talking ? -1.2 + Math.sin(ph * 3.6) * 0.35 : -0.3, 0, talking ? -0.3 : -0.1);
-            L.set(talking ? -0.55 + Math.cos(ph * 2.4) * 0.2 : -0.25, 0, 0.12);
-          } else if (f.pose === 'discuss' && k >= 1) {
-            L.set(-0.85 + (talking ? Math.sin(ph * 2.6) * 0.08 : 0), 0, 0.2);
-            R.set(talking ? -1.35 + Math.sin(ph * 4.2) * 0.35 : -0.85, 0, talking ? -0.35 : -0.2);
-          } else {
-            const tk = talking && k >= 1;
-            L.set(tk ? -0.7 + Math.sin(ph * 4) * 0.25 : -0.4, 0, 0.14);
-            R.set(tk ? -0.6 + Math.cos(ph * 3.5) * 0.25 : -0.4, 0, -0.14);
-          }
-          if (k >= 1) refs.avatar.position.y += Math.sin(ph * 2.5) * 0.004;
-          break;
-        }
-        case 'sipping_at_bar':
-          setLegs(refs, SEATED_LEG * f.k);
-          if (f.k >= 1) {
-            const sipCycle = (t * 0.8 + off) % (Math.PI * 2);
-            R.set(Math.sin(sipCycle) > 0.55 ? -1.45 : -0.75, 0, -0.16);
-            L.set(-0.85 + Math.sin(t * 1.3 + off) * 0.05, 0, 0.15);
-            refs.avatar.position.y += Math.sin(t * 2.5 + off) * 0.004;
-          } else {
-            R.set(-0.65, 0, -0.1);
-            L.set(-0.2, 0, 0.1);
-          }
-          break;
-        case 'drinking': {
-          setLegs(refs, SEATED_LEG);
-          const sipCycle = (t * 0.8 + off) % (Math.PI * 2);
-          if (Math.sin(sipCycle) > 0.6) {
-            R.set(-1.45, 0, -0.15);
-            L.set(-0.5, 0, 0.1);
-          } else {
-            R.set(-0.7, 0, -0.2);
-            L.set(-0.95 + Math.sin(t * 14) * 0.12, 0, 0.18);
-          }
-          break;
-        }
-        case 'disposing':
-          setLegs(refs, 0);
-          R.set(-0.8 + Math.sin(f.t * 5) * 0.2, 0, -0.2);
-          break;
-        default: {
-          // Semua state walk_*: kaki berayun, lengan mengikuti cangkir / dokumen.
-          if (f.gateWait) {
-            setLegs(refs, 0);
-            L.set(-0.15, 0, 0.08);
-            R.set(-0.15, 0, -0.08);
-            break;
-          }
-          const legSwing = Math.sin(f.t * 10) * 0.55;
-          refs.leftLegPivot.rotation.set(legSwing, 0, 0);
-          refs.rightLegPivot.rotation.set(-legSwing, 0, 0);
-          refs.avatar.position.y = Math.abs(Math.sin(f.t * 10)) * 0.04;
-          if (f.doc) {
-            L.set(-1.0, 0, 0.1);
-            R.set(-legSwing * 0.7, 0, -0.08);
-          } else if (f.cup) {
-            R.set(-0.65, 0, -0.1);
-            L.set(legSwing * 0.7, 0, 0.08);
-          } else {
-            L.set(legSwing * 0.7, 0, 0.08);
-            R.set(-legSwing * 0.7, 0, -0.08);
-          }
-          break;
-        }
-      }
+    /** Pose dari keadaan dunia: jenis dudukan → kalibrasi, target tatapan → tolehan. */
+    const applyAgent = (f: AgentFrame, refs: AgentMeshRefs, t: number, dt: number) => {
+      const av = refs.av;
+      if (!av) return;
+      const idx = agentIdx.get(f.id) ?? 0;
+      const kind = seatKindFor(f, roomOfAgent.get(f.id) ?? '');
+      const seat = kind ? seatCalibAt(kind, f.x, f.z, worldSpots) : null;
+      const look = av.version === 2 ? chooseLook(f, idx, seat, lookWorld, lookTmp) : NO_LOOK;
+      av.apply(f, { t, dt, seat, look });
+      if (hideAgents) av.group.visible = false;
     };
 
     // ================================================================
@@ -1358,6 +1116,10 @@ export function IsometricOfficeStage({
       const sel = selectedRef.current;
       const t = globalTime;
       frameOf.clear();
+      roomOfAgent.clear();
+      for (const f of v.agents) roomOfAgent.set(f.id, f.vis ? nav.roomAt({ x: f.x, z: f.z }) ?? '' : '');
+      lookWorld.frames = v.agents;
+      lookWorld.meetingSession = v.props.meeting?.phase === 'session';
 
       for (const f of v.agents) {
         frameOf.set(f.id, f);
@@ -1366,15 +1128,15 @@ export function IsometricOfficeStage({
         const isSelected = f.id === sel;
         (refs.selRing.material as THREE.MeshBasicMaterial).opacity = isSelected ? 0.75 : 0;
 
-        // Beacon melayang di atas kepala
-        const bData = refs.beacon.userData;
-        refs.beacon.position.y = (bData.baseY || 0.92) + Math.sin(t * 2 + (bData.offset || 0)) * 0.04;
-        refs.beacon.rotation.y += 0.025;
-        let glow = isSelected ? 3.0 : 1.8 + Math.sin(t * 4 + (bData.offset || 0)) * 0.3;
+        const av = refs.av;
+        if (!av) continue;
+        // Beacon melayang di atas kepala (posisi & putaran dasar diatur avatar).
+        const beacon = av.beacon;
+        let glow = isSelected ? 3.0 : 1.8 + Math.sin(t * 4 + (agentIdx.get(f.id) ?? 0) * 0.7) * 0.3;
 
         // Visual mengikuti status asli (live)
         const status = f.status;
-        const beaconMat = refs.beacon.material as THREE.MeshStandardMaterial;
+        const beaconMat = beacon.material as THREE.MeshStandardMaterial;
         if (status !== null) {
           const look = STATUS_LOOK[status];
           if (refs.screenMat) {
@@ -1391,7 +1153,7 @@ export function IsometricOfficeStage({
           }
           const pulse = status === 'waiting_approval' || status === 'error' ? 0.6 + Math.abs(Math.sin(t * 4)) * 1.6 : 1;
           beaconMat.emissiveIntensity = (isSelected ? 1.8 : look.beaconIntensity) * pulse;
-          refs.beacon.rotation.y += status === 'thinking' || status === 'working' ? 0.06 : 0;
+          beacon.rotation.y += status === 'thinking' || status === 'working' ? 0.06 : 0;
         } else {
           if (refs.screenMat) {
             refs.screenMat.emissive.setHex(0xffffff);
@@ -1404,7 +1166,7 @@ export function IsometricOfficeStage({
           beaconMat.emissiveIntensity = isSelected ? 1.8 : 0.9;
         }
         deskGlows.setColor(refs.glowIndex, refs.glowColor, glow * 0.15);
-        applyAgent(f, refs, t);
+        applyAgent(f, refs, t, dt);
       }
 
       deskGlows.commit();
@@ -1420,7 +1182,7 @@ export function IsometricOfficeStage({
       board.applyRigs(v.rigs);
       // Pintu otomatis (sensor gerak), LED rak & layar NOC.
       const agentPts: Pt[] = [];
-      for (const r of meshMap.values()) if (r.avatar.visible) agentPts.push({ x: r.avatar.position.x, z: r.avatar.position.z });
+      for (const r of meshMap.values()) if (r.av?.group.visible) agentPts.push({ x: r.av.group.position.x, z: r.av.group.position.z });
       lobby.update(dt, agentPts);
       server.update(globalTime, dt, agentPts, roomInView(roomBoxes.server));
       garden.update(globalTime, dt, agentPts);
@@ -1537,9 +1299,8 @@ export function IsometricOfficeStage({
         const anim = frameOf.get(agentId);
         const refs = meshMap.get(agentId);
         let shown = false;
-        if (anim && refs && anim.bubble && anim.bubbleT > 0 && refs.avatar.visible) {
-          tempVec.setFromMatrixPosition(refs.avatar.matrixWorld);
-          tempVec.y += 1.05;
+        if (anim && refs?.av && anim.bubble && anim.bubbleT > 0 && refs.av.group.visible) {
+          refs.av.bubbleAnchor(tempVec);
           tempVec.project(camera);
           // Di belakang kamera Free Cam: jangan tampilkan bubble
           if (tempVec.z >= -1 && tempVec.z <= 1) {
@@ -1670,62 +1431,59 @@ export function IsometricOfficeStage({
       resetCamera: () => cam.reset(),
       focusAgent: (agentId) => {
         const refs = meshMap.get(agentId);
-        if (!refs) return;
-        cam.focus(new THREE.Vector3(refs.avatar.position.x, 0.8, refs.avatar.position.z));
+        if (!refs?.av) return;
+        cam.focus(new THREE.Vector3(refs.av.group.position.x, 0.8, refs.av.group.position.z));
       },
     };
     if (stageApiRef) stageApiRef.current = apiRef.current;
 
     // Hook diagnostik khusus dev server (tidak ikut ke build produksi).
     const win = window as unknown as Record<string, unknown>;
-    // ---- F0 (rencana FPV §4): prototipe Rig v2 1,70 m & 3 varian seragam (hanya dev) ----
-    const f0Group = new THREE.Group();
-    f0Group.name = 'F0_Prototypes';
-    floor1.add(f0Group);
-    let f0Protos: ProtoJoints[] = [];
-    let f0HideV1 = false;
-    let f0Clones: THREE.Object3D[] = [];
-    const f0Ray = new THREE.Raycaster();
-    const f0Clear = () => {
-      f0Protos.forEach(disposeProto);
-      f0Protos = [];
-      f0Clones.forEach((c) => c.removeFromParent());
-      f0Clones = [];
-      f0HideV1 = false;
+    // ---- F1 (rencana FPV §3.2): matriks 50 dudukan & alat bantu rig ----
+    const f1Group = new THREE.Group();
+    f1Group.name = 'F1_SeatProbes';
+    floor1.add(f1Group);
+    let f1Probes: V2Avatar[] = [];
+    const f1Clear = () => {
+      f1Probes.forEach((p) => p.dispose());
+      f1Probes = [];
+      hideAgents = false;
     };
-    /** Tinggi permukaan dudukan / perabot tertinggi di bawah titik (x, z), dicari di pita 0,15–maxY m. */
-    const f0SeatTop = (x: number, z: number, maxY = 1.2): number => {
-      f0Ray.set(new THREE.Vector3(x, maxY, z), new THREE.Vector3(0, -1, 0));
-      f0Ray.far = maxY - 0.15;
-      const hits = f0Ray.intersectObjects(floor1.children.filter((c) => c !== avatarsGroup && c !== f0Group), true);
+    const seatRay = new THREE.Raycaster();
+    const probeTargets = () => floor1.children.filter((c) => c !== avatarsGroup && c !== f1Group);
+    /** Raycaster three.js tidak memeriksa visibilitas: buang mesh tersembunyi (mis. sisa `Timber_Work_Zone`). */
+    const shown = (o: THREE.Object3D | null) => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
+    const castVisible = () => seatRay.intersectObjects(probeTargets(), true).filter((h) => shown(h.object));
+    /** Tinggi permukaan tertinggi di bawah titik (x, z), dicari di pita minY–maxY m (raycast ke GLB, tanpa avatar). */
+    const seatTopAt = (x: number, z: number, maxY = 1.2, minY = 0.15): number => {
+      seatRay.set(new THREE.Vector3(x, maxY, z), new THREE.Vector3(0, -1, 0));
+      seatRay.far = maxY - minY;
+      const hits = castVisible();
       return hits.length > 0 ? +(maxY - hits[0]!.distance).toFixed(3) : 0;
     };
-    /** Klon avatar v1 (statis) untuk dibandingkan berdampingan. */
-    const f0V1Clone = (id: string, x: number, y: number, z: number, rotY: number, seated: boolean) => {
-      const r = meshMap.get(id);
-      if (!r) return;
-      const c = r.avatar.clone(true);
-      c.visible = true;
-      c.position.set(x, y, z);
-      c.rotation.set(0, rotY, 0);
-      const legs = [c.children[5], c.children[6]];
-      legs.forEach((l) => l?.rotation.set(seated ? SEATED_LEG : 0, 0, 0));
-      f0Group.add(c);
-      f0Clones.push(c);
+    /** Ruang bebas di atas titik sampai permukaan bawah perabot (m; Infinity = bebas sejauh `up`). */
+    const clearAbove = (p: THREE.Vector3, up = 0.6): number => {
+      seatRay.set(p, new THREE.Vector3(0, 1, 0));
+      seatRay.far = up;
+      const hits = castVisible();
+      return hits.length > 0 ? +hits[0]!.distance.toFixed(3) : Infinity;
     };
-    const f0Place = (id: string, color: string, variant: UniformVariant, x: number, z: number, rotY: number) => {
-      const p = buildProtoAvatar(id, color, variant);
-      p.root.position.set(x, 0, z);
-      p.root.rotation.y = rotY;
-      f0Group.add(p.root);
-      f0Protos.push(p);
-      return p;
+    /** 50 dudukan Lantai 1 (dunia): 10 meja, 10 kursi rapat terselip, 4 stool, 3 sofa, 6+3+6+4+2+1+1. */
+    const seatList = () => {
+      const desks = initAgents.flatMap((ag) => {
+        const r = meshMap.get(ag.id);
+        return r ? [{ id: ag.id, x: r.sitPos.x, z: r.sitPos.z, rotY: r.sitRotY }] : [];
+      });
+      const boardSeats = BOARDROOM_SEATS.map((_, i) => {
+        const s = boardroomSpots.seat(i, 0);
+        return { x: s.x, z: s.z, rotY: boardroomSpots.yaw(i) };
+      });
+      return allSeats(worldSpots, desks, boardSeats);
     };
-    const f0Eye = (p: ProtoJoints) => {
-      const e = eyeWorld(p);
-      const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(p.root.quaternion);
-      return { eye: [+e.x.toFixed(3), +e.y.toFixed(3), +e.z.toFixed(3)], lookAt: [+(e.x + fwd.x * 3).toFixed(3), +(e.y - 0.35).toFixed(3), +(e.z + fwd.z * 3).toFixed(3)] };
-    };
+    const frameTemplate = (id: string): AgentFrame => ({
+      id, x: 0, y: 0, z: 0, rotY: 0, state: 'working', t: 0, k: 1, pose: null, cup: false, doc: false, vis: true,
+      gateWait: false, hasDoc: false, bubble: null, bubbleT: 0, bubbleReal: false, bubbleSeq: 0, status: 'working',
+    });
     if (import.meta.env.DEV) {
       /** Simulasi lokal (demo / server mati). Mode live dikendalikan sutradara di server. */
       const localSim = () => {
@@ -1849,81 +1607,98 @@ export function IsometricOfficeStage({
         /** Kunjungan meja seperti event live `visit` (mis. minta review ke Raka). */
         visit: (from: string, to: string, text = 'Minta review sebentar, Pak.') => localSim()?.debug.visit(from, to, text),
         path: (from: Pt, to: Pt) => nav.path(from, to),
-        /** F0: tinggi permukaan dudukan di bawah titik dunia (raycast ke GLB). */
-        seatTop: (x: number, z: number, maxY?: number) => f0SeatTop(x, z, maxY),
-        /**
-         * F0: prototipe v2 1,70 m vs avatar v1 di 4 stasiun (meja kerja, podium Workshop, stool Pantry, focus pod).
-         * `hideAgents` menyembunyikan 10 agen v1 asli supaya screenshot bersih. false = bersihkan.
-         */
-        rigCompare: (on = true, hideAgents = true, variant: UniformVariant = AGENT_UNIFORM) => {
-          f0Clear();
-          if (!on) return null;
-          f0HideV1 = hideAgents;
-          const out: Record<string, unknown> = {};
-          // 1) Meja kerja Dimas: berdiri di titik tamu menghadap meja.
-          const dm = meshMap.get('dimas');
-          if (dm) {
-            const yaw = Math.atan2(dm.sitPos.x - dm.visitPos.x, dm.sitPos.z - dm.visitPos.z);
-            const p = f0Place('dimas', '#A8C46B', variant, dm.visitPos.x, dm.visitPos.z, yaw);
-            poseStand(p);
-            const side = new THREE.Vector3(0.7, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-            f0V1Clone('dimas', dm.visitPos.x + side.x, 0, dm.visitPos.z + side.z, yaw, false);
-            const dw = dm.deskGroup.getWorldPosition(new THREE.Vector3());
-            out.desk = { at: [dm.visitPos.x, dm.visitPos.z], deskTop: f0SeatTop(dw.x, dw.z), ...f0Eye(p) };
+        /** Tinggi permukaan dudukan / perabot di bawah titik dunia (raycast ke GLB). */
+        seatTop: (x: number, z: number, maxY?: number) => seatTopAt(x, z, maxY),
+        /** F1: objek yang kena sinar turun di (x, z) antara maxY..minY (nama + tinggi), untuk mencari penghalang. */
+        probe: (x: number, z: number, maxY = 1.2, minY = -0.05) => {
+          seatRay.set(new THREE.Vector3(x, maxY, z), new THREE.Vector3(0, -1, 0));
+          seatRay.far = maxY - minY;
+          return castVisible().slice(0, 6).map((h) => {
+            const names: string[] = [];
+            for (let o: THREE.Object3D | null = h.object; o && names.length < 4; o = o.parent) if (o.name) names.push(o.name);
+            return { y: +(maxY - h.distance).toFixed(3), names: names.join(' < ') };
+          });
+        },
+        /** F1: versi rig, ukuran mesh skinned, dan jumlah mesh avatar yang terlihat (≈ draw call pass utama). */
+        rig: () => {
+          const out: Record<string, unknown> = { version: RIG_VERSION };
+          const av = meshMap.get(initAgents[0]?.id ?? '')?.av;
+          if (av instanceof V2Avatar) {
+            const g = av.rig.mesh.geometry;
+            out.bones = av.rig.mesh.skeleton.bones.length;
+            out.vertices = g.getAttribute('position').count;
+            out.triangles = (g.index?.count ?? 0) / 3;
           }
-          // 2) Podium Workshop: pembicara berdiri di belakang podium.
-          {
-            const presenterSpot = worldSpots.presenter;
-            const p = f0Place('raka', '#E9A23B', variant, presenterSpot.x, presenterSpot.z, presenterSpot.rotY);
-            poseStand(p);
-            poseArmsForward(p, -0.35, -0.6);
-            const side = new THREE.Vector3(0, 0, 0.75).applyAxisAngle(new THREE.Vector3(0, 1, 0), presenterSpot.rotY + Math.PI / 2);
-            f0V1Clone('raka', presenterSpot.x + side.x, 0, presenterSpot.z + side.z, presenterSpot.rotY, false);
-            out.podium = { at: [presenterSpot.x, presenterSpot.z], ...f0Eye(p) };
-          }
-          // 3) Stool Pantry: v2 di stool 0, v1 di stool 1.
-          {
-            const s0 = worldSpots.stools[0]!.seat, s1 = worldSpots.stools[1]!.seat;
-            const top = f0SeatTop(s0.x, s0.z, 1.3);
-            const p = f0Place('gita', '#5B9BD5', variant, s0.x, s0.z, s0.rotY);
-            let gap = poseSit(p, top, 0);
-            let footY = 0;
-            if (gap > 0) { footY = Math.max(0, +(top - 0.47).toFixed(2)); gap = poseSit(p, top, footY, 0.3); }
-            poseArmsForward(p, -0.7, -0.9);
-            f0V1Clone('gita', s1.x, PANTRY.stoolSitY, s1.z, s1.rotY, true);
-            out.stool = { at: [s0.x, s0.z], seatTop: top, footY, gap: +gap.toFixed(3), ...f0Eye(p) };
-          }
-          // 4) Focus pod: v2 di bilik 0, v1 di bilik 1.
-          {
-            const f0 = worldSpots.focus[0]!.spot, f1 = worldSpots.focus[1]!.spot;
-            const top = f0SeatTop(f0.x, f0.z, 1.0);
-            const p = f0Place('bima', '#D9735F', variant, f0.x, f0.z, f0.rotY);
-            const gap = poseSit(p, top, 0, 0.4);
-            poseArmsForward(p);
-            f0V1Clone('bima', f1.x, FOCUSPODS.sitY, f1.z, f1.rotY, true);
-            out.focusPod = { at: [f0.x, f0.z], seatTop: top, gap: +gap.toFixed(3), ...f0Eye(p) };
-          }
+          let meshes = 0;
+          avatarsGroup.traverseVisible((o) => { if ((o as THREE.Mesh).isMesh) meshes++; });
+          out.visibleAvatarMeshes = meshes;
           return out;
         },
         /**
-         * F0: 10 prototipe v2 duduk mengetik di meja masing-masing memakai seragam `variant` (1–3).
-         * Avatar v1 disembunyikan. null = kembali ke v1.
+         * F1: matriks dudukan (rencana §3.2). Avatar uji duduk penuh di tiap dudukan (`kinds` = saring jenis), lalu
+         * diukur: celah telapak ke lantai / pijakan (footL/footR), bawah panggul vs permukaan nyata (pelvis),
+         * ruang di atas lutut sampai bawah meja (knee), galat jangkauan pergelangan (hand). `show` = biarkan
+         * avatar uji terlihat (agen disembunyikan) untuk screenshot; `seatCheck()` lagi = bersihkan.
          */
-        uniform: (variant: UniformVariant | null = AGENT_UNIFORM) => {
-          f0Clear();
-          if (variant === null) return null;
-          f0HideV1 = true;
-          const seats: Record<string, unknown> = {};
-          for (const ag of initAgents) {
-            const r = meshMap.get(ag.id);
-            if (!r) continue;
-            const top = f0SeatTop(r.sitPos.x, r.sitPos.z, 0.9);
-            const p = f0Place(ag.id, ag.color, variant, r.sitPos.x, r.sitPos.z, r.sitRotY);
-            const gap = poseSit(p, top || 0.48, 0, 0.42);
-            poseArmsForward(p);
-            seats[ag.id] = { seatTop: top, gap: +gap.toFixed(3), ...f0Eye(p) };
-          }
-          return { variant, name: UNIFORMS[variant].name, seats };
+        seatCheck: (show = false, kinds?: SeatKind[]) => {
+          f1Clear();
+          const rows: Array<Record<string, unknown>> = [];
+          const failed: string[] = [];
+          let probe: V2Avatar | null = null;
+          seatList().filter((s) => !kinds || kinds.includes(s.kind)).forEach((s, i) => {
+            const ag = initAgents[i % initAgents.length]!;
+            if (show || !probe) {
+              probe = new V2Avatar(ag.id, ag.name, new THREE.Color(ag.color), i, v2Shared);
+              f1Group.add(probe.group);
+              f1Probes.push(probe);
+            }
+            const calib = seatCalibAt(s.kind, s.x, s.z, worldSpots);
+            const m = probe.measureSeat(calib, s.x, s.z, s.rotY, frameTemplate(ag.id));
+            const under = (v: THREE.Vector3) => seatTopAt(v.x, v.z, v.y + 0.2, -0.05);
+            const footL = +(m.soleL.y - under(m.soleL)).toFixed(3);
+            const footR = +(m.soleR.y - under(m.soleR)).toFixed(3);
+            const fx = Math.sin(s.rotY), fz = Math.cos(s.rotY);
+            const surf = seatTopAt(s.x + fx * calib.hipFwd, s.z + fz * calib.hipFwd, calib.top + 0.15);
+            const pelvis = +(m.pelvisBottom - surf).toFixed(3);
+            const knee = Math.min(clearAbove(m.kneeL.clone().setY(m.kneeL.y + 0.07)), clearAbove(m.kneeR.clone().setY(m.kneeR.y + 0.07)));
+            const ok = Math.abs(footL) <= 0.03 && Math.abs(footR) <= 0.03 && pelvis > -0.03 && pelvis < 0.05 && knee >= 0.005 && m.handErr <= 0.02;
+            if (!ok) failed.push(s.id);
+            rows.push({
+              seat: s.id, kind: s.kind, top: calib.top, surf, footL, footR, pelvis,
+              knee: knee === Infinity ? null : knee, hand: +m.handErr.toFixed(3), eye: +m.eye.y.toFixed(2), ok,
+            });
+          });
+          if (show) hideAgents = true;
+          else f1Clear();
+          return { total: rows.length, failed, rows };
+        },
+        /** F1: titik layar (px relatif kanvas) dada agen — uji klik pilih agen pada SkinnedMesh. */
+        screenOf: (id: string) => {
+          const av = meshMap.get(id)?.av;
+          if (!av?.group.visible) return null;
+          const v = av.group.getWorldPosition(new THREE.Vector3());
+          v.y += av.version === 2 ? 1.0 : 0.3;
+          v.project(cam.active());
+          return { x: Math.round((v.x * 0.5 + 0.5) * viewW), y: Math.round((-v.y * 0.5 + 0.5) * viewH) };
+        },
+        /** F1: sembunyikan / tampilkan ke-10 agen (screenshot bersih). */
+        hideAgents: (on = true) => { hideAgents = on; },
+        /** F1 (dasar F3): sembunyikan kepala agen untuk FPV — soket mata tetap di tempatnya. */
+        firstPerson: (id: string, on = true) => {
+          const av = meshMap.get(id)?.av;
+          if (av instanceof V2Avatar) av.rig.setFirstPerson(on);
+          return av instanceof V2Avatar;
+        },
+        /** F1: soket mata (dunia) & tolehan kepala agen saat ini (derajat). */
+        eyeOf: (id: string) => {
+          const av = meshMap.get(id)?.av;
+          if (!(av instanceof V2Avatar)) return null;
+          const e = av.rig.eye.getWorldPosition(new THREE.Vector3());
+          return {
+            eye: e.toArray().map((n) => +n.toFixed(3)),
+            yawDeg: Math.round((av.look.yaw * 180) / Math.PI), pitchDeg: Math.round((av.look.pitch * 180) / Math.PI),
+            bodyDeg: Math.round((av.group.rotation.y * 180) / Math.PI),
+          };
         },
       };
     }
@@ -1955,7 +1730,11 @@ export function IsometricOfficeStage({
       contactShadows.dispose();
       lightPools.dispose();
       deskGlows.dispose();
-      for (const v of [...Object.values(deskShared), ...Object.values(avatarShared)]) v.dispose();
+      for (const v of Object.values(deskShared)) v.dispose();
+      f1Clear();
+      for (const r of meshMap.values()) r.av?.dispose();
+      v2Shared.dispose();
+      v1Shared?.dispose();
       scene.environment?.dispose();
       renderer.dispose();
       codeTexture.dispose();
