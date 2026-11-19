@@ -9,8 +9,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
  *   W/A/S/D maju-kiri-mundur-kanan, Q naik, E turun, Shift = cepat, roda mouse = maju/mundur.
  *   Free Cam mulai melayang di atas dinding (tampilan rumah boneka); turun di bawah tinggi
  *   dinding di dalam gedung = mode jalan kaki dengan semua dinding utuh (lihat WallFader).
+ * - Mode 3 `eye` (F3 Mata Agen): kamera perspektif yang sama dikendalikan `EyeCam` (FOV 70°, near 0,05,
+ *   far 60 m); rig ini tidak menggerakkannya, OrbitControls & WASD mati.
  */
-export type CameraMode = 'iso' | 'free';
+export type CameraMode = 'iso' | 'free' | 'eye';
+
+/** Lensa Free Cam (mode `eye` memakai lensanya sendiri, dipulihkan saat keluar). */
+const FREE_LENS = { fov: 50, near: 0.05, far: 250 };
 
 const ISO_VIEW_HEIGHT = 15;
 const ISO_OFFSET = new THREE.Vector3(18, 12.95, 20);
@@ -89,7 +94,7 @@ export class CameraRig {
     this.iso.position.copy(ISO_DEFAULT_TARGET).add(ISO_OFFSET);
     this.iso.lookAt(ISO_DEFAULT_TARGET);
 
-    this.persp = new THREE.PerspectiveCamera(50, aspect, 0.05, 250);
+    this.persp = new THREE.PerspectiveCamera(FREE_LENS.fov, aspect, FREE_LENS.near, FREE_LENS.far);
     this.persp.rotation.order = 'YXZ';
 
     this.controls = new OrbitControls(this.iso, dom);
@@ -126,6 +131,7 @@ export class CameraRig {
   /** Titik fokus untuk efek yang mengikuti kamera (target orbit isometrik / titik di depan Free Cam). */
   focusPoint(out: THREE.Vector3) {
     if (this.mode === 'iso') return out.copy(this.controls.target);
+    if (this.mode === 'eye') return out.copy(this.persp.position).addScaledVector(this.persp.getWorldDirection(this.fwd), 3);
     const cp = Math.cos(this.pitch);
     this.fwd.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
     return out.copy(this.persp.position).addScaledVector(this.fwd, 3);
@@ -136,10 +142,19 @@ export class CameraRig {
     this.lastActiveAt = performance.now();
   }
 
-  setMode(mode: CameraMode) {
+  /**
+   * Ganti mode. `eye` hanya dipanggil `EyeCam` (lewat panggung) dengan `lens` mata; keluar dari `eye`
+   * memulihkan lensa Free Cam.
+   */
+  setMode(mode: CameraMode, lens?: { fov: number; near: number; far: number }) {
     if (mode === this.mode) return;
     this.tween = null;
-    if (mode === 'free') {
+    const L = mode === 'eye' && lens ? lens : FREE_LENS;
+    if (this.persp.fov !== L.fov || this.persp.near !== L.near || this.persp.far !== L.far) {
+      this.persp.fov = L.fov; this.persp.near = L.near; this.persp.far = L.far;
+      this.persp.updateProjectionMatrix();
+    }
+    if (mode === 'free' && this.mode === 'iso') {
       // Mulai dari sudut pandang isometrik saat ini, turun ke ketinggian manusia.
       const target = this.controls.target.clone();
       const dir = this.iso.position.clone().sub(target).setY(0).normalize();
@@ -160,6 +175,7 @@ export class CameraRig {
 
   /** Geser fokus ke titik dunia. `auto` = dipicu sistem (dibatalkan bila CEO baru menggeser kamera). */
   focus(point: THREE.Vector3, opts: { auto?: boolean; dur?: number } = {}) {
+    if (this.mode === 'eye') return;
     if (opts.auto && (this.mode !== 'iso' || performance.now() - this.lastManualAt < MANUAL_GRACE_MS)) return;
     this.pristine = false;
     const dur = opts.dur ?? 1.1;
@@ -221,6 +237,7 @@ export class CameraRig {
   /** Letakkan Free Cam di sebuah posisi sambil menatap sebuah titik (dibatasi FREE_BOUNDS). */
   placeFree(position: THREE.Vector3, lookAt: THREE.Vector3) {
     this.tween = null;
+    if (this.mode === 'eye') return;
     this.persp.position.copy(position);
     this.clampFree();
     this.lookAt(lookAt);
@@ -282,6 +299,7 @@ export class CameraRig {
       this.controls.update();
       return;
     }
+    if (this.mode === 'eye') return;
 
     // ---- Free Cam: gerak terbang bebas ----
     const k = this.keys;

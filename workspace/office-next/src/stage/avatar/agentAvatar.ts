@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { isWalking, type AgentFrame } from '@office/world';
+import type { EyeSource } from '../camera/eyeCam';
 import { agentAvatarConfig } from './agentLooks';
-import { AGENT_UNIFORM } from './config';
+import { AGENT_UNIFORM, BODY } from './config';
 import { LookController, type LookTarget } from './lookAt';
-import { approachAngle, poseHead, poseSit, poseStand, poseWalk, POLE, rootPos, solveArm, wrapAngle, wrist, type Side } from './poses';
+import { approachAngle, poseHead, poseSit, poseStand, poseWalk, POLE, rootPos, solveArm, STAND_HIP, wrapAngle, wrist, type Side } from './poses';
 import { AvatarRig, type AvatarShared } from './rig';
 import type { SeatCalib } from './seats';
 
@@ -27,6 +28,8 @@ export interface AgentAvatar {
   bubbleAnchor(out: THREE.Vector3): THREE.Vector3;
   /** Posisi kepala (setinggi mata) di dunia, null bila tidak terlihat. */
   headWorld(out: THREE.Vector3): THREE.Vector3 | null;
+  /** F3: sumber kamera Mata Agen. */
+  eyeSource(): EyeSource;
   dispose(): void;
 }
 
@@ -50,6 +53,9 @@ export interface SeatMetrics {
   handErr: number;
   soleL: THREE.Vector3; soleR: THREE.Vector3;
   kneeL: THREE.Vector3; kneeR: THREE.Vector3;
+  /** Sendi pinggul & pergelangan kaki (dunia) — sumbu paha/betis untuk cek tembus perabot. */
+  hipL: THREE.Vector3; hipR: THREE.Vector3;
+  ankleL: THREE.Vector3; ankleR: THREE.Vector3;
   pelvisBottom: number;
   eye: THREE.Vector3;
 }
@@ -334,6 +340,27 @@ export class V2Avatar implements AgentAvatar {
     return out.add(_v.set(side === 'L' ? 0.035 : -0.035, -0.515, 0.05));
   }
 
+  /**
+   * F3: soket mata (1,58 m, ikut tolehan kepala). Saat berjalan, ayunan naik-turun pinggul (pijakan kaki) dikurangi
+   * supaya kamera tidak berguncang; head-bob yang lembut ditambahkan kamera sendiri (bisa dimatikan).
+   */
+  eyeSource(): EyeSource {
+    return {
+      eye: (p, q) => {
+        this.rig.eye.getWorldPosition(p);
+        this.rig.eye.getWorldQuaternion(q);
+        if (this.walking) p.y -= (this.rig.bones.hips.position.y - (STAND_HIP + BODY.pelvisAbove)) * this.rig.scale;
+      },
+      gait: () => this.gait(),
+      setFirstPerson: (on) => {
+        this.rig.setFirstPerson(on);
+        this.beacon.visible = !on;
+      },
+      seated: () => this.kDisp > 0.5,
+      anchor: (out) => out.copy(this.group.position),
+    };
+  }
+
   /** Fase langkah 0..1 saat berjalan, null saat diam (dasar head-bob F3, `EyeSource.gait`). */
   gait(): number | null {
     return this.walking ? (this.walkPhase / (Math.PI * 2)) % 1 : null;
@@ -368,6 +395,8 @@ export class V2Avatar implements AgentAvatar {
     return {
       gap: this.footGap, handErr: this.handErr,
       soleL: sole('ankleL'), soleR: sole('ankleR'), kneeL: knee('kneeL'), kneeR: knee('kneeR'),
+      hipL: r.bones.hipL.getWorldPosition(new THREE.Vector3()), hipR: r.bones.hipR.getWorldPosition(new THREE.Vector3()),
+      ankleL: r.bones.ankleL.getWorldPosition(new THREE.Vector3()), ankleR: r.bones.ankleR.getWorldPosition(new THREE.Vector3()),
       pelvisBottom: pelvis.y,
       eye: r.eye.getWorldPosition(new THREE.Vector3()),
     };

@@ -44,6 +44,8 @@ interface InspectorPanelProps {
   viewOnly: boolean;
   onSelectAgent: (agentId: string) => void;
   onRespondApproval: (approvalId: string, approved: boolean) => void;
+  /** F3: masuk Mata Agen untuk agen terpilih. */
+  onEye?: (agentId: string) => void;
 }
 
 export const STATUS_LABELS: Record<Lang, Record<AgentStatus, string>> = {
@@ -98,6 +100,7 @@ export function InspectorPanel({
   viewOnly,
   onSelectAgent,
   onRespondApproval,
+  onEye,
 }: InspectorPanelProps) {
   const [runs, setRuns] = useState<RunView[] | null>(null);
   const [runsError, setRunsError] = useState<string | null>(null);
@@ -174,6 +177,17 @@ export function InspectorPanel({
               {language === 'id' ? 'Tugas: ' : 'Task: '}
               <strong>{currentTask.title}</strong> <span className="mono muted">[{currentTask.status}]</span>
             </div>
+          )}
+
+          {onEye && (
+            <button
+              type="button"
+              onClick={() => onEye(selectedAgent.id)}
+              title={language === 'id' ? 'Lihat kantor dari mata agen ini (klik ganda agen juga bisa)' : 'See the office through the eyes of this agent (or double-click the agent)'}
+              style={{ alignSelf: 'flex-start', padding: '4px 10px', minHeight: 28, fontSize: 12, borderColor: 'var(--color-focus)', color: 'var(--color-focus)' }}
+            >
+              {language === 'id' ? 'Lihat dari mata' : 'See through eyes'}
+            </button>
           )}
 
           {!publicView && <div className="mono muted small">

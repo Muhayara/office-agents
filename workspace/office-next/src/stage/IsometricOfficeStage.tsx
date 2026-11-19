@@ -60,6 +60,7 @@ import {
 } from './layout';
 import { CameraRig, ISO_FOCUS_HEIGHT, type CameraMode } from './camera/cameraRig';
 import { WallFader, type WalkZone } from './camera/wallFade';
+import { EyeCam, EYE_FAR, EYE_FOV, EYE_NEAR } from './camera/eyeCam';
 import { disposeObject, enableShadow, lightAnchor, type ModelLoader } from './rooms/assets';
 import { ContactShadows, DeskGlows, LightPools } from './groundFx';
 import { ACTIVE_HOLD_MS, QUALITY, SHADOW_MAP_SIZE, type GraphicsQuality } from './graphics';
@@ -102,6 +103,23 @@ export interface StageApi {
   toggleCamera: () => void;
   resetCamera: () => void;
   focusAgent: (agentId: string) => void;
+  /** F3: masuk Mata Agen (atau pindah agen). false = agen sedang tidak di kantor. */
+  enterEye: (agentId: string) => boolean;
+  /** F3: keluar dari Mata Agen (luncur keluar → redup → kamera sebelumnya). */
+  exitEye: () => void;
+  /** F3: agen berikutnya (+1) / sebelumnya (−1) yang sedang di kantor. */
+  cycleEye: (dir: 1 | -1) => void;
+}
+
+/** F3: keadaan Mata Agen untuk HUD (panel kiri bawah & subtitle). */
+export interface EyeInfo {
+  agentId: string;
+  /** Ruangan saat ini (label pendek). */
+  room: string;
+  /** Ucapan yang sedang tampil (subtitle), null bila diam. */
+  speaking: string | null;
+  /** Baris bicara terakhir sejak mata dimasuki. */
+  lastLine: string | null;
 }
 
 interface IsometricOfficeStageProps {
@@ -122,6 +140,12 @@ interface IsometricOfficeStageProps {
   onLoadErrorChange?: (err: string | null) => void;
   /** Mode grafis (Hemat / Tinggi). Diganti tanpa me-mount ulang scene. */
   quality?: GraphicsQuality;
+  /** F3: keadaan Mata Agen berubah (null = keluar; `away` = agen yang diikuti pulang). */
+  onEyeInfo?: (info: EyeInfo | null, reason?: 'exit' | 'away') => void;
+  /** F3: head-bob kamera mata (toggle HUD "Goyang kepala"); tetap mati bila `prefers-reduced-motion`. */
+  headBob?: boolean;
+  /** F3: lapisan HUD milik App (panel Mata Agen & subtitle) di atas kanvas. */
+  overlay?: React.ReactNode;
 }
 
 /** Ruangan navigasi yang GLB-nya dimuat di gelombang 1 (bingkai kamera awal). Sisanya gelombang 2. */
@@ -194,6 +218,9 @@ export function IsometricOfficeStage({
   onCamModeChange,
   onLoadErrorChange,
   quality = 'low',
+  onEyeInfo,
+  headBob = true,
+  overlay,
 }: IsometricOfficeStageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const qualityRef = useRef<GraphicsQuality>(quality);
@@ -204,11 +231,23 @@ export function IsometricOfficeStage({
   }, [quality]);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [camMode, setCamMode] = useState<CameraMode>('iso');
+  // F3: petunjuk Mata Agen tampil 6 dtk setelah masuk (supaya tidak menutupi bubble di atas layar).
+  const [eyeHint, setEyeHint] = useState(false);
+  useEffect(() => {
+    if (camMode !== 'eye') { setEyeHint(false); return; }
+    setEyeHint(true);
+    const id = window.setTimeout(() => setEyeHint(false), 6000);
+    return () => window.clearTimeout(id);
+  }, [camMode]);
   const apiRef = useRef<StageApi | null>(null);
   const onCamModeChangeRef = useRef(onCamModeChange);
   const onLoadErrorChangeRef = useRef(onLoadErrorChange);
   useEffect(() => { onCamModeChangeRef.current = onCamModeChange; }, [onCamModeChange]);
   useEffect(() => { onLoadErrorChangeRef.current = onLoadErrorChange; }, [onLoadErrorChange]);
+  const onEyeInfoRef = useRef(onEyeInfo);
+  const headBobRef = useRef(headBob);
+  useEffect(() => { onEyeInfoRef.current = onEyeInfo; }, [onEyeInfo]);
+  useEffect(() => { headBobRef.current = headBob; }, [headBob]);
 
   const agentsRef = useRef(agents);
   const selectedRef = useRef(selectedAgentId);
@@ -265,6 +304,45 @@ export function IsometricOfficeStage({
       onCamModeChangeRef.current?.(m);
     };
     const fader = new WallFader();
+
+    // ----- F3: Mata Agen (kamera perspektif di soket mata agen) -----
+    let eyePrev: 'iso' | 'free' = 'iso';
+    let eyeExitReason: 'exit' | 'away' = 'exit';
+    const eyeRay = new THREE.Raycaster();
+    const motionQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    const eye = new EyeCam(cam.persp, {
+      onViewEnter: () => {
+        eyePrev = cam.mode === 'free' ? 'free' : 'iso';
+        cam.setMode('eye', { fov: EYE_FOV, near: EYE_NEAR, far: EYE_FAR });
+      },
+      onViewLeave: (id) => {
+        const back = cam.persp.position.clone();
+        const at = meshMap.get(id)?.av?.group.position.clone() ?? null;
+        cam.setMode(eyePrev);
+        if (at) {
+          if (eyePrev === 'free') cam.placeFree(back, at.clone().setY(1.2));
+          else cam.focus(at.setY(ISO_FOCUS_HEIGHT), { dur: 0.05 });
+        }
+      },
+      // Titik awal luncur tidak boleh di balik dinding buram (kamera akan menatap dinding).
+      clampStart: (from, to) => {
+        const dir = to.clone().sub(from);
+        const len = dir.length();
+        if (len < 1e-3) return;
+        dir.normalize();
+        eyeRay.set(from, dir);
+        eyeRay.far = len;
+        const hit = eyeRay.intersectObjects(fader.occluders(), false)[0];
+        if (hit) to.copy(from).addScaledVector(dir, Math.max(0.45, hit.distance - 0.3));
+      },
+    });
+    const dimEl = document.createElement('div');
+    Object.assign(dimEl.style, {
+      position: 'absolute', left: '0', top: '0', right: '0', bottom: '0', background: '#05090c',
+      opacity: '0', pointerEvents: 'none', zIndex: '8', display: 'none',
+    });
+    container.appendChild(dimEl);
+    let dimShown = -1;
 
     // ================================================================
     // ANIMATED MONITOR CODE CANVAS (Tekstur Layar Depan Saja)
@@ -616,7 +694,7 @@ export function IsometricOfficeStage({
     const fitTmp = { near: new THREE.Vector3(), far: new THREE.Vector3(), p: new THREE.Vector3(), lo: new THREE.Vector3(), hi: new THREE.Vector3() };
     let sunFitKey = '';
     /** Paskan frustum bayangan ke tapak lantai yang terlihat kamera aktif (dipanggil per frame di mode Tinggi). */
-    const fitSunToView = (camera: THREE.Camera) => {
+    const fitSunToView = (camera: THREE.Camera, maxDist = 45) => {
       const { near, far, p, lo, hi } = fitTmp;
       lo.set(Infinity, Infinity, Infinity);
       hi.set(-Infinity, -Infinity, -Infinity);
@@ -635,7 +713,7 @@ export function IsometricOfficeStage({
         far.sub(near).normalize();
         for (const h of [0, WALL_HEIGHT]) {
           const t = far.y < -1e-3 ? (h - near.y) / far.y : -1;
-          const d = t > 0 ? Math.min(t, 45) : 45;
+          const d = t > 0 ? Math.min(t, maxDist) : maxDist;
           add(near.x + far.x * d, near.z + far.z * d);
         }
       }
@@ -1018,24 +1096,51 @@ export function IsometricOfficeStage({
     const mouse = new THREE.Vector2();
     let downX = 0;
     let downY = 0;
-    const onPointerDown = (ev: PointerEvent) => { downX = ev.clientX; downY = ev.clientY; };
-    const onPointerUp = (ev: PointerEvent) => {
-      if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > 6) return;
+    let glanceX = 0;
+    let glanceY = 0;
+    const visibleChain = (o: THREE.Object3D | null) => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
+    /** Agen di bawah kursor (avatar terlihat, meja, atau kursinya), null bila tidak ada. */
+    const pickAgent = (clientX: number, clientY: number): string | null => {
       const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+      mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, cam.active());
       const hits = raycaster.intersectObjects([
         main.workstations, main.chairs, manager.workstations, manager.chairs, avatarsGroup,
-      ], true);
-      if (hits.length > 0) {
-        let obj: THREE.Object3D | null = hits[0]!.object;
+      ], true).filter((h) => visibleChain(h.object));
+      for (const h of hits.slice(0, 1)) {
+        let obj: THREE.Object3D | null = h.object;
         while (obj && !obj.userData?.agentId) obj = obj.parent;
-        if (obj?.userData?.agentId) onSelectRef.current(obj.userData.agentId as string);
+        if (obj?.userData?.agentId) return obj.userData.agentId as string;
       }
+      return null;
+    };
+    const onPointerDown = (ev: PointerEvent) => {
+      downX = ev.clientX; downY = ev.clientY;
+      // F3: seret di mode mata = lirik (yaw ±60°, pitch ±35°).
+      if (eye.phase === 'on') { eye.glanceStart(); glanceX = ev.clientX; glanceY = ev.clientY; }
+    };
+    const onPointerUp = (ev: PointerEvent) => {
+      if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > 6) return;
+      const id = pickAgent(ev.clientX, ev.clientY);
+      if (id) onSelectRef.current(id);
+    };
+    const onGlanceMove = (ev: PointerEvent) => {
+      if (!eye.glancing) return;
+      eye.glanceBy(ev.clientX - glanceX, ev.clientY - glanceY);
+      glanceX = ev.clientX; glanceY = ev.clientY;
+    };
+    const onGlanceUp = () => eye.glanceEnd();
+    /** F3: klik ganda pada agen = masuk Mata Agen. */
+    const onDblClick = (ev: MouseEvent) => {
+      const id = pickAgent(ev.clientX, ev.clientY);
+      if (id) enterEye(id);
     };
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('dblclick', onDblClick);
+    window.addEventListener('pointermove', onGlanceMove);
+    window.addEventListener('pointerup', onGlanceUp);
 
     // ================================================================
     // RESIZE
@@ -1170,6 +1275,11 @@ export function IsometricOfficeStage({
       }
 
       deskGlows.commit();
+      // F3: agen yang diikuti pergi (away / tidak terlihat) → kamera keluar ke isometrik + toast.
+      if (eye.agentId && (eye.phase === 'glideIn' || eye.phase === 'on')) {
+        const ef = frameOf.get(eye.agentId);
+        if (!ef || !ef.vis || ef.state === 'away') { eyeExitReason = 'away'; eye.exit(); }
+      }
       // Status dunia berubah → beri tahu App (Inspector mode publik tanpa /api/state).
       const statusKey = v.agents.map((f) => f.status ?? '-').join(',');
       if (statusKey !== lastStatusKey) {
@@ -1271,11 +1381,70 @@ export function IsometricOfficeStage({
     // RENDER (kamera aktif, auto-fade dinding, proyeksi speech bubble)
     // ================================================================
     const focusTmp = new THREE.Vector3();
+    // ---- F3: garis pandang bubble & info HUD Mata Agen ----
+    const losCache = new Map<string, { t: number; ok: boolean }>();
+    const losDir = new THREE.Vector3();
+    const bubbleSeenFromEye = (id: string, anchor: THREE.Vector3, camera: THREE.Camera) => {
+      const d = anchor.distanceTo(camera.position);
+      if (d > 12) return false;
+      const c = losCache.get(id);
+      if (c && globalTime - c.t < 0.25) return c.ok;
+      losDir.copy(anchor).sub(camera.position).normalize();
+      eyeRay.set(camera.position, losDir);
+      eyeRay.far = Math.max(0, d - 0.3);
+      const ok = eyeRay.intersectObjects(fader.occluders(), false).length === 0;
+      losCache.set(id, { t: globalTime, ok });
+      return ok;
+    };
+    let lastEyeKey = '';
+    let eyeLineFor = '';
+    let eyeLastLine: string | null = null;
+    const emitEyeInfo = () => {
+      const id = eye.agentId;
+      const showing = !!id && (eye.phase === 'glideIn' || eye.phase === 'on' || (eye.phase === 'dimIn' && eye.viewing));
+      if (!showing || !id) {
+        if (lastEyeKey !== '') {
+          lastEyeKey = '';
+          onEyeInfoRef.current?.(null, eyeExitReason);
+        }
+        if (!eye.active) eyeExitReason = 'exit';
+        return;
+      }
+      if (eyeLineFor !== id) { eyeLineFor = id; eyeLastLine = null; }
+      const f = frameOf.get(id);
+      const speaking = f && f.bubbleT > 0 && f.bubble ? f.bubble : null;
+      if (speaking) eyeLastLine = speaking;
+      const room = ROOM_SHORT[roomOfAgent.get(id) ?? ''] ?? '—';
+      const key = `${id}|${room}|${speaking ?? ''}|${eyeLastLine ?? ''}`;
+      if (key !== lastEyeKey) {
+        lastEyeKey = key;
+        onEyeInfoRef.current?.({ agentId: id, room, speaking, lastLine: eyeLastLine });
+      }
+    };
     let promoteT = 0;
     let lastPromoted = '';
+    let beaconsHiddenForEye = false;
+    const beaconTmp = new THREE.Vector3();
     const renderFrame = (dt: number) => {
       cam.update(dt);
+      eye.update(dt, { bob: headBobRef.current && !(motionQuery?.matches ?? false) });
+      const dv = Math.round(eye.dim * 50) / 50;
+      if (dv !== dimShown) {
+        dimShown = dv;
+        dimEl.style.display = dv > 0 ? 'block' : 'none';
+        dimEl.style.opacity = String(dv);
+      }
       const camera = cam.active();
+      // F3: beacon status melayang setinggi mata agen yang duduk — di mode mata, beacon dalam 3,5 m (dan milik
+      // agen yang diikuti) disembunyikan supaya tidak menutupi pandangan.
+      if (eye.viewing || beaconsHiddenForEye) {
+        beaconsHiddenForEye = eye.viewing;
+        for (const [id, r] of meshMap) {
+          const b = r.av?.beacon;
+          if (!b) continue;
+          b.visible = !(eye.viewing && (id === eye.agentId || b.getWorldPosition(beaconTmp).distanceTo(camera.position) < 3.5));
+        }
+      }
       camera.updateMatrixWorld();
       viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       viewFrustum.setFromProjectionMatrix(viewProj);
@@ -1284,7 +1453,7 @@ export function IsometricOfficeStage({
       contactShadows.update();
       cam.focusPoint(focusTmp);
       lightPools.update(focusTmp, dt);
-      if (renderer.shadowMap.enabled) fitSunToView(camera);
+      if (renderer.shadowMap.enabled) fitSunToView(camera, eye.viewing ? 14 : 45);
 
       // Gelombang 2: ruangan yang sedang didekati kamera langsung dimajukan antrean GLB-nya.
       promoteT -= dt;
@@ -1295,11 +1464,15 @@ export function IsometricOfficeStage({
       }
 
       // Speech bubble: elemen di-cache, posisi lewat transform, DOM hanya ditulis saat berubah.
+      // F3: di mode mata, bubble agen yang diikuti pindah ke subtitle HUD; bubble lain hanya ≤ 12 m dan
+      // tidak terhalang dinding buram.
+      const eyeId = eye.viewing ? eye.agentId : null;
       for (const [agentId, b] of bubbleEls) {
         const anim = frameOf.get(agentId);
         const refs = meshMap.get(agentId);
         let shown = false;
-        if (anim && refs?.av && anim.bubble && anim.bubbleT > 0 && refs.av.group.visible) {
+        if (anim && refs?.av && anim.bubble && anim.bubbleT > 0 && refs.av.group.visible && agentId !== eyeId
+          && (!eyeId || bubbleSeenFromEye(agentId, refs.av.bubbleAnchor(tempVec), camera))) {
           refs.av.bubbleAnchor(tempVec);
           tempVec.project(camera);
           // Di belakang kamera Free Cam: jangan tampilkan bubble
@@ -1320,6 +1493,7 @@ export function IsometricOfficeStage({
         if (!shown && b.shown) { b.el.style.display = 'none'; b.shown = false; }
       }
 
+      emitEyeInfo();
       renderer.render(scene, camera);
       if (!firstFrameDone) { firstFrameDone = true; maybeOpenWave2(); }
     };
@@ -1330,11 +1504,24 @@ export function IsometricOfficeStage({
     let renderPaused = true;
     const frameTimes: number[] = [];
     let frameMsAvg = 0;
+    /** F3: lama (dtk) frameMs rata-rata > 20 ms di mode mata → target turun ke 45 FPS. */
+    let eyeSlowS = 0;
+    let lastAnimNow = 0;
+    /**
+     * Kebijakan FPS (rencana §5): kamera bergerak = activeFps, diam = idleFps. Mode mata (Hemat): agen duduk
+     * diam = 30, berjalan / lirik / transisi = 60; turun ke 45 bila frame berat > 3 dtk.
+     */
+    const targetFps = (spec: (typeof QUALITY)[GraphicsQuality]) => {
+      const moving = cam.isActive(ACTIVE_HOLD_MS) || (eye.active && eye.isMoving());
+      let fps: number = moving ? spec.activeFps : spec.idleFps;
+      if (eye.active && fps > 45 && eyeSlowS >= 3) fps = 45;
+      return fps;
+    };
     const animate = (now: number) => {
       animId = requestAnimationFrame(animate);
       if (renderPaused) return;
       const spec = QUALITY[quality];
-      const interval = 1000 / (cam.isActive(ACTIVE_HOLD_MS) ? spec.activeFps : spec.idleFps);
+      const interval = 1000 / targetFps(spec);
       if (now < nextFrameAt - 2) return;
       nextFrameAt = now - nextFrameAt > interval ? now + interval : nextFrameAt + interval;
       const t0 = performance.now();
@@ -1342,6 +1529,9 @@ export function IsometricOfficeStage({
       step(dt);
       renderFrame(dt);
       frameMsAvg += (performance.now() - t0 - frameMsAvg) * 0.1;
+      const since = lastAnimNow > 0 ? Math.min(0.25, (now - lastAnimNow) / 1000) : 0;
+      lastAnimNow = now;
+      eyeSlowS = eye.active && frameMsAvg > 20 ? eyeSlowS + since : 0;
       frameTimes.push(now);
       while (frameTimes.length > 0 && frameTimes[0]! < now - 1000) frameTimes.shift();
     };
@@ -1421,19 +1611,58 @@ export function IsometricOfficeStage({
       focus: focusPods.focusPoint,
       access: accessHub.focusPoint,
     };
+    // ---- F3: masuk / ganti / keluar Mata Agen ----
+    function enterEye(id: string): boolean {
+      const av = meshMap.get(id)?.av;
+      const f = frameOf.get(id);
+      if (!av || !f || !f.vis || f.state === 'away') return false;
+      eye.enter(id, av.eyeSource());
+      return true;
+    }
+    const cycleEye = (dir: 1 | -1) => {
+      const ids = initAgents.map((a) => a.id).filter((id) => { const f = frameOf.get(id); return !!f && f.vis && f.state !== 'away'; });
+      if (ids.length === 0) return;
+      const cur = eye.agentId ? ids.indexOf(eye.agentId) : -1;
+      enterEye(ids[(cur + dir + ids.length) % ids.length]!);
+    };
+    const onEyeKey = (e: KeyboardEvent) => {
+      if (!eye.active || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || el?.isContentEditable) return;
+      if (e.key === 'Escape') { eye.exit(); e.preventDefault(); }
+      else if (e.key === 'ArrowRight') { cycleEye(1); e.preventDefault(); }
+      else if (e.key === 'ArrowLeft') { cycleEye(-1); e.preventDefault(); }
+    };
+    window.addEventListener('keydown', onEyeKey);
+    /** Tinggalkan mode mata seketika (tanpa animasi) sebelum perintah kamera lain. */
+    const dropEye = () => {
+      if (!eye.active) return;
+      const wasViewing = eye.viewing;
+      eye.cancel();
+      if (wasViewing) cam.setMode(eyePrev);
+    };
     apiRef.current = {
       focusRoom: (room) => {
+        dropEye();
         // GLB ruangan yang belum termuat (gelombang 2) langsung dimajukan ke depan antrean.
         promoteRoom(room === 'workspace' ? 'main' : room);
         cam.focus(roomFocus[room]());
       },
-      toggleCamera: () => cam.toggle(),
-      resetCamera: () => cam.reset(),
+      toggleCamera: () => {
+        if (eye.active) { eye.exit(); return; }
+        cam.toggle();
+      },
+      resetCamera: () => { dropEye(); cam.reset(); },
       focusAgent: (agentId) => {
+        dropEye();
         const refs = meshMap.get(agentId);
         if (!refs?.av) return;
         cam.focus(new THREE.Vector3(refs.av.group.position.x, 0.8, refs.av.group.position.z));
       },
+      enterEye: (agentId) => enterEye(agentId),
+      exitEye: () => eye.exit(),
+      cycleEye: (dir) => cycleEye(dir),
     };
     if (stageApiRef) stageApiRef.current = apiRef.current;
 
@@ -1467,6 +1696,19 @@ export function IsometricOfficeStage({
       seatRay.far = up;
       const hits = castVisible();
       return hits.length > 0 ? +hits[0]!.distance.toFixed(3) : Infinity;
+    };
+    /** Nama perabot yang ditembus ruas a → b (dikurangi `trimEnd` m di ujung b), null bila bersih. */
+    const segmentHit = (a: THREE.Vector3, b: THREE.Vector3, trimEnd = 0): string | null => {
+      const d = b.clone().sub(a);
+      const len = d.length() - trimEnd;
+      if (len <= 0.01) return null;
+      seatRay.set(a, d.normalize());
+      seatRay.far = len;
+      const h = castVisible()[0];
+      if (!h) return null;
+      let o: THREE.Object3D | null = h.object;
+      while (o && !o.name) o = o.parent;
+      return o?.name ?? 'mesh';
     };
     /** 50 dudukan Lantai 1 (dunia): 10 meja, 10 kursi rapat terselip, 4 stool, 3 sofa, 6+3+6+4+2+1+1. */
     const seatList = () => {
@@ -1661,11 +1903,13 @@ export function IsometricOfficeStage({
             const surf = seatTopAt(s.x + fx * calib.hipFwd, s.z + fz * calib.hipFwd, calib.top + 0.15);
             const pelvis = +(m.pelvisBottom - surf).toFixed(3);
             const knee = Math.min(clearAbove(m.kneeL.clone().setY(m.kneeL.y + 0.07)), clearAbove(m.kneeR.clone().setY(m.kneeR.y + 0.07)));
-            const ok = Math.abs(footL) <= 0.03 && Math.abs(footR) <= 0.03 && pelvis > -0.03 && pelvis < 0.05 && knee >= 0.005 && m.handErr <= 0.02;
+            // Sumbu paha (pinggul → lutut) & betis (lutut → 4 cm sebelum pergelangan) tidak boleh menembus perabot.
+            const leg = [segmentHit(m.hipL, m.kneeL), segmentHit(m.hipR, m.kneeR), segmentHit(m.kneeL, m.ankleL, 0.04), segmentHit(m.kneeR, m.ankleR, 0.04)].find(Boolean) ?? null;
+            const ok = Math.abs(footL) <= 0.03 && Math.abs(footR) <= 0.03 && pelvis > -0.03 && pelvis < 0.05 && knee >= 0.005 && m.handErr <= 0.02 && !leg;
             if (!ok) failed.push(s.id);
             rows.push({
               seat: s.id, kind: s.kind, top: calib.top, surf, footL, footR, pelvis,
-              knee: knee === Infinity ? null : knee, hand: +m.handErr.toFixed(3), eye: +m.eye.y.toFixed(2), ok,
+              knee: knee === Infinity ? null : knee, hand: +m.handErr.toFixed(3), eye: +m.eye.y.toFixed(2), leg, ok,
             });
           });
           if (show) hideAgents = true;
@@ -1681,6 +1925,36 @@ export function IsometricOfficeStage({
           v.project(cam.active());
           return { x: Math.round((v.x * 0.5 + 0.5) * viewW), y: Math.round((-v.y * 0.5 + 0.5) * viewH) };
         },
+        /** F3: masuk Mata Agen agen `id` (false = tidak di kantor); null = keluar. */
+        eye: (id: string | null = 'raka') => {
+          if (id === null) { eye.exit(); return true; }
+          return enterEye(id);
+        },
+        /** F3: keadaan kamera mata (fase, lompatan yaw terbesar per frame, kecepatan, lensa, target FPS). */
+        eyeState: () => ({
+          phase: eye.phase, agentId: eye.agentId, viewing: eye.viewing, mode: cam.mode, dim: +eye.dim.toFixed(2),
+          maxYawStepDeg: +eye.maxYawStepDeg.toFixed(1), frames: eye.frames,
+          linSpeed: +eye.linSpeed.toFixed(2), angSpeed: +eye.angSpeed.toFixed(2), moving: eye.isMoving(),
+          glanceDeg: [eye.glanceYaw, eye.glancePitch].map((n) => +((n * 180) / Math.PI).toFixed(1)),
+          cam: cam.persp.position.toArray().map((n) => +n.toFixed(3)),
+          fov: cam.persp.fov, near: cam.persp.near, far: cam.persp.far,
+          targetFps: targetFps(QUALITY[quality]),
+          bob: headBobRef.current && !(motionQuery?.matches ?? false),
+        }),
+        /** F3: jarak & garis pandang (dinding buram) dari kamera mata ke titik bubble tiap agen terlihat. */
+        eyeSight: () => {
+          if (!eye.viewing) return null;
+          const camera = cam.active();
+          return initAgents.flatMap((a) => {
+            const av = meshMap.get(a.id)?.av;
+            if (!av || !av.group.visible || a.id === eye.agentId) return [];
+            losCache.delete(a.id);
+            const anchor = av.bubbleAnchor(new THREE.Vector3());
+            return [{ id: a.id, room: roomOfAgent.get(a.id) ?? '', dist: +anchor.distanceTo(camera.position).toFixed(1), seen: bubbleSeenFromEye(a.id, anchor, camera) }];
+          });
+        },
+        /** F3: simulasi seret lirik (piksel) tanpa mouse — uji batas ±60° / ±35°. */
+        glance: (dx: number, dy: number) => { eye.glanceStart(); eye.glanceBy(dx, dy); eye.glanceEnd(); },
         /** F1: sembunyikan / tampilkan ke-10 agen (screenshot bersih). */
         hideAgents: (on = true) => { hideAgents = on; },
         /** F1 (dasar F3): sembunyikan kepala agen untuk FPV — soket mata tetap di tempatnya. */
@@ -1721,6 +1995,11 @@ export function IsometricOfficeStage({
       document.removeEventListener('visibilitychange', onVisibility);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener('dblclick', onDblClick);
+      window.removeEventListener('pointermove', onGlanceMove);
+      window.removeEventListener('pointerup', onGlanceUp);
+      window.removeEventListener('keydown', onEyeKey);
+      dimEl.remove();
       cam.dispose();
       // Lepaskan memori GPU (geometri, material, tekstur) agar remount/HMR tidak bocor.
       disposeObject(scene);
@@ -1774,6 +2053,21 @@ export function IsometricOfficeStage({
             overflow: 'hidden',
           }}
         />
+        {camMode === 'eye' && eyeHint && (
+          <div
+            className="mono"
+            style={{
+              position: 'absolute', right: 16, top: 12, zIndex: 10,
+              padding: '6px 10px', fontSize: 11,
+              background: 'rgba(15, 26, 31, 0.85)',
+              border: '1px solid var(--color-rule)', borderRadius: 6,
+              color: 'var(--color-ink-2)', pointerEvents: 'none',
+            }}
+          >
+            {t('Mata Agen · seret = lirik · ←/→ ganti agen · Esc keluar', 'Agent Eyes · drag = glance · ←/→ switch agent · Esc exit')}
+          </div>
+        )}
+        {overlay}
         {camMode === 'free' && (
           <div
             className="mono"
@@ -1793,12 +2087,12 @@ export function IsometricOfficeStage({
         )}
       </div>
 
-      {/* Floating Zone Legend */}
+      {/* Floating Zone Legend (disembunyikan di Mata Agen: panel agen memakai pojok ini) */}
       <div
         style={{
           position: 'absolute',
           bottom: 14, left: 16,
-          display: 'flex', gap: 12,
+          display: camMode === 'eye' ? 'none' : 'flex', gap: 12,
           padding: '8px 12px',
           // Tanpa backdrop-filter: blur di atas kanvas WebGL dihitung ulang setiap frame.
           background: 'rgba(15, 26, 31, 0.92)',

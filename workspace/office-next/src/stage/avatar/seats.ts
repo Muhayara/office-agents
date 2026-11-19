@@ -51,8 +51,10 @@ export const SEAT_CALIB: Record<SeatKind, SeatCalib> = {
   exec: seat('exec', 0.473, -0.02, 0.08, 0.4, { fwd: 0.37, y: 0.795 + EXEC_DY }, 0.36),
   board: seat('board', 0.455, 0.02, 0.08, 0.4, { fwd: 0.47, y: 0.775 }, 0.12),
   // Stool (keputusan CEO 19 Nov): kaki kiri menapak lantai, kaki kanan di kaki stool (0,28 m, diagonal depan-kanan).
-  // Kaki stool: permukaan atas 0,28 m pada r 0,28 m di diagonal 45° → sol kanan di (0,198 depan, 0,198 samping), 0,30 m.
-  stool: { kind: 'stool', top: 0.734, hipFwd: 0.0, lean: 0.06, footL: foot(0.24, 0.08), footR: { fwd: 0.148, y: 0.37, lat: 0.198 }, work: { fwd: 0.45, y: 1.075 }, screenPitch: 0.15 },
+  // Stool 0,734 m tanpa cincin pijakan: kaki yang menapak lantai PASTI menembus piringan dudukan (pinggul 0,82 m,
+  // kaki 0,80 m → turun hampir tegak lewat dudukan). Keputusan CEO K15 (revisi 19 Nov, F3): KEDUA telapak bertumpu
+  // di 2 kaki depan stool — permukaan atas 0,28 m pada r 0,28 m di diagonal 45° → sol di (0,198 depan, ±0,198 samping).
+  stool: { kind: 'stool', top: 0.734, hipFwd: 0.0, lean: 0.06, footL: { fwd: 0.148, y: 0.37, lat: 0.198 }, footR: { fwd: 0.148, y: 0.37, lat: 0.198 }, work: { fwd: 0.45, y: 1.075 }, screenPitch: 0.15 },
   sofa: seat('sofa', 0.44, 0.0, -0.2, 0.55, null, 0.05, 0.15),
   commons: seat('commons', 0.45, 0.0, 0.06, 0.42, { fwd: 0.46, y: 0.77 }, 0.22),
   // Kerikil + batu pijakan Garden 2,4 cm di atas lantai.
@@ -104,7 +106,9 @@ export function seatCalibAt(kind: SeatKind, x: number, z: number, spots: Floor1S
     const d = Math.hypot(s.spot.x - x, s.spot.z - z);
     if (d < bd) { bd = d; best = i; }
   });
-  return { ...base, hipFwd: SOFA_HIP_FWD[best] ?? 0 };
+  // Telapak ikut bergeser bersama pinggul (jarak pinggul → telapak tetap), kalau tidak kaki lurus menembus tepi sofa.
+  const hipFwd = SOFA_HIP_FWD[best] ?? 0;
+  return { ...base, hipFwd, footL: { ...base.footL, fwd: base.footL.fwd + hipFwd }, footR: { ...base.footR, fwd: base.footR.fwd + hipFwd } };
 }
 
 /** Daftar 50 dudukan (dunia) untuk matriks uji `seatCheck()`. */

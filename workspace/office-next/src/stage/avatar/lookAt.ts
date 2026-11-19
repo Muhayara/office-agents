@@ -71,6 +71,8 @@ export function chooseLook(f: AgentFrame, idx: number, seat: SeatCalib | null, w
     if (d > radius) continue;
     const talking = o.bubbleT > 0;
     if (!talking && !(selfTalk && d < 2.2 && SOCIAL.has(o.state))) continue;
+    // Orang menatap wajah: pembicara yang membelakangi kita (menghadap TV / layar) tidak dijadikan target.
+    if (d > 0.05 && (Math.sin(o.rotY) * (f.x - o.x) + Math.cos(o.rotY) * (f.z - o.z)) / d < -0.3) continue;
     const score = d - (talking ? 10 : 0);
     if (score < bd) { bd = score; best = o; }
   }

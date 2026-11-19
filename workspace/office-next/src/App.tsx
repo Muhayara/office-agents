@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type AgentStatus, type ClientCommand, type StateSnapshot, parseServerEvent, roleLabel } from '@office/shared';
-import { IsometricOfficeStage, type CameraMode, type StageApi, type StageRoom } from './stage/IsometricOfficeStage';
+import { IsometricOfficeStage, type CameraMode, type EyeInfo, type StageApi, type StageRoom } from './stage/IsometricOfficeStage';
 import { loadGraphicsQuality, saveGraphicsQuality, type GraphicsQuality } from './stage/graphics';
 import { InspectorPanel } from './panels/InspectorPanel';
+import { EyePanel } from './panels/EyePanel';
 import {
   DEMO_BUILD,
   LOGIN_ERRORS,
@@ -84,6 +85,28 @@ const FOCUS_ROOMS: ReadonlyArray<[StageRoom, string, string]> = [
   ['access', 'Digital Access Hub', 'Digital Access Hub'],
 ];
 
+/** F3: pilihan "Goyang kepala" (head-bob Mata Agen) disimpan per peramban. */
+const HEAD_BOB_KEY = 'office.headBob';
+function loadHeadBob(): boolean {
+  try { return window.localStorage.getItem(HEAD_BOB_KEY) !== 'off'; } catch { return true; }
+}
+function saveHeadBob(on: boolean) {
+  try { window.localStorage.setItem(HEAD_BOB_KEY, on ? 'on' : 'off'); } catch { /* mode privat: berlaku sesi ini saja */ }
+}
+/** `prefers-reduced-motion: reduce` (head-bob mati otomatis). */
+function useReducedMotion(): boolean {
+  const query = '(prefers-reduced-motion: reduce)';
+  const [reduced, setReduced] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches);
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const q = window.matchMedia(query);
+    const onChange = () => setReduced(q.matches);
+    q.addEventListener('change', onChange);
+    return () => q.removeEventListener('change', onChange);
+  }, []);
+  return reduced;
+}
+
 /** Info agen untuk simulasi lokal (nama & jabatan di layar rapat / Workshop). */
 const LOCAL_AGENTS = FALLBACK_SNAPSHOT.agents.map((a) => ({ id: a.id, name: a.name, title: a.title ?? roleLabel(a.role, 'id') }));
 
@@ -113,6 +136,28 @@ export function App() {
   }, []);
   const [loadError, setLoadError] = useState<string | null>(null);
   const role: SessionRole | null = session?.role ?? null;
+  // ---- F3: Mata Agen ----
+  const [eyeInfo, setEyeInfo] = useState<EyeInfo | null>(null);
+  const eyeInfoRef = useRef<EyeInfo | null>(null);
+  const [headBob, setHeadBob] = useState<boolean>(() => loadHeadBob());
+  const reducedMotion = useReducedMotion();
+  const agentName = useCallback((id: string) => snapshot.agents.find((a) => a.id === id)?.name ?? id, [snapshot.agents]);
+  const handleEyeInfo = useCallback((info: EyeInfo | null, reason?: 'exit' | 'away') => {
+    const prev = eyeInfoRef.current;
+    eyeInfoRef.current = info;
+    setEyeInfo(info);
+    if (!info && reason === 'away' && prev) setNotice(`${agentName(prev.agentId)} sudah pulang.`);
+  }, [agentName]);
+  const enterEye = useCallback((id: string) => {
+    const ok = stageApiRef.current?.enterEye(id) ?? false;
+    if (!ok) setNotice(`${agentName(id)} sedang tidak di kantor.`);
+  }, [agentName]);
+  const toggleHeadBob = useCallback(() => {
+    setHeadBob((v) => {
+      saveHeadBob(!v);
+      return !v;
+    });
+  }, []);
 
   const checkSession = useCallback(async () => {
     if (DEMO_BUILD) return;
@@ -317,18 +362,42 @@ export function App() {
               <option key={room} value={room}>{t(id, en)}</option>
             ))}
           </select>
+          <select
+            aria-label={t('Lihat kantor dari mata seorang agen', "See the office through an agent's eyes")}
+            title={t('Mata Agen: kamera orang pertama dari mata agen (←/→ ganti, Esc keluar)', 'Agent Eyes: first-person camera (←/→ switch, Esc exit)')}
+            value={eyeInfo?.agentId ?? ''}
+            onChange={(e) => {
+              const id = e.target.value;
+              e.currentTarget.blur();
+              if (id) enterEye(id);
+              else stageApiRef.current?.exitEye();
+            }}
+            style={{
+              ...hudButton,
+              background: 'var(--color-paper)',
+              color: eyeInfo ? 'var(--color-focus)' : 'inherit',
+              border: `1px solid ${eyeInfo ? 'var(--color-focus)' : 'var(--color-rule)'}`,
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            <option value="">{eyeInfo ? t('Keluar dari Mata Agen', 'Leave Agent Eyes') : t('Mata Agen: pilih…', 'Agent Eyes: pick…')}</option>
+            {agentsView.map((a) => (
+              <option key={a.id} value={a.id}>{t('Mata ', 'Eyes: ')}{a.name}</option>
+            ))}
+          </select>
           <button
             type="button"
             onClick={() => stageApiRef.current?.toggleCamera()}
-            aria-pressed={camMode === 'free'}
-            title={t('Ganti kamera isometrik ↔ Free Cam 3D', 'Toggle isometric ↔ Free Cam 3D')}
+            aria-pressed={camMode !== 'iso'}
+            title={camMode === 'eye' ? t('Keluar dari Mata Agen', 'Leave Agent Eyes') : t('Ganti kamera isometrik ↔ Free Cam 3D', 'Toggle isometric ↔ Free Cam 3D')}
             style={{
               ...hudButton,
-              borderColor: camMode === 'free' ? 'var(--color-focus)' : undefined,
-              color: camMode === 'free' ? 'var(--color-focus)' : undefined,
+              borderColor: camMode !== 'iso' ? 'var(--color-focus)' : undefined,
+              color: camMode !== 'iso' ? 'var(--color-focus)' : undefined,
             }}
           >
-            {camMode === 'free' ? t('Kamera: Free Cam 3D', 'Camera: Free Cam 3D') : t('Kamera: Isometrik', 'Camera: Isometric')}
+            {camMode === 'eye' ? t('Kamera: Mata Agen', 'Camera: Agent Eyes') : camMode === 'free' ? t('Kamera: Free Cam 3D', 'Camera: Free Cam 3D') : t('Kamera: Isometrik', 'Camera: Isometric')}
           </button>
           <button
             type="button"
@@ -399,6 +468,22 @@ export function App() {
           onCamModeChange={setCamMode}
           onLoadErrorChange={setLoadError}
           quality={graphics}
+          onEyeInfo={handleEyeInfo}
+          headBob={headBob}
+          overlay={eyeInfo ? (
+            <EyePanel
+              info={eyeInfo}
+              agent={agentsView.find((a) => a.id === eyeInfo.agentId)}
+              tasks={snapshot.tasks}
+              showTask={!publicView}
+              language={lang}
+              headBob={headBob}
+              reducedMotion={reducedMotion}
+              onToggleBob={toggleHeadBob}
+              onCycle={(dir) => stageApiRef.current?.cycleEye(dir)}
+              onExit={() => stageApiRef.current?.exitEye()}
+            />
+          ) : null}
         />
 
         <InspectorPanel
@@ -415,6 +500,7 @@ export function App() {
           viewOnly={viewOnly}
           onSelectAgent={setSelectedAgentId}
           onRespondApproval={(id, approved) => sendCommand({ type: 'approval.respond', id, approved })}
+          onEye={enterEye}
         />
       </main>
 

@@ -388,7 +388,7 @@ Aturan:
 - Klien: panggung membaca keadaan dunia lalu menghitung posisi dari `path` + `startAt`. Demo statis menjalankan `WorldDirector` lokal.
 - **Selesai bila:** dua peramban yang dibuka bersamaan menampilkan posisi agen yang sama (selisih < 10 cm, diuji otomatis dengan `worldState()` di dua tab Playwright); peramban yang dibuka di tengah rapat langsung melihat rapat itu; demo statis tetap berjalan; tes `packages/world` (determinisme seed, antrean kopi, door mutex, rapat) lulus.
 
-### F3 — Mata Agen (Spectator, tanpa login)
+### F3 — Mata Agen (Spectator, tanpa login) ✅ (§10.6)
 - `camera/eyeCam.ts`: mode `eye`, `EyeSource`, peredaman, head-bob, transisi masuk/keluar, lirik.
 - HUD: dropdown **"Mata Agen: pilih…"** di samping dropdown Fokus; panel kecil di kiri bawah berisi nama · peran · status · ruangan · tugas (sesuai hak peran, §3.7) · baris bicara terakhir; tombol **Keluar (Esc)**; ←/→ untuk ganti agen.
 - Agen yang diikuti pergi (`away`): kamera otomatis keluar ke isometrik + toast "Raka sudah pulang".
@@ -497,7 +497,7 @@ Langkah yang sudah pasti:
 | **K12** | Dunia real-time boleh **ditonton publik tanpa login** (`/ws/world` baca-saja, terfilter K9, dibatasi per IP). |
 | **K13** | Token viewer tetap **membaca state penuh** (setara karyawan untuk data, tidak bisa memerintah). |
 | **K7 (final)** | (18 Nov, dari screenshot F0) Seragam agen = **varian 2 Navy Tech** (`AGENT_UNIFORM` di `avatar/looks.ts`). Sementara dipasang di avatar v1; Rig v2 memakainya di F1. |
-| **K15** | (19 Nov, F1) Tampilan per agen = **usulan F0** (`avatar/agentLooks.ts`). Stool bar tanpa cincin pijakan: **kaki kiri menapak lantai, kaki kanan menapak kaki stool** (bukan menambah cincin ke aset). |
+| **K15** | (19 Nov, F1) Tampilan per agen = **usulan F0** (`avatar/agentLooks.ts`). Stool bar tanpa cincin pijakan: ~~kaki kiri menapak lantai, kaki kanan menapak kaki stool~~ → **revisi 19 Nov (F3, laporan CEO: kaki di lantai tembus dudukan): kedua telapak menapak 2 kaki depan stool** (bukan menambah cincin ke aset). |
 | **K14** | ⏸ **Ditunda CEO 18 Nov** sampai HP cadangan (di-root) dijadikan server; login Google juga ditunda bersama hosting. Kode Funnel sudah siap dan diuji lokal. Rencana awal: Hosting publik = **Tailscale Funnel** (gratis, tanpa domain, URL `.ts.net` tetap, tanpa codebase baru). PC harus menyala. Langkah di `deployment-and-hosting-guide.md` Opsi 3B, skrip `start-public.bat`. |
 
 ### 8.2 Masih terbuka
@@ -637,7 +637,7 @@ Skema `AvatarConfigSchema` + `parseAvatarConfig` ada di `@office/shared` (`packa
 1. **Kalibrasi tanpa mengubah dunia/kabel.** Jenis dudukan diturunkan di renderer dari state + ruangan (`seatKindFor`); dunia tetap mengirim `k` (bobot duduk). `sitY` v1 di `@office/world` tidak dipakai Rig v2, jadi server, protokol `/ws/world`, dan tes dunia tidak berubah. (`?rig=v1` tetap memakai `y` dari dunia.)
 2. **Tinggi dudukan nyata (raycast ke GLB):** 41 dari 50 = 0,450 m; Raka 0,473; rapat 0,455; stool 0,734; sofa 0,440. `sitY` v1 meleset sampai 10 cm (focus/pods/garden 0,35, sofa 0,34, stool 0,65).
 3. **Titik sofa Lounge tidak di tengah bantalan:** kursi 0 jatuh di lereng sandaran (permukaan 0,55 m di titiknya) → pinggul +0,10 m; kursi 2 di dekat tepi depan bantalan dalam → −0,10 m.
-4. **Stool tanpa cincin pijakan** (hanya 4 kaki miring; permukaan atas 0,28 m pada jari-jari 0,28 m di diagonal 45°). **Keputusan CEO K15:** kaki kiri menapak lantai, kaki kanan menapak kaki stool.
+4. **Stool tanpa cincin pijakan** (hanya 4 kaki miring; permukaan atas 0,28 m pada jari-jari 0,28 m di diagonal 45°). **Keputusan CEO K15:** kaki kiri menapak lantai, kaki kanan menapak kaki stool. *Direvisi di F3 (§10.6): kaki di lantai pasti menembus dudukan → kedua telapak di kaki stool.*
 5. **Kerikil/batu pijakan Garden 2,4 cm** di atas lantai → target pergelangan kaki 0,094 m.
 6. **Duduk di meja instan di dunia** (`k` 0 → 1 dalam satu tick) → renderer menghaluskan `k` (naik 2,8/dtk, turun 4/dtk) tanpa mengubah simulasi.
 7. **"Titik 1,5 m di depan lajur" diganti**: kepala langsung menatap arah hadap dunia, sedangkan badan berbelok maksimum 7 rad/dtk. Hasilnya kepala selalu mendahului badan di tikungan tanpa perlu mengirim jalur lewat kabel.
@@ -654,7 +654,7 @@ Skema `AvatarConfigSchema` + `parseAvatarConfig` ada di `@office/shared` (`packa
 | Kursi kerja | 9 | 0,450 | 1,24 | 0,18 | lantai, 0,42 m ke depan |
 | Kursi eksekutif Raka | 1 | 0,473 | 1,26 | 0,17 | lantai |
 | Kursi rapat | 10 | 0,455 | 1,25 | 0,17 | lantai |
-| Stool bar | 4 | 0,734 | 1,53 | 0,13 | kiri lantai, kanan kaki stool (celah 1,8 cm) |
+| Stool bar | 4 | 0,734 | 1,53 | 0,24 | kedua telapak di kaki stool (celah 1,8 cm; revisi F3) |
 | Sofa Lounge | 3 | 0,440 | 1,25 | — | lantai, bersandar −0,2 rad |
 | Commons | 6 | 0,450 | 1,24 | 0,17 | lantai |
 | Bangku Garden | 3 | 0,450 | 1,24 | — | kerikil (0,024) |
@@ -671,3 +671,43 @@ Skema `AvatarConfigSchema` + `parseAvatarConfig` ada di `@office/shared` (`packa
 **Hook dev baru:** `rig()`, `seatCheck(show?, kinds?)`, `probe(x, z)`, `screenOf(id)`, `eyeOf(id)`, `firstPerson(id, on)`, `hideAgents(on)`; `seatTop()` tetap.
 
 **Untuk F3 (Mata Agen):** kamera memakai `V2Avatar.rig.eye` (sudah termasuk tolehan kepala) dan `rig.setFirstPerson(true)`; fase langkah ada di `V2Avatar` (`walkPhase`) untuk head-bob.
+
+### 10.6 F3 — Mata Agen (19 November 2026)
+
+**Kode:**
+
+| Modul | Isi |
+| :--- | :--- |
+| `src/stage/camera/eyeCam.ts` | `EyeCam` + kontrak `EyeSource` (§3.1, ditambah `seated()` & `anchor()`): fase redup 0,2 dtk → luncur 0,8 dtk dari ±2,5 m belakang-atas kepala → ikut mata → luncur keluar → redup. Offset mata terhadap akar avatar diredam τ 0,08 dtk (duduk) / 0,12 dtk (berjalan), rotasi τ 0,15 dtk dengan laju putar ≤ 12 rad/dtk dan tanpa roll; lirik ±60° / ±35° kembali 1,5 dtk setelah dilepas; head-bob ±2 cm (2× frekuensi langkah) & ±1 cm ke samping; `isMoving()` untuk kebijakan FPS; `maxYawStepDeg` untuk kriteria F3 |
+| `camera/cameraRig.ts` | Mode `eye` (FOV 70°, near 0,05, far 60 m; lensa Free Cam 50°/250 m dipulihkan saat keluar); OrbitControls & WASD mati |
+| `camera/wallFade.ts` | `occluders()`: mesh dinding buram (kaca & panel transparan dikecualikan) untuk garis pandang bubble & titik awal luncur |
+| `avatar/agentAvatar.ts`, `avatar/rigV1.ts` | `eyeSource()`: v2 = soket mata 1,58 m (termasuk tolehan kepala) dengan ayunan pinggul langkah dikurangi, `setFirstPerson` juga menyembunyikan beacon; v1 = perkiraan di depan kepala |
+| `IsometricOfficeStage.tsx` | `enterEye` / `exitEye` / `cycleEye` (StageApi), klik ganda agen, ←/→ / Esc, seret = lirik, lapisan redup, beacon ≤ 3,5 m disembunyikan, bubble ≤ 12 m + garis pandang, subtitle agen yang diikuti, agen pulang → keluar + toast, `fitSunToView` dipotong 14 m, kebijakan FPS, legend disembunyikan, petunjuk kontrol 6 dtk |
+| `panels/EyePanel.tsx`, `App.tsx`, `panels/InspectorPanel.tsx` | Dropdown **"Mata Agen: pilih…"** di samping Fokus, panel kiri bawah (nama · jabatan · status · ruangan · tugas sesuai hak peran · baris bicara terakhir, ←/→, "Goyang kepala", Keluar (Esc)), subtitle, tombol **"Lihat dari mata"** di Inspector, label kamera "Kamera: Mata Agen" |
+| `camera/eyeCam.test.ts` | 8 tes Vitest tanpa WebGL (lihat Verifikasi) |
+
+**Koreksi terhadap §3.1 / §3.5 (dari uji screenshot & tes):**
+1. **Peredaman posisi dunia membuat kamera tertinggal.** τ 0,12 dtk pada agen yang berjalan 2,2 m/dtk = lag ±26 cm: kamera berada di belakang kepala dan melihat leher agen itu sendiri (oktagon krem di bawah layar, ketahuan dari screenshot). Yang diredam kini **offset mata terhadap akar avatar** (akar bergerak mulus di lajur), jadi tanpa lag translasi; tes regresi memastikan jarak kamera–mata < 3 cm saat berjalan.
+2. **Head-bob ditambahkan setelah peredaman**; kalau tidak, τ 0,12 dtk memangkas amplitudonya ±60 %.
+3. **Ayunan pinggul langkah Rig v2** (pinggul turun saat kedua kaki terbuka) dikurangi dari posisi mata saat berjalan; head-bob ±2 cm yang lembut menggantikannya dan bisa dimatikan.
+4. **Laju putar kamera dibatasi 12 rad/dtk.** Slerp τ 0,15 dtk saja memberi lompatan 36°/frame pada 30 FPS saat arah agen berbalik 180° seketika (mis. duduk di meja); dengan batas ini maks 22,9°/frame (kriteria ≤ 25°).
+5. **Roll dibuang** (tulang kepala mewarisi putaran pinggang saat berjalan) — anti mabuk gerak.
+6. **Tolehan ke pembicara yang membelakangi dihapus.** Di rapat, host menghadap TV 0,7 m di sebelah: kamera menatap bagian belakang kepalanya memenuhi layar. Orang menatap wajah, jadi pembicara yang membelakangi tidak dijadikan target; mata ikut ke TV (berlaku juga di Rig v2 tanpa mode mata).
+7. **Beacon status melayang setinggi mata agen yang duduk** → di mode mata, beacon ≤ 3,5 m dan milik agen yang diikuti disembunyikan.
+8. **Titik awal luncur** (2,5 m belakang-atas kepala) dipendekkan bila terhalang dinding buram, supaya transisi tidak menatap dinding.
+9. **Keluar** kembali ke kamera sebelumnya: isometrik difokuskan ke agen, atau Free Cam di titik belakang-atas.
+10. **Garis pandang bubble** memakai dinding WallFader (peta tabrakan §3.4 baru ada di F6); kaca tetap tembus pandang. Cache 0,25 dtk per agen.
+11. Petunjuk kontrol di kanan atas hilang setelah 6 dtk (menutupi bubble di atas layar).
+
+**Perbaikan bug stool (laporan CEO 19 Nov, K15 direvisi):** kaki yang menapak lantai pasti menembus piringan dudukan (pinggul 0,82 m, kaki 0,80 m → kaki turun hampir tegak lewat dudukan; duduk di tepi membuat perut menabrak meja bar 0,35 m di depan). CEO memilih **kedua telapak di 2 kaki depan stool**. `seatCheck()` kini juga memeriksa **sumbu paha & betis terhadap perabot** (raycast pinggul → lutut → 4 cm sebelum pergelangan) dan menemukan satu kasus lain: **sofa kursi 2** (pinggul digeser −0,10 m tetapi telapak tidak, kaki lurus menembus tepi sofa) → telapak kini ikut bergeser. Matriks 50 dudukan: 50/50 lolos, termasuk cek tembus kaki.
+
+**Verifikasi:**
+- `npm test`: Vitest office-next **17** (avatar 9 + mata 8): transisi masuk/keluar & ganti agen tanpa keluar ke isometrik, putar 180° seketika ≤ 25°/frame & tanpa roll, lirik ±60°/±35° lalu kembali, head-bob ±2 cm dan mati bila dimatikan, kebijakan FPS (duduk diam / berjalan), tanpa lag saat berjalan, dan **integrasi `WorldSim` + 10 Rig v2 + EyeCam pada 30 FPS**: Bima dari meja ke Boardroom (rapat) ≤ 25°/frame.
+- Playwright headless (dev): 0 error konsol; **10/10 agen** masuk lewat hook & kamera ≤ 5 cm dari mata, keluar kembali ke isometrik; perjalanan nyata ke rapat **1.737 frame, lompatan yaw terbesar 11,4°**; lensa 70° / 0,05 / 60 m; Hemat **30 FPS saat duduk, 60 saat berjalan**; lirik 60°/35° → kembali ±0,2° setelah 2,9 dtk; dropdown HUD, `→` / Esc, klik ganda, tombol Inspector; agen yang diikuti pulang → toast **"Raka sudah pulang."** dan kamera kembali ke isometrik; garis pandang: Satria di ruang Server **4,9 m** dari Gita (bangku Garden) tersembunyi di balik dinding, Wulan 2,8 m di bangku sebelah tampil, semua > 12 m tersembunyi; `?rig=v1` jalan.
+- `npm run build:next:demo` + `vite preview` (tanpa hook dev, murni lewat UI): masuk dari dropdown, panel berisi baris bicara terakhir, Esc kembali ke isometrik; emulasi `prefers-reduced-motion` → "Goyang kepala: Mati" dan tombolnya terkunci.
+- Performa (Hemat, SwiftShader 1280 × 800): mata Gita di Garden 42 calls / 10 k tris / 2,6 ms vs Free Cam di titik & arah yang sama 31 / 5 k / 2,3 ms (selisih = badan & tangan agen sendiri di bawah pandangan); mata Bima di meja menghadap selatan 549 calls / 401 k / 7,2 ms — pandangan menembus pintu & dinding kaca sampai Jalan Utama dan ruangan selatan (tidak ada occlusion culling); masih di bawah titik terburuk 650 calls (§10.1).
+- Screenshot `docs/img/f3/`: `f3-eye-desk` (menatap monitor), `f3-eye-walking`, `f3-eye-meeting`, `f3-eye-garden`, `f3-demo-build`; stool `docs/img/f1/f1-close-stool.png` (diperbarui).
+
+**Hook dev baru:** `eye(id | null)`, `eyeState()`, `eyeSight()`, `glance(dx, dy)`.
+
+**Belum diuji:** turun ke 45 FPS bila `frameMs` > 20 ms selama 3 dtk (terpasang, tetapi SwiftShader tidak pernah selama itu > 20 ms di mode mata) dan kenyamanan nyata di Intel UHD — perlu dicoba CEO di peramban biasa.

@@ -45,6 +45,31 @@ interface WallEntry {
 
 export class WallFader {
   private walls = new Map<string, WallEntry>();
+  /** Mesh dinding buram (bukan kaca) untuk garis pandang bubble F3; null = hitung ulang. */
+  private occluderCache: THREE.Mesh[] | null = null;
+
+  /**
+   * F3: mesh dinding yang buram pada material aslinya (kaca & panel transparan dikecualikan).
+   * Dipakai untuk menyembunyikan bubble di balik dinding saat kamera Mata Agen.
+   */
+  occluders(): THREE.Mesh[] {
+    if (this.occluderCache) return this.occluderCache;
+    const out: THREE.Mesh[] = [];
+    for (const w of this.walls.values()) {
+      const clear = new Set(w.mats.filter((f) => f.baseTransparent && f.baseOpacity < 0.9).map((f) => f.mat));
+      for (const root of w.roots) {
+        root.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh || m.userData.fadeHide) return;
+          const mats = Array.isArray(m.material) ? m.material : [m.material];
+          if (mats.every((mm) => clear.has(mm))) return;
+          out.push(m);
+        });
+      }
+    }
+    this.occluderCache = out;
+    return out;
+  }
   private tmp = new THREE.Vector3();
   private dir = new THREE.Vector3();
   private zones: WalkZone[] = [];
@@ -82,6 +107,7 @@ export class WallFader {
     };
     this.collect(entry);
     this.walls.set(id, entry);
+    this.occluderCache = null;
   }
 
   /** Kumpulkan ulang material (dipanggil setelah placeholder diganti GLB). */
@@ -91,6 +117,7 @@ export class WallFader {
       this.restore(entry);
       this.collect(entry);
     }
+    this.occluderCache = null;
   }
 
   update(camera: THREE.Camera, dt: number) {

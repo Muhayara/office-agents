@@ -3,6 +3,7 @@ import type { AgentFrame } from '@office/world';
 import { CLOTH_PALETTE } from './config';
 import { AGENT_UNIFORM } from './config';
 import type { AgentAvatar, AvatarStepCtx } from './agentAvatar';
+import type { EyeSource } from '../camera/eyeCam';
 
 /**
  * Avatar v1 (chibi 0,69 m, sebelum F1) — hanya lewat flag `?rig=v1` untuk membandingkan versi lama
@@ -107,6 +108,7 @@ export class V1Avatar implements AgentAvatar {
   apply(f: AgentFrame, ctx: AvatarStepCtx) {
     const g = this.group, t = ctx.t, off = this.off;
     g.visible = f.vis;
+    this.k = ctx.seat ? f.k : 0;
     g.position.set(f.x, f.y, f.z);
     g.rotation.y = f.rotY;
     this.cup.visible = f.cup;
@@ -182,6 +184,23 @@ export class V1Avatar implements AgentAvatar {
       }
     }
   }
+
+  /** v1 (chibi 0,69 m): mata diperkirakan di depan kepala; kepala disembunyikan di FPV. */
+  eyeSource(): EyeSource {
+    const head = this.group.children[1]!, hair = this.group.children[2]!;
+    return {
+      eye: (p, q) => {
+        this.group.updateWorldMatrix(true, false);
+        p.set(0, 0.6, 0.11).applyMatrix4(this.group.matrixWorld);
+        this.group.getWorldQuaternion(q);
+      },
+      gait: () => null,
+      setFirstPerson: (on) => { head.visible = !on; hair.visible = !on; this.beacon.visible = !on; },
+      seated: () => this.k > 0.5,
+      anchor: (out) => out.copy(this.group.position).setY(0),
+    };
+  }
+  private k = 0;
 
   bubbleAnchor(out: THREE.Vector3) {
     out.setFromMatrixPosition(this.group.matrixWorld);
